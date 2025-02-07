@@ -15,6 +15,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [calculationMode, setCalculationMode] = useState('manual'); // 'manual' or 'auto'
+  const [ingredients, setIngredients] = useState([]);
 
   // Auto-calculate macros based on calories
   useEffect(() => {
@@ -98,8 +99,35 @@ export default function Home() {
       setLoading(false);
     }
   };
-  
 
+  const handleAcceptMealPlan = async () => {
+    if (!mealPlan.trim()) {
+      setError("No meal plan available to extract ingredients.");
+      return;
+    }
+  
+    try {
+      setError("");
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/extract_ingredients/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meal_plan: mealPlan }),
+      });
+  
+      const data = await response.json();
+  
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to extract ingredients.");
+      }
+  
+      setIngredients(data.ingredients);
+    } catch (error) {
+      console.error("Error:", error);
+      setError(error.message);
+    }
+  };
+  
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
       <h1>Citigrove AI Planner</h1>
@@ -290,70 +318,102 @@ export default function Home() {
         Generate Meal Plan
       </button>
 
-      {/* Display Meal Plan */}
+
+      {/* Display Meal Plan and Accept Button */}
       {mealPlan && (
-        <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
-          <ReactMarkdown
-            components={{
-              h2: ({ node, ...props }) => (
-                <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
-              ),
-              h3: ({ node, ...props }) => (
-                <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
-              ),          
-              h4: ({ node, ...props }) => (
-                <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
-              ),
-              p: ({ node, ...props }) => (
-                <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
-              ),
-              ul: ({ node, ...props }) => (
-                <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
-              ),
-              li: ({ node, ...props }) => (
-                <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
-              ),
-              strong: ({ node, children, ...props }) => {
-                const text = String(children);
-                if (
-                  text.includes('BREAKFAST:') || 
-                  text.includes('LUNCH:') || 
-                  text.includes('DINNER:') || 
-                  text.includes('SNACK:')
-                ) {
-                  return (
-                    <strong style={{ 
-                      fontSize: '18px', 
-                      fontWeight: 'bold', 
-                      display: 'block', 
-                      marginTop: '24px', 
-                      marginBottom: '16px' 
-                    }} {...props}>
-                      {children}
-                    </strong>
-                  );
-                } else if (
-                  text.includes('Nutrition:') || 
-                  text.includes('Ingredients:') || 
-                  text.includes('Instructions:')
-                ) {
-                  return (
-                    <strong style={{ 
-                      fontSize: '18px', 
-                      fontWeight: 'bold', 
-                      display: 'block', 
-                      marginTop: '16px' 
-                    }} {...props}>
-                      {children}
-                    </strong>
-                  );
+        <div>
+          <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
+            <ReactMarkdown
+              components={{
+                h2: ({ node, ...props }) => (
+                  <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
+                ),
+                h3: ({ node, ...props }) => (
+                  <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
+                ),          
+                h4: ({ node, ...props }) => (
+                  <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
+                ),
+                p: ({ node, ...props }) => (
+                  <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
+                ),
+                ul: ({ node, ...props }) => (
+                  <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
+                ),
+                li: ({ node, ...props }) => (
+                  <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
+                ),
+                strong: ({ node, children, ...props }) => {
+                  const text = String(children);
+                  if (
+                    text.includes('BREAKFAST:') || 
+                    text.includes('LUNCH:') || 
+                    text.includes('DINNER:') || 
+                    text.includes('SNACK:')
+                  ) {
+                    return (
+                      <strong style={{ 
+                        fontSize: '18px', 
+                        fontWeight: 'bold', 
+                        display: 'block', 
+                        marginTop: '24px', 
+                        marginBottom: '16px' 
+                      }} {...props}>
+                        {children}
+                      </strong>
+                    );
+                  } else if (
+                    text.includes('Nutrition:') || 
+                    text.includes('Ingredients:') || 
+                    text.includes('Instructions:')
+                  ) {
+                    return (
+                      <strong style={{ 
+                        fontSize: '18px', 
+                        fontWeight: 'bold', 
+                        display: 'block', 
+                        marginTop: '16px' 
+                      }} {...props}>
+                        {children}
+                      </strong>
+                    );
+                  }
+                  return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
                 }
-                return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
-              }
+              }}
+            >
+              {mealPlan}
+            </ReactMarkdown>
+          </div>
+
+          {/* Accept Meal Plan Button */}
+          <button
+            onClick={handleAcceptMealPlan}
+            disabled={loading}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#28A745',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              marginTop: '15px',
             }}
           >
-            {mealPlan}
-          </ReactMarkdown>
+            Accept Meal Plan
+          </button>
+
+          {/* Display Extracted Ingredients */}
+          {ingredients.length > 0 && (
+            <div style={{ marginTop: '20px', backgroundColor: '#f9f9f9', padding: '15px' }}>
+              <h3>Shopping List</h3>
+              <ul style={{ textAlign: 'left', marginLeft: '20px' }}>
+                {ingredients.map((ingredient, index) => (
+                  <li key={index}>{ingredient}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
