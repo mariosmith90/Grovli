@@ -1,0 +1,47 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: ./backend
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - USDA_API_KEY=${USDA_API_KEY}
+      - PYTHONPATH=/app
+    depends_on:
+      - db
+    networks:
+      - mealplan-network
+      
+  frontend:
+    build: ./frontend/mealplan-nextjs
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    networks:
+      - mealplan-network
+    depends_on:
+      - backend
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=mealplan
+      - POSTGRES_USER=mealuser
+      - POSTGRES_PASSWORD=mealpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mealplan-network
+
+networks:
+  mealplan-network:
+
+volumes:
+  postgres_data:
