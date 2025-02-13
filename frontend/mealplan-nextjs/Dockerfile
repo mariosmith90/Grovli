@@ -1,6 +1,10 @@
 # Frontend Dockerfile
 FROM node:18-alpine
 
+# Set environment variables at build time
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Set the working directory
 WORKDIR /app
 
@@ -9,7 +13,7 @@ COPY package.json /app/
 
 # Install dependencies
 RUN npm install
-
+ 
 # Copy the rest of the application code
 COPY . /app
 
