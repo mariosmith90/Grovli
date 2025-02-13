@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from routers.utils.utils import extract_ingredients_from_meal_plan 
+from routers.utils.extract import extract_ingredients_from_meal_plan
+from routers.utils.grocery import create_shopping_list, update_shopping_list
 import openai
 import os
 import requests
 import re
-from typing import List, Set
+from typing import List, Optional, Set
 
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
 
@@ -25,6 +26,47 @@ async def extract_ingredients(meal_plan_request: MealPlanText):
 
     ingredients = extract_ingredients_from_meal_plan(meal_plan_request.meal_plan)
     return {"ingredients": ingredients}
+
+class ShoppingListRequest(BaseModel):
+    meal_plan: str
+    list_name: Optional[str] = "Weekly Meal Plan"
+    list_id: Optional[str] = None
+
+
+@router.post("/create_shopping_list/")
+async def create_shopping_list_endpoint(request: ShoppingListRequest):
+    """
+    Create or update a shopping list on Instacart from the meal plan ingredients.
+    Returns both the shopping list details and the Instacart URL.
+    """
+    if not request.meal_plan.strip():
+        raise HTTPException(status_code=400, detail="Meal plan cannot be empty")
+    
+    try:
+        # Extract ingredients using existing function
+        ingredients = extract_ingredients_from_meal_plan(request.meal_plan)
+        
+        if request.list_id:
+            # Update existing shopping list
+            result = await update_shopping_list(request.list_id, ingredients)
+            return {
+                "status": "success",
+                "message": "Shopping list updated",
+                "shopping_list": result.dict(),
+                # "redirect_url": result.url  # URL to the Instacart shopping list
+            }
+        else:
+            # Create new shopping list
+            result = await create_shopping_list(ingredients, request.list_name)
+            return {
+                "status": "success",
+                "message": "Shopping list created",
+                "shopping_list": result.dict(),
+                # "redirect_url": result.url  # URL to the Instacart shopping list
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # In-memory storage for tracking recipes within a session
 class SessionRecipes:
@@ -211,17 +253,43 @@ async def generate_meal_plan(request: MealPlanRequest):
                     detail=f"Unable to generate unique recipes for day {day} after {max_retries} attempts"
                 )
 
-        return {
-            "meal_plan": "\n\n".join(full_meal_plan),
-            "adjusted_macros": {
-                "calories": request.calories,
-                "carbs": request.carbs,
-                "protein": request.protein,
-                "fat": request.fat,
-                "fiber": request.fiber,
-                "sugar": request.sugar,
-            },
-        }
+        try:
+            # Creating shopping list from already extracted ingredients
+            shopping_list = await create_shopping_list(
+                ingredients,  # We already have this from the meal plan generation
+                f"Meal Plan - {request.dietary_preferences}"
+            )
+            
+            return {
+                "meal_plan": "\n\n".join(full_meal_plan),
+                "adjusted_macros": {
+                    "calories": request.calories,
+                    "carbs": request.carbs,
+                    "protein": request.protein,
+                    "fat": request.fat,
+                    "fiber": request.fiber,
+                    "sugar": request.sugar,
+                },
+                "shopping_list": {
+                    "url": shopping_list.url,
+                    "items": shopping_list.items
+                },               
+                # "redirect_url": shopping_list.url
+            }
+        except Exception as e:
+            print(f"Warning: Failed to create shopping list: {str(e)}")
+            # Return without shopping list if creation fails
+            return {
+                "meal_plan": "\n\n".join(full_meal_plan),
+                "adjusted_macros": {
+                    "calories": request.calories,
+                    "carbs": request.carbs,
+                    "protein": request.protein,
+                    "fat": request.fat,
+                    "fiber": request.fiber,
+                    "sugar": request.sugar,
+                }
+            }
 
     except openai.OpenAIError as e:
         raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")

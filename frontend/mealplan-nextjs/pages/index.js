@@ -15,7 +15,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [calculationMode, setCalculationMode] = useState('manual'); // 'manual' or 'auto'
-  const [ingredients, setIngredients] = useState([]);
+  const [ingredients, setIngredients] = useState([]);  
+  const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
 
   // Auto-calculate macros based on calories
   useEffect(() => {
@@ -102,30 +103,49 @@ export default function Home() {
 
   const handleAcceptMealPlan = async () => {
     if (!mealPlan.trim()) {
-      setError("No meal plan available to extract ingredients.");
-      return;
+        setError("No meal plan available to extract ingredients.");
+        return;
     }
-  
+
     try {
-      setError("");
-      
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/extract_ingredients/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ meal_plan: mealPlan }),
-      });
-  
-      const data = await response.json();
-  
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to extract ingredients.");
-      }
-  
-      setIngredients(data.ingredients);
+        setError("");
+        setAcceptingMealPlan(true);
+        
+        console.log("📢 Sending request to create shopping list...");
+        
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/create_shopping_list/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                meal_plan: mealPlan,
+                list_name: `Meal Plan - ${preferences}`
+            }),
+        });
+
+        const data = await response.json();
+        console.log("Full API Response:", data);
+
+        if (!response.ok) {
+            throw new Error(data.detail || "Failed to create shopping list.");
+        }
+
+        const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
+        setIngredients(cleanedIngredients);
+        
+        const urlToOpen = data.redirect_url || data.shopping_list?.url;
+        if (urlToOpen) {
+            console.log("✅ Redirecting to:", urlToOpen);
+            window.open(urlToOpen, "_blank", "noopener,noreferrer");
+        } else {
+            console.error("No URL found in API response.");
+            throw new Error("No URL found in API response.");
+        }
     } catch (error) {
-      console.error("Error:", error);
-      setError(error.message);
-    }
+        console.error("Error:", error);
+        setError(error.message);
+    } finally {
+        setAcceptingMealPlan(false);
+    }    
   };
   
   return (
@@ -389,10 +409,10 @@ export default function Home() {
           {/* Accept Meal Plan Button */}
           <button
             onClick={handleAcceptMealPlan}
-            disabled={loading}
+            disabled={loading || acceptingMealPlan}
             style={{
               padding: '10px 20px',
-              backgroundColor: '#28A745',
+              backgroundColor: acceptingMealPlan ? "#6c757d" : "#28A745",
               color: '#fff',
               border: 'none',
               borderRadius: '5px',
@@ -400,20 +420,8 @@ export default function Home() {
               marginTop: '15px',
             }}
           >
-            Accept Meal Plan
+            {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
           </button>
-
-          {/* Display Extracted Ingredients */}
-          {ingredients.length > 0 && (
-            <div style={{ marginTop: '20px', backgroundColor: '#f9f9f9', padding: '15px' }}>
-              <h3>Shopping List</h3>
-              <ul style={{ textAlign: 'left', marginLeft: '20px' }}>
-                {ingredients.map((ingredient, index) => (
-                  <li key={index}>{ingredient}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
     </div>

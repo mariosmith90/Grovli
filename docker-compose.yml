@@ -10,6 +10,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USDA_API_KEY=${USDA_API_KEY}
+      - INSTACART_API_KEY=${INSTACART_API_KEY}
       - PYTHONPATH=/app
     depends_on:
       - db
