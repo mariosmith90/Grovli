@@ -53,7 +53,6 @@ async def create_shopping_list_endpoint(request: ShoppingListRequest):
                 "status": "success",
                 "message": "Shopping list updated",
                 "shopping_list": result.dict(),
-                # "redirect_url": result.url  # URL to the Instacart shopping list
             }
         else:
             # Create new shopping list
@@ -62,7 +61,6 @@ async def create_shopping_list_endpoint(request: ShoppingListRequest):
                 "status": "success",
                 "message": "Shopping list created",
                 "shopping_list": result.dict(),
-                # "redirect_url": result.url  # URL to the Instacart shopping list
             }
             
     except Exception as e:
