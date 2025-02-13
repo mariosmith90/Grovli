@@ -150,7 +150,7 @@ export default function Home() {
   
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>Citigrove AI Planner</h1>
+      <h1>Grovli AI(Beta)</h1>
       
       {/* Dietary Preferences */}
       <div style={{ marginBottom: '10px' }}>
