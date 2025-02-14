@@ -4,10 +4,18 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Remove experimental.serverActions
   experimental: {
     // Add only valid experimental features if needed
-  }
+  },
+  async redirects() {
+    return [
+      {
+        source: '/',
+        destination: '/home',
+        permanent: true,
+      },
+    ]
+  },
 };
 
 module.exports = nextConfig;

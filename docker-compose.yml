@@ -12,8 +12,6 @@ services:
       - USDA_API_KEY=${USDA_API_KEY}
       - INSTACART_API_KEY=${INSTACART_API_KEY}
       - PYTHONPATH=/app
-    # depends_on:
-    #   - db
     networks:
       - mealplan-network
       
@@ -28,21 +26,5 @@ services:
     depends_on:
       - backend
 
-  # db:
-  #   image: postgres:15
-  #   environment:
-  #     - POSTGRES_DB=mealplan
-  #     - POSTGRES_USER=mealuser
-  #     - POSTGRES_PASSWORD=mealpass
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - mealplan-network
-
 networks:
   mealplan-network:
-
-# volumes:
-#   postgres_data:
