@@ -148,282 +148,260 @@ export default function Home() {
     }    
   };
   
-  return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>Grovli AI (Beta)</h1>
-      
-      {/* Dietary Preferences */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Dietary Preferences:</strong>
-        </label>
-        <input
-          type="text"
-          placeholder="e.g., Vegetarian, Vegan"
-          value={preferences}
-          onChange={(e) => setPreferences(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
-      </div>
-
-      {/* Calculation Mode Toggle */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Macro Calculation Mode:</strong>
-        </label>
-        <select
-          value={calculationMode}
-          onChange={(e) => setCalculationMode(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        >
-          <option value="manual">Manual</option>
-          <option value="auto">Auto</option>
-        </select>
-      </div>
-
-      {/* Meal Type Dropdown */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Meal Type:</strong>
-        </label>
-        <select
-          value={mealType}
-          onChange={(e) => setMealType(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        >
-          <option value="All">All (Breakfast, Lunch, Dinner, 2 Snacks)</option>
-          <option value="Breakfast">Breakfast</option>
-          <option value="Lunch">Lunch</option>
-          <option value="Dinner">Dinner</option>
-          <option value="Snack">Snack</option>
-        </select>
-      </div>
-
-      {/* Number of Days */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Number of Days:</strong>
-        </label>
-        <input
-          type="number"
-          value={numDays}
-          onChange={(e) => setNumDays(Number(e.target.value))}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
-      </div>
-
-      {/* Calories */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Calories (daily total):</strong>
-        </label>
-        <input
-          type="number"
-          value={calories}
-          onChange={(e) => setCalories(Number(e.target.value))}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
-      </div>
-
-      {/* Auto-calculated or manual input fields */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Carbs (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={carbs}
-          onChange={(e) => setCarbs(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Protein (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={protein}
-          onChange={(e) => setProtein(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Fat (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={fat}
-          onChange={(e) => setFat(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Fiber (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={fiber}
-          onChange={(e) => setFiber(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Sugar (grams per day limit):</strong>
-        </label>
-        <input
-          type="number"
-          value={sugar}
-          onChange={(e) => setSugar(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
-
-      {/* Error Message */}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-
-      {/* Loading Indicator */}
-      {loading && <p>Loading...</p>}
-
-      {/* Generate Meal Plan Button */}
-      <button
-        onClick={fetchMealPlan}
-        disabled={loading}
-        style={{
-          padding: '10px 20px',
-          backgroundColor: '#007BFF',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: 'pointer',
-        }}
-      >
-        Generate Meal Plan
-      </button>
-
-
-      {/* Display Meal Plan and Accept Button */}
-      {mealPlan && (
-        <div>
-          <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
-            <ReactMarkdown
-              components={{
-                h2: ({ node, ...props }) => (
-                  <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
-                ),
-                h3: ({ node, ...props }) => (
-                  <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
-                ),          
-                h4: ({ node, ...props }) => (
-                  <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
-                ),
-                p: ({ node, ...props }) => (
-                  <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
-                ),
-                ul: ({ node, ...props }) => (
-                  <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
-                ),
-                li: ({ node, ...props }) => (
-                  <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
-                ),
-                strong: ({ node, children, ...props }) => {
-                  const text = String(children);
-                  if (
-                    text.includes('BREAKFAST:') || 
-                    text.includes('LUNCH:') || 
-                    text.includes('DINNER:') || 
-                    text.includes('SNACK:')
-                  ) {
-                    return (
-                      <strong style={{ 
-                        fontSize: '18px', 
-                        fontWeight: 'bold', 
-                        display: 'block', 
-                        marginTop: '24px', 
-                        marginBottom: '16px' 
-                      }} {...props}>
-                        {children}
-                      </strong>
-                    );
-                  } else if (
-                    text.includes('Nutrition:') || 
-                    text.includes('Ingredients:') || 
-                    text.includes('Instructions:')
-                  ) {
-                    return (
-                      <strong style={{ 
-                        fontSize: '18px', 
-                        fontWeight: 'bold', 
-                        display: 'block', 
-                        marginTop: '16px' 
-                      }} {...props}>
-                        {children}
-                      </strong>
-                    );
-                  }
-                  return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
-                }
-              }}
-            >
-              {mealPlan}
-            </ReactMarkdown>
-          </div>
-
-          {/* Accept Meal Plan Button */}
-          <button
-            onClick={handleAcceptMealPlan}
-            disabled={loading || acceptingMealPlan}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: acceptingMealPlan ? "#6c757d" : "#28A745",
-              color: '#fff',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              marginTop: '15px',
-            }}
-          >
-            {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
-          </button>
-        </div>
-      )}
+return (
+  <div className="relative min-h-screen w-full bg-gray-900 overflow-hidden">
+    {/* Background Image */}
+    <div 
+      className="fixed inset-0 z-0"
+      style={{
+        backgroundImage: `url('/background.jpeg')`, 
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/50" />
     </div>
+
+    {/* Main Content */}
+    <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto">
+      <h1 className="text-4xl font-bold text-white mb-8">Grovli AI (Beta)</h1>
+
+      {/* Form Container */}
+      <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg">
+        {/* Dietary Preferences */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Dietary Preferences:
+          </label>
+          <input
+            type="text"
+            placeholder="e.g., Vegetarian, Vegan"
+            value={preferences}
+            onChange={(e) => setPreferences(e.target.value)}
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        {/* Calculation Mode Toggle */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Macro Calculation Mode:
+          </label>
+          <select
+            value={calculationMode}
+            onChange={(e) => setCalculationMode(e.target.value)}
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="manual">Manual</option>
+            <option value="auto">Auto</option>
+          </select>
+        </div>
+
+        {/* Meal Type Dropdown */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Meal Type:
+          </label>
+          <select
+            value={mealType}
+            onChange={(e) => setMealType(e.target.value)}
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="All">All (Breakfast, Lunch, Dinner, 2 Snacks)</option>
+            <option value="Breakfast">Breakfast</option>
+            <option value="Lunch">Lunch</option>
+            <option value="Dinner">Dinner</option>
+            <option value="Snack">Snack</option>
+          </select>
+        </div>
+
+        {/* Number of Days */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Number of Days:
+          </label>
+          <input
+            type="number"
+            value={numDays}
+            onChange={(e) => setNumDays(Number(e.target.value))}
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        {/* Calories */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Calories (daily total):
+          </label>
+          <input
+            type="number"
+            value={calories}
+            onChange={(e) => setCalories(Number(e.target.value))}
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        {/* Auto-calculated or manual input fields */}
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Carbs (grams per day):
+          </label>
+          <input
+            type="number"
+            value={carbs}
+            onChange={(e) => setCarbs(Number(e.target.value))}
+            disabled={calculationMode === 'auto'}
+            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              calculationMode === 'auto' ? 'bg-gray-100' : 'bg-white'
+            }`}
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Protein (grams per day):
+          </label>
+          <input
+            type="number"
+            value={protein}
+            onChange={(e) => setProtein(Number(e.target.value))}
+            disabled={calculationMode === 'auto'}
+            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              calculationMode === 'auto' ? 'bg-gray-100' : 'bg-white'
+            }`}
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Fat (grams per day):
+          </label>
+          <input
+            type="number"
+            value={fat}
+            onChange={(e) => setFat(Number(e.target.value))}
+            disabled={calculationMode === 'auto'}
+            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              calculationMode === 'auto' ? 'bg-gray-100' : 'bg-white'
+            }`}
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Fiber (grams per day):
+          </label>
+          <input
+            type="number"
+            value={fiber}
+            onChange={(e) => setFiber(Number(e.target.value))}
+            disabled={calculationMode === 'auto'}
+            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              calculationMode === 'auto' ? 'bg-gray-100' : 'bg-white'
+            }`}
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-gray-700 font-medium mb-1">
+            Sugar (grams per day limit):
+          </label>
+          <input
+            type="number"
+            value={sugar}
+            onChange={(e) => setSugar(Number(e.target.value))}
+            disabled={calculationMode === 'auto'}
+            className={`w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              calculationMode === 'auto' ? 'bg-gray-100' : 'bg-white'
+            }`}
+          />
+        </div>
+
+        {/* Error Message */}
+        {error && <p className="text-red-500 my-4">{error}</p>}
+
+        {/* Loading Indicator */}
+        {loading && <p className="text-gray-700">Loading...</p>}
+
+        {/* Generate Meal Plan Button */}
+        <button
+          onClick={fetchMealPlan}
+          disabled={loading}
+          className="w-full py-3 px-6 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:bg-gray-400"
+        >
+          Generate Meal Plan
+        </button>
+
+        {/* Display Meal Plan and Accept Button */}
+        {mealPlan && (
+          <div className="mt-8">
+            <div className="bg-gray-50 rounded-lg p-6 shadow-inner">
+              <ReactMarkdown
+                components={{
+                  h2: ({ node, ...props }) => (
+                    <h2 className="text-xl font-bold mt-5 mb-3" {...props} />
+                  ),
+                  h3: ({ node, ...props }) => (
+                    <h3 className="text-2xl font-bold mt-6 mb-4 text-gray-800" {...props} />
+                  ),
+                  h4: ({ node, ...props }) => (
+                    <h4 className="text-lg font-bold mt-4 mb-2" {...props} />
+                  ),
+                  p: ({ node, ...props }) => (
+                    <p className="my-2 text-sm" {...props} />
+                  ),
+                  ul: ({ node, ...props }) => (
+                    <ul className="list-disc pl-5 text-left" {...props} />
+                  ),
+                  li: ({ node, ...props }) => (
+                    <li className="mb-2 leading-relaxed text-left" {...props} />
+                  ),
+                  strong: ({ node, children, ...props }) => {
+                    const text = String(children);
+                    if (
+                      text.includes('BREAKFAST:') || 
+                      text.includes('LUNCH:') || 
+                      text.includes('DINNER:') || 
+                      text.includes('SNACK:')
+                    ) {
+                      return (
+                        <strong className="block text-xl font-bold mt-6 mb-4" {...props}>
+                          {children}
+                        </strong>
+                      );
+                    } else if (
+                      text.includes('Nutrition:') || 
+                      text.includes('Ingredients:') || 
+                      text.includes('Instructions:')
+                    ) {
+                      return (
+                        <strong className="block text-lg font-bold mt-4 mb-2" {...props}>
+                          {children}
+                        </strong>
+                      );
+                    }
+                    return <strong className="font-bold" {...props}>{children}</strong>;
+                  }
+                }}
+              >
+                {mealPlan}
+              </ReactMarkdown>
+            </div>
+
+            {/* Accept Meal Plan Button */}
+            <button
+              onClick={handleAcceptMealPlan}
+              disabled={loading || acceptingMealPlan}
+              className="w-full py-3 px-6 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:bg-gray-400 mt-6"
+            >
+              {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
   );
 }
