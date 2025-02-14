@@ -29,7 +29,7 @@ const HomePage = () => {
       <nav className="relative z-10 w-full p-6">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           {/* Logo */}
-          <div className="text-white text-2xl font-bold cursor-pointer" onClick={() => router.push('/home')}>
+          <div className="text-white text-6xl font-bold cursor-pointer" onClick={() => router.push('/home')}>
             Grovli
           </div>
 
