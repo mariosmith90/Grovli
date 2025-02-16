@@ -4,9 +4,6 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  experimental: {
-    // Add only valid experimental features if needed
-  },
   async redirects() {
     return [
       {
@@ -14,7 +11,19 @@ const nextConfig = {
         destination: '/home',
         permanent: true,
       },
-    ]
+    ];
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/login",
+        destination: "/auth/login",
+      },
+      {
+        source: "/register",
+        destination: "/auth/register",
+      },
+    ];
   },
 };
 

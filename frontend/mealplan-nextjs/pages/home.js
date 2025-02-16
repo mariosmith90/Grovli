@@ -1,12 +1,23 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { LogIn } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check for authentication token on page load
+    const token = localStorage.getItem("token");
+    setIsAuthenticated(!!token); // Convert token to boolean
+  }, []);
 
   const handleGetStarted = () => {
-    router.push('/');
+    if (isAuthenticated) {
+      router.push('/'); // Redirect to meal planner
+    } else {
+      router.push('/login'); // Redirect to login
+    }
   };
 
   return (
@@ -29,14 +40,17 @@ const HomePage = () => {
       <nav className="relative z-10 w-full p-6">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           {/* Logo */}
-          <div className="text-white text-6xl font-bold cursor-pointer pt-4" onClick={() => router.push('/home')}>
+          <div 
+            className="text-white text-6xl font-bold cursor-pointer pt-4" 
+            onClick={() => router.push('/home')}
+          >
             Grovli
           </div>
 
-          {/* Auth Buttons */}
+          {/* Auth Buttons (Always Visible) */}
           <div className="space-x-4">
             <button 
-              onClick={() => router.push('/login')}
+              onClick={() => router.push(isAuthenticated ? '/' : '/login')} 
               className="px-6 py-2 text-white hover:text-gray-200 transition-colors"
             >
               Login
