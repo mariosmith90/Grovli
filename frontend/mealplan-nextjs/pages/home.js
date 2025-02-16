@@ -13,6 +13,10 @@ const HomePage = () => {
   }, []);
 
   const handleGetStarted = () => {
+    window.location.href = "https://form.typeform.com/to/r6ucQF6l"; // Redirect to Typeform
+  };
+
+  const handleTryGrovli = () => {
     if (isAuthenticated) {
       router.push('/'); // Redirect to meal planner
     } else {
@@ -89,12 +93,22 @@ const HomePage = () => {
             balanced meal plans tailored to your lifestyle. Enjoy stress-free eating while staying on
             track with your nutrition goals—one delicious meal at a time!
           </p>
+
+          {/* Get Started - Redirects to Typeform */}
           <button 
             onClick={handleGetStarted}
             className="px-8 py-3 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors text-lg font-medium"
           >
             Get Started
           </button>
+
+          {/* Try Grovli - Redirects to Meal Planner/Login */}
+          <p 
+            onClick={handleTryGrovli}
+            className="text-white text-sm mt-4 cursor-pointer font-bold hover:underline"
+          >
+            Give Grovli a try
+          </p>
         </div>
       </main>
     </div>
