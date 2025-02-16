@@ -18,7 +18,7 @@ export default function Register() {
     setFormData({ ...formData, [e.target.name]: e.target.value.trim() });
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = (redirectPath) => (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -46,7 +46,7 @@ export default function Register() {
 
     localStorage.setItem("users", JSON.stringify(existingUsers));
 
-    router.push("/login");
+    router.push(redirectPath);
   };
 
   return (
@@ -63,7 +63,7 @@ export default function Register() {
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">Create an Account</h2>
 
-        <form onSubmit={handleRegister}>
+        <form>
           <div className="mb-4">
             <label className="block text-gray-700">First Name</label>
             <input
@@ -124,15 +124,30 @@ export default function Register() {
 
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-2 px-4 text-white rounded-lg ${
-              loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {loading ? "Registering..." : "Create Account"}
-          </button>
+          {/* Free and Paid Registration Options */}
+          <div className="flex flex-col gap-4">
+            {/* Free Plan Button */}
+            <button
+              onClick={handleRegister("/")}
+              disabled={loading}
+              className={`w-full py-2 px-4 text-white rounded-lg ${
+                loading ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+              }`}
+            >
+              {loading ? "Registering..." : "Continue with Free Plan"}
+            </button>
+
+            {/* Paid Plan Button */}
+            <button
+              onClick={handleRegister("/subscriptions")}
+              disabled={loading}
+              className={`w-full py-2 px-4 text-white rounded-lg ${
+                loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              {loading ? "Redirecting..." : "Upgrade to Premium"}
+            </button>
+          </div>
         </form>
 
         <p className="text-gray-500 text-center mt-4">

@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { LogIn } from 'lucide-react';
+import { LogIn, Menu } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     // Check for authentication token on page load
@@ -24,15 +26,18 @@ const HomePage = () => {
     }
   };
 
-  const handleAuthButtonClick = () => {
-    if (isAuthenticated) {
-      localStorage.removeItem("token"); // Clear token on logout
-      setIsAuthenticated(false);
-      router.push('/home'); // Redirect to home page after logout
-    } else {
-      router.push('/login'); // Redirect to login page
+  // Handle click outside to close menu
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
     }
-  };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   return (
     <div className="relative min-h-screen w-full bg-gray-900">
@@ -61,29 +66,65 @@ const HomePage = () => {
             Grovli
           </div>
 
-          {/* Auth Buttons */}
-          <div className="space-x-4">
-            <button 
-              onClick={handleAuthButtonClick} 
-              className="px-6 py-2 text-white hover:text-gray-200 transition-colors"
-            >
-              {isAuthenticated ? "Logout" : "Login"}
+          {/* Hamburger Menu */}
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
+              <Menu size={32} />
             </button>
-            {!isAuthenticated && (
-              <button 
-                onClick={() => router.push('/register')}
-                className="px-6 py-2 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
-              >
-                <LogIn size={20} />
-                Register
-              </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg overflow-hidden z-50">
+                <ul className="py-2 text-gray-900">
+                  {isAuthenticated && (
+                    <>
+                      <li>
+                        <button 
+                          onClick={() => {
+                            router.push('/subscriptions');
+                            setMenuOpen(false);
+                          }} 
+                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                        >
+                          Plans
+                        </button>
+                      </li>
+                    </>
+                  )}
+                  {!isAuthenticated && (
+                    <>
+                      <li>
+                        <button 
+                          onClick={() => {
+                            router.push('/login');
+                            setMenuOpen(false);
+                          }} 
+                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                        >
+                          Login
+                        </button>
+                      </li>
+                      <li>
+                        <button 
+                          onClick={() => {
+                            router.push('/register');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                        >
+                          Register
+                        </button>
+                      </li>
+                    </>
+                  )}
+                </ul>
+              </div>
             )}
           </div>
         </div>
       </nav>
 
       {/* Main Content */}
-      <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-y-hidden">
+      <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-hidden">
         <div className="max-w-3xl mx-auto text-center px-6">
           <h1 className="text-5xl font-bold text-white mb-6">
             Smart Meal Planning, Made Simple

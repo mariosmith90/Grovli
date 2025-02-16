@@ -23,6 +23,10 @@ const nextConfig = {
         source: "/register",
         destination: "/auth/register",
       },
+      {
+        source: "/subscriptions",
+        destination: "/auth/subscriptions",
+      },
     ];
   },
 };

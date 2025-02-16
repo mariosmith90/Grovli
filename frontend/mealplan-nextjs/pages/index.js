@@ -16,7 +16,7 @@ export default function Home() {
   const [mealPlan, setMealPlan] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [calculationMode, setCalculationMode] = useState('manual'); // 'manual' or 'auto'
+  const [calculationMode, setCalculationMode] = useState('auto'); // 'manual' or 'auto'
   const [ingredients, setIngredients] = useState([]);  
   const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
 
@@ -195,13 +195,32 @@ export default function Home() {
           <strong>Macro Calculation Mode:</strong>
         </label>
         <select
-          value={calculationMode}
-          onChange={(e) => setCalculationMode(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+          value="auto"
+          disabled
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginTop: '5px',
+            backgroundColor: '#f0f0f0', // Greyed out
+            color: '#888', // Text color to indicate disabled
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            cursor: 'not-allowed', // Prevents selection
+          }}
         >
-          <option value="manual">Manual</option>
           <option value="auto">Auto</option>
         </select>
+
+        {/* Pro Feature Message */}
+        <p className="text-sm text-gray-600 mt-1">
+          Manual mode is a <strong>Pro feature</strong>.{" "}
+          <span
+            className="text-blue-600 cursor-pointer hover:underline"
+            onClick={() => router.push('/subscriptions')}
+          >
+            Upgrade Now
+          </span>
+        </p>
       </div>
 
       {/* Meal Type Dropdown */}
@@ -227,12 +246,33 @@ export default function Home() {
         <label>
           <strong>Number of Days:</strong>
         </label>
-        <input
-          type="number"
-          value={numDays}
-          onChange={(e) => setNumDays(Number(e.target.value))}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
+        <select
+          value="1"
+          disabled
+          style={{
+            width: '100%',
+            padding: '8px',
+            marginTop: '5px',
+            backgroundColor: '#f0f0f0', // Greyed out
+            color: '#888', // Text color to indicate disabled
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            cursor: 'not-allowed', // Prevents selection
+          }}
+        >
+          <option value="1">1</option>
+        </select>
+
+        {/* Pro Feature Message */}
+        <p className="text-sm text-gray-600 mt-1">
+          Days over 1 is a <strong>Pro feature</strong>.{" "}
+          <span
+            className="text-blue-600 cursor-pointer hover:underline"
+            onClick={() => router.push('/subscriptions')}
+          >
+            Upgrade Now
+          </span>
+        </p>
       </div>
 
       {/* Calories */}
@@ -342,22 +382,23 @@ export default function Home() {
       {/* Error Message */}
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
-      {/* Generate Meal Plan Button */}
+      {/* Upgrade Now Button */}
       <button
-        onClick={fetchMealPlan}
-        disabled={loading}
-        style={{
-          padding: '10px 20px',
-          backgroundColor: loading ? '#6c757d' : '#007BFF', // Gray when loading, blue otherwise
-          color: '#fff',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: loading ? 'not-allowed' : 'pointer', // Disable click when loading
-        }}
+        onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
+        className="w-full py-2 px-4 mb-4 text-white bg-orange-500 rounded-lg hover:bg-orange-600 transition-colors text-lg font-medium"
       >
-        {loading ? "Loading..." : "Generate Meal Plan"}
+        Upgrade Now
       </button>
 
+      {/* Generate Free Plan - Now a Text Button */}
+      <div className="flex justify-center mt-2">
+        <p
+          onClick={fetchMealPlan}
+          className="text-blue-600 text-lg cursor-pointer font-bold hover:underline"
+        >
+          {loading ? "Loading..." : "Generate Free Plan"}
+        </p>
+      </div>
 
       {/* Display Meal Plan and Accept Button */}
       {mealPlan && (
