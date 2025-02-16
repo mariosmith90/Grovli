@@ -148,7 +148,7 @@ const HomePage = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full bg-white text-gray-800 text-center py-6 mt-10">
+      <footer className="relative z-10 w-full bg-gray-800 text-gray-800 text-center py-6 mt-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
           {/* Left - Branding */}
           <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
