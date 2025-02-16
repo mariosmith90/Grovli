@@ -335,23 +335,20 @@ export default function Home() {
       {/* Error Message */}
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
-      {/* Loading Indicator */}
-      {loading && <p>Loading...</p>}
-
       {/* Generate Meal Plan Button */}
       <button
         onClick={fetchMealPlan}
         disabled={loading}
         style={{
           padding: '10px 20px',
-          backgroundColor: '#007BFF',
+          backgroundColor: loading ? '#6c757d' : '#007BFF', // Gray when loading, blue otherwise
           color: '#fff',
           border: 'none',
           borderRadius: '5px',
-          cursor: 'pointer',
+          cursor: loading ? 'not-allowed' : 'pointer', // Disable click when loading
         }}
       >
-        Generate Meal Plan
+        {loading ? "Loading..." : "Generate Meal Plan"}
       </button>
 
 
