@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import ReactMarkdown from 'react-markdown';
 
 export default function Home() {
+  const router = useRouter();
   const [preferences, setPreferences] = useState('');
   const [mealType, setMealType] = useState('All');
   const [numDays, setNumDays] = useState(1);
@@ -164,9 +166,14 @@ export default function Home() {
         <div className="absolute inset-0 bg-black/50" />
       </div>
   
-      {/* Main Content */}
-      <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
-      <h1 className="text-4xl font-bold text-gray-900 mb-6">Grovli AI (Beta)</h1>
+    {/* Main Content */}
+    <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
+      <h1 
+        className="text-4xl font-bold text-gray-900 mb-6 cursor-pointer"
+        onClick={() => router.push('/home')}
+      >
+        Grovli AI (Beta)
+      </h1>
       
       {/* Dietary Preferences */}
       <div style={{ marginBottom: '10px' }}>

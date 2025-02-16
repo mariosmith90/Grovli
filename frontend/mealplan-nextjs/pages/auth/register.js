@@ -4,7 +4,8 @@ import { useRouter } from "next/router";
 export default function Register() {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -37,7 +38,8 @@ export default function Register() {
     }
 
     existingUsers[formData.email] = {
-      name: formData.name,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
       email: formData.email,
       password: formData.password, // NEVER store passwords like this in real apps!
     };
@@ -63,17 +65,27 @@ export default function Register() {
 
         <form onSubmit={handleRegister}>
           <div className="mb-4">
-            <label className="block text-gray-700">Full Name</label>
+            <label className="block text-gray-700">First Name</label>
             <input
               type="text"
-              name="name"
-              value={formData.name}
+              name="firstName"
+              value={formData.firstName}
               onChange={handleInputChange}
               className="w-full p-2 border border-gray-300 rounded-lg"
               required
             />
           </div>
-
+          <div className="mb-4">
+            <label className="block text-gray-700">Last Name</label>
+            <input
+              type="text"
+              name="lastName"
+              value={formData.lastName}
+              onChange={handleInputChange}
+              className="w-full p-2 border border-gray-300 rounded-lg"
+              required
+            />
+          </div>
           <div className="mb-4">
             <label className="block text-gray-700">Email</label>
             <input
