@@ -121,7 +121,7 @@ const HomePage = () => {
       <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-hidden">
         <div className="max-w-3xl mx-auto text-center px-6 bg-white/10 backdrop-blur-md rounded-lg shadow-lg p-8">
           <h1 className="text-5xl font-bold text-white mb-6">
-            Smart Meal Planning, Made Simple
+          Smart Meal Planning
           </h1>
           <p className="text-xl text-gray-200 mb-8">
             Grovli helps you take the guesswork out of meal planning with personalized,  
@@ -148,11 +148,10 @@ const HomePage = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full bg-gray-800 text-gray-800 text-center py-6 mt-10">
+      <footer className="relative z-10 w-full bg-gray-800 text-white text-center py-6 mt-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
           {/* Left - Branding */}
           <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
-
           {/* Middle - Links */}
           <div className="flex space-x-6 mt-4 md:mt-0">
             <a href="/about" className="hover:text-gray-600 transition">About</a>
