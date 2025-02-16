@@ -105,9 +105,9 @@ const HomePage = () => {
           {/* Try Grovli - Redirects to Meal Planner/Login */}
           <p 
             onClick={handleTryGrovli}
-            className="text-white text-sm mt-4 cursor-pointer font-bold hover:underline"
+            className="text-white text-lg mt-4 cursor-pointer font-bold hover:underline"
           >
-            Give Grovli a try
+            Try Grovli
           </p>
         </div>
       </main>
