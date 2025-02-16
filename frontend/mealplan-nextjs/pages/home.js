@@ -1,12 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { LogIn, Menu } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
 
   useEffect(() => {
     // Check for authentication token on page load
@@ -26,19 +23,6 @@ const HomePage = () => {
     }
   };
 
-  // Handle click outside to close menu
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
   return (
     <div className="relative min-h-screen w-full bg-gray-900">
       {/* Background Image */}
@@ -55,69 +39,43 @@ const HomePage = () => {
         <div className="absolute inset-0 bg-black/50" />
       </div>
 
-      {/* Navigation */}
-      <nav className="relative z-10 w-full p-6">
+      {/* Navigation Bar */}
+      <nav className="relative z-10 w-full p-6 bg-gray-800 bg-opacity-90 shadow-md">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           {/* Logo */}
           <div 
-            className="text-white text-6xl font-bold cursor-pointer pt-4" 
+            className="text-white text-5xl font-bold cursor-pointer" 
             onClick={() => router.push('/home')}
           >
             Grovli
           </div>
 
-          {/* Hamburger Menu */}
-          <div className="relative" ref={menuRef}>
-            <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
-              <Menu size={32} />
-            </button>
-
-            {menuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg overflow-hidden z-50">
-                <ul className="py-2 text-gray-900">
-                  {isAuthenticated && (
-                    <>
-                      <li>
-                        <button 
-                          onClick={() => {
-                            router.push('/subscriptions');
-                            setMenuOpen(false);
-                          }} 
-                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                        >
-                          Plans
-                        </button>
-                      </li>
-                    </>
-                  )}
-                  {!isAuthenticated && (
-                    <>
-                      <li>
-                        <button 
-                          onClick={() => {
-                            router.push('/login');
-                            setMenuOpen(false);
-                          }} 
-                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                        >
-                          Login
-                        </button>
-                      </li>
-                      <li>
-                        <button 
-                          onClick={() => {
-                            router.push('/register');
-                            setMenuOpen(false);
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                        >
-                          Register
-                        </button>
-                      </li>
-                    </>
-                  )}
-                </ul>
-              </div>
+          {/* Navigation Links */}
+          <div className="flex space-x-6 items-center">
+            {isAuthenticated ? (
+              <>
+                <button
+                  onClick={() => router.push('/subscriptions')}
+                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
+                >
+                  Plans
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => router.push('/login')}
+                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => router.push('/register')}
+                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
+                >
+                  Register
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -125,7 +83,7 @@ const HomePage = () => {
 
       {/* Main Content */}
       <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-hidden">
-        <div className="max-w-3xl mx-auto text-center px-6">
+        <div className="max-w-3xl mx-auto text-center px-6 bg-white/10 backdrop-blur-md rounded-lg shadow-lg p-8">
           <h1 className="text-5xl font-bold text-white mb-6">
             Smart Meal Planning, Made Simple
           </h1>
@@ -152,6 +110,22 @@ const HomePage = () => {
           </p>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="relative z-10 w-full bg-gray-800 text-gray-300 text-center py-6 mt-10">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
+          {/* Left - Branding */}
+          <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
+
+          {/* Middle - Links */}
+          <div className="flex space-x-6 mt-4 md:mt-0">
+            <a href="/about" className="hover:text-white transition">About</a>
+            <a href="/contact" className="hover:text-white transition">Contact</a>
+            <a href="/terms" className="hover:text-white transition">Terms</a>
+            <a href="/privacy" className="hover:text-white transition">Privacy</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
