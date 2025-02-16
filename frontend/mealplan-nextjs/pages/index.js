@@ -149,8 +149,24 @@ export default function Home() {
   };
   
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>Grovli AI (Beta)</h1>
+    <div className="relative min-h-screen w-full bg-gray-900">
+      {/* Background Image */}
+      <div 
+        className="absolute inset-0 z-0"
+        style={{
+          backgroundImage: `url('/background.jpeg')`, 
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-black/50" />
+      </div>
+  
+      {/* Main Content */}
+      <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
+      <h1 className="text-4xl font-bold text-gray-900 mb-6">Grovli AI (Beta)</h1>
       
       {/* Dietary Preferences */}
       <div style={{ marginBottom: '10px' }}>
@@ -424,6 +440,7 @@ export default function Home() {
           </button>
         </div>
       )}
-    </div>
+    </div> 
+  </div>
   );
 }
