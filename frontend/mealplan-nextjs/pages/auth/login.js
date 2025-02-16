@@ -9,49 +9,38 @@ export default function Login() {
   });
 
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
   const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value.trim() });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleLogin = (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
 
-    const { email, password } = formData;
-
-    if (!email || !password) {
-      setError("All fields are required.");
-      setLoading(false);
-      return;
-    }
-
-    // Retrieve stored users from localStorage
     const existingUsers = JSON.parse(localStorage.getItem("users")) || {};
 
-    if (!existingUsers[email]) {
-      setError("User not found. Please register first.");
-      setLoading(false);
+    const user = existingUsers[formData.email];
+    if (!user || user.password !== formData.password) {
+      setError("User not found or incorrect password.");
       return;
     }
 
-    if (existingUsers[email].password !== password) {
-      setError("Incorrect password.");
-      setLoading(false);
-      return;
-    }
-
-    // Save session (fake authentication token)
-    localStorage.setItem("token", JSON.stringify({ email, isLoggedIn: true }));
-
-    alert("Login successful!");
-    router.push("/"); // Redirect to meal planner page
+    localStorage.setItem("token", JSON.stringify({ email: formData.email }));
+    router.push("/");
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
+      {/* Grovli Logo - Centered Above Form */}
+      <div 
+        className="text-gray-900 text-5xl font-bold mb-8 cursor-pointer"
+        onClick={() => router.push('/home')}
+      >
+        Grovli
+      </div>
+
+      {/* Login Form */}
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">Login</h2>
 
@@ -84,12 +73,9 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={loading}
-            className={`w-full py-2 px-4 text-white rounded-lg ${
-              loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-            }`}
+            className="w-full py-2 px-4 text-white rounded-lg bg-blue-600 hover:bg-blue-700"
           >
-            {loading ? "Logging in..." : "Login"}
+            Login
           </button>
         </form>
 

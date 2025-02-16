@@ -20,6 +20,16 @@ const HomePage = () => {
     }
   };
 
+  const handleAuthButtonClick = () => {
+    if (isAuthenticated) {
+      localStorage.removeItem("token"); // Clear token on logout
+      setIsAuthenticated(false);
+      router.push('/home'); // Redirect to home page after logout
+    } else {
+      router.push('/login'); // Redirect to login page
+    }
+  };
+
   return (
     <div className="relative min-h-screen w-full bg-gray-900">
       {/* Background Image */}
@@ -47,21 +57,23 @@ const HomePage = () => {
             Grovli
           </div>
 
-          {/* Auth Buttons (Always Visible) */}
+          {/* Auth Buttons */}
           <div className="space-x-4">
             <button 
-              onClick={() => router.push(isAuthenticated ? '/' : '/login')} 
+              onClick={handleAuthButtonClick} 
               className="px-6 py-2 text-white hover:text-gray-200 transition-colors"
             >
-              Login
+              {isAuthenticated ? "Logout" : "Login"}
             </button>
-            <button 
-              onClick={() => router.push('/register')}
-              className="px-6 py-2 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
-            >
-              <LogIn size={20} />
-              Register
-            </button>
+            {!isAuthenticated && (
+              <button 
+                onClick={() => router.push('/register')}
+                className="px-6 py-2 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-2"
+              >
+                <LogIn size={20} />
+                Register
+              </button>
+            )}
           </div>
         </div>
       </nav>

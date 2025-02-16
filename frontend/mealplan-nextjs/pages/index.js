@@ -167,6 +167,13 @@ export default function Home() {
       {/* Main Content */}
       <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
       <h1 className="text-4xl font-bold text-gray-900 mb-6">Grovli AI (Beta)</h1>
+
+      {/* Description */}
+      <p className="text-lg font-bold text-gray-700 mb-6">
+        Grovli AI helps you create personalized, balanced meal plans tailored to your dietary preferences and health goals.
+        Whether you’re looking to maintain a specific macro intake, explore new recipes, or simplify meal prepping, Grovli 
+        makes meal planning effortless and enjoyable.
+      </p>
       
       {/* Dietary Preferences */}
       <div style={{ marginBottom: '10px' }}>

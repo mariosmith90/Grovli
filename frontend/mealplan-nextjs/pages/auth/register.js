@@ -28,7 +28,6 @@ export default function Register() {
       return;
     }
 
-    // Retrieve existing users
     const existingUsers = JSON.parse(localStorage.getItem("users")) || {};
 
     if (existingUsers[formData.email]) {
@@ -37,34 +36,29 @@ export default function Register() {
       return;
     }
 
-    // Save user data under "users" object
     existingUsers[formData.email] = {
       name: formData.name,
       email: formData.email,
-      password: formData.password, // For real apps, NEVER store passwords like this
+      password: formData.password, // NEVER store passwords like this in real apps!
     };
 
     localStorage.setItem("users", JSON.stringify(existingUsers));
 
-    alert("Registration successful! You can now log in.");
     router.push("/login");
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
-      
-      {/* Navbar with Grovli Logo */}
-      <nav className="absolute top-4 left-6">
-        <div 
-          className="text-black text-5xl font-bold cursor-pointer" 
-          onClick={() => router.push('/home')}
-        >
-          Grovli
-        </div>
-      </nav>
+      {/* Grovli Logo - Centered Above Form */}
+      <div 
+        className="text-gray-900 text-5xl font-bold mb-8 cursor-pointer"
+        onClick={() => router.push('/home')}
+      >
+        Grovli
+      </div>
 
-      {/* Registration Card */}
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md mt-16">
+      {/* Register Form */}
+      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">Create an Account</h2>
 
         <form onSubmit={handleRegister}>
