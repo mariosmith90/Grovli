@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { Menu } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     // Check for authentication token on page load
@@ -50,17 +52,15 @@ const HomePage = () => {
             Grovli
           </div>
 
-          {/* Navigation Links */}
-          <div className="flex space-x-6 items-center">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex space-x-6 items-center">
             {isAuthenticated ? (
-              <>
-                <button
-                  onClick={() => router.push('/subscriptions')}
-                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
-                >
-                  Plans
-                </button>
-              </>
+              <button
+                onClick={() => router.push('/subscriptions')}
+                className="text-white text-lg font-semibold hover:text-gray-300 transition"
+              >
+                Plans
+              </button>
             ) : (
               <>
                 <button
@@ -78,6 +78,38 @@ const HomePage = () => {
               </>
             )}
           </div>
+
+          {/* Mobile Menu */}
+          {!isAuthenticated && (
+            <div className="md:hidden relative">
+              <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
+                <Menu size={32} />
+              </button>
+
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg">
+                  <ul className="py-2 text-gray-900">
+                    <li>
+                      <button 
+                        onClick={() => { router.push('/login'); setMenuOpen(false); }} 
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Login
+                      </button>
+                    </li>
+                    <li>
+                      <button 
+                        onClick={() => { router.push('/register'); setMenuOpen(false); }} 
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Register
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </nav>
 
@@ -112,17 +144,17 @@ const HomePage = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full bg-gray-800 text-gray-300 text-center py-6 mt-10">
+      <footer className="relative z-10 w-full bg-white text-gray-800 text-center py-6 mt-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
           {/* Left - Branding */}
           <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
 
           {/* Middle - Links */}
           <div className="flex space-x-6 mt-4 md:mt-0">
-            <a href="/about" className="hover:text-white transition">About</a>
-            <a href="/contact" className="hover:text-white transition">Contact</a>
-            <a href="/terms" className="hover:text-white transition">Terms</a>
-            <a href="/privacy" className="hover:text-white transition">Privacy</a>
+            <a href="/about" className="hover:text-gray-600 transition">About</a>
+            <a href="https://form.typeform.com/to/r6ucQF6l" className="hover:text-gray-600 transition">Contact</a>
+            <a href="/terms" className="hover:text-gray-600 transition">Terms</a>
+            <a href="/privacy" className="hover:text-gray-600 transition">Privacy</a>
           </div>
         </div>
       </footer>
