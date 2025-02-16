@@ -42,7 +42,7 @@ const HomePage = () => {
       </div>
 
       {/* Navigation Bar */}
-      <nav className="relative z-10 w-full p-6 bg-gray-800 bg-opacity-90 shadow-md">
+      <nav className="relative z-20 w-full p-6 bg-gray-800 bg-opacity-90 shadow-md">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           {/* Logo */}
           <div 
@@ -79,19 +79,20 @@ const HomePage = () => {
             )}
           </div>
 
-          {/* Mobile Menu */}
           {!isAuthenticated && (
             <div className="md:hidden relative">
               <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
                 <Menu size={32} />
               </button>
-
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg">
+                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
                   <ul className="py-2 text-gray-900">
                     <li>
                       <button 
-                        onClick={() => { router.push('/login'); setMenuOpen(false); }} 
+                        onClick={() => { 
+                          router.push('/login'); 
+                          setMenuOpen(false); 
+                        }} 
                         className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
                       >
                         Login
@@ -99,7 +100,10 @@ const HomePage = () => {
                     </li>
                     <li>
                       <button 
-                        onClick={() => { router.push('/register'); setMenuOpen(false); }} 
+                        onClick={() => { 
+                          router.push('/register'); 
+                          setMenuOpen(false); 
+                        }} 
                         className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
                       >
                         Register
