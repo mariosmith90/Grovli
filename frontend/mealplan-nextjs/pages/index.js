@@ -25,7 +25,6 @@ export default function Home() {
 
 
   useEffect(() => {
-    // Check for existing token on initial load
     const token = localStorage.getItem("token");
     setIsAuthenticated(!!token);
   }, []);
