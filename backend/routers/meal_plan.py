@@ -180,7 +180,7 @@ async def generate_meal_plan(request: MealPlanRequest):
                 )
 
                 response = client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "You are a precision-focused nutritionist and chef that creates detailed, accurate meal plans with exact measurements and clear cooking instructions. Always create unique recipe names."},
                         {"role": "user", "content": prompt},
