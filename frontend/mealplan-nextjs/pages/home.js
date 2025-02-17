@@ -29,7 +29,7 @@ const HomePage = () => {
     <div className="relative min-h-screen w-full bg-gray-900">
       {/* Background Image */}
       <div 
-        className="fixed inset-0 z-0"
+        className="fixed inset-0 z-0 min-h-screen"
         style={{
           backgroundImage: `url('/homepage.jpeg')`, 
           backgroundSize: 'cover',
