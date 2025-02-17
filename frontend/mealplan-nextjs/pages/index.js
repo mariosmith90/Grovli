@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import { Menu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 export default function Home() {
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [preferences, setPreferences] = useState('');
   const [mealType, setMealType] = useState('All');
   const [numDays, setNumDays] = useState(1);
@@ -19,6 +21,27 @@ export default function Home() {
   const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
   const [ingredients, setIngredients] = useState([]);  
   const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+
+
+  useEffect(() => {
+    // Check for existing token on initial load
+    const token = localStorage.getItem("token");
+    setIsAuthenticated(!!token);
+  }, []);
+  
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (menuOpen && 
+          !event.target.closest(".mobile-menu") && 
+          !event.target.closest(".mobile-menu-content")) {
+        setMenuOpen(false);
+      }
+    };
+  
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [menuOpen]);
 
   // Auto-calculate macros based on calories
   useEffect(() => {
@@ -150,344 +173,449 @@ export default function Home() {
     }    
   };
   
-  return (    
-    <div className="relative min-h-screen w-full bg-gray-900">
-      {/* Background Image */}
-      <div 
-        className="absolute inset-0 z-0"
-        style={{
-          backgroundImage: `url('/homepage.jpeg')`, 
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat'
-        }}
-      >
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-black/50" />
-      </div>
+      return ( 
+        <>
+          {/* Navigation Bar */}
+          <nav className="fixed top-0 left-0 w-full p-6 bg-gray-500 bg-opacity-90 shadow-md z-50">            
+            <div className="flex justify-between items-center max-w-7xl mx-auto">
+              {/* Title with Link */}
+              <div 
+                className="text-white text-5xl font-bold cursor-pointer" 
+                onClick={() => router.push('/home')}
+              >
+                Grovli
+              </div>
 
-    {/* Main Content */}
-    <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
-      <h1 
-        className="text-4xl font-bold text-gray-900 mb-6 cursor-pointer"
-        onClick={() => router.push('/home')}
-      >
-        Grovli AI Planner
-      </h1>
-      
-      {/* Dietary Preferences */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Dietary Preferences:</strong>
-        </label>
-        <input
-          type="text"
-          placeholder="e.g., Vegetarian, Vegan"
-          value={preferences}
-          onChange={(e) => setPreferences(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
-      </div>
+              {/* Mobile Navigation - Always Visible */}
+              <div className="md:hidden relative mobile-menu">
+                <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
+                  <Menu size={32} />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
+                    <ul className="py-2 text-gray-900">
+                      {!isAuthenticated ? (
+                        <>
+                          <li>
+                            <button 
+                              onClick={async() => { 
+                                router.push('/login'); 
+                                setMenuOpen(false); 
+                              }} 
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                            >
+                              Login
+                            </button>
+                          </li>
+                          <li>
+                            <button 
+                              onClick={async() => { 
+                                router.push('/register'); 
+                                setMenuOpen(false); 
+                              }} 
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                            >
+                              Register
+                            </button>
+                          </li>
+                        </>
+                      ) : (
+                        <>
+                          <li>
+                            <button 
+                              onClick={async() => { 
+                                router.push('/subscriptions'); 
+                                setMenuOpen(false); 
+                              }} 
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                            >
+                              Plans
+                            </button>
+                          </li>
+                          <li>
+                            <button 
+                              onClick={async() => { 
+                                router.push('/account'); 
+                                setMenuOpen(false); 
+                              }} 
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                            >
+                              Account
+                            </button>
+                          </li>
+                          <li>
+                            <button 
+                              onClick={async() => { 
+                                localStorage.removeItem("token"); // Log out
+                                setIsAuthenticated(false);
+                                router.push('/login');
+                                setMenuOpen(false); 
+                              }} 
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                            >
+                              Logout
+                            </button>
+                          </li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </nav>
 
-      {/* Calculation Mode Toggle */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Macro Calculation Mode:</strong>
-        </label>
-        <select
-          value="auto"
-          disabled
-          style={{
-            width: '100%',
-            padding: '8px',
-            marginTop: '5px',
-            backgroundColor: '#f0f0f0', // Greyed out
-            color: '#888', // Text color to indicate disabled
-            border: '1px solid #ccc',
-            borderRadius: '4px',
-            cursor: 'not-allowed', // Prevents selection
-          }}
-        >
-          <option value="auto">Auto</option>
-        </select>
+            {/* Push Content Below Fixed Header */}
+            <div className="pt-24"></div>
+              {/* Background Image */}
+              <div 
+                className="fixed inset-0 z-0 min-h-screen"
+                style={{
+                  backgroundImage: `url('/homepage.jpeg')`, 
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat'
+                }}
+              >
+                {/* Overlay */}
+                <div className="absolute inset-0 bg-black/50" />
+              </div>
 
-        {/* Pro Feature Message */}
-        <p className="text-sm text-gray-600 mt-1">
-          Manual mode is a <strong>Pro feature</strong>.{" "}
-          <span
-            className="text-blue-600 cursor-pointer hover:underline"
-            onClick={() => router.push('/subscriptions')}
-          >
-            Upgrade Now
-          </span>
-        </p>
-      </div>
+              <main className="relative z-10 p-6 max-w-4xl mx-auto min-h-screen flex flex-col justify-center">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full">     
+                  {/* Section Header */}
+                <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '15px' }}>
+                  Customize Your Meal Plan
+                </h2>
+              {/* Dietary Preferences */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Dietary Preferences:</strong>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., Vegetarian, Vegan"
+                  value={preferences}
+                  onChange={(e) => setPreferences(e.target.value)}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                />
+              </div>
 
-      {/* Meal Type Dropdown */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Meal Type:</strong>
-        </label>
-        <select
-          value={mealType}
-          onChange={(e) => setMealType(e.target.value)}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        >
-          <option value="All">All (Breakfast, Lunch, Dinner, 2 Snacks)</option>
-          <option value="Breakfast">Breakfast</option>
-          <option value="Lunch">Lunch</option>
-          <option value="Dinner">Dinner</option>
-          <option value="Snack">Snack</option>
-        </select>
-      </div>
+              {/* Calculation Mode Toggle */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Macro Calculation Mode:</strong>
+                </label>
+                <select
+                  value="auto"
+                  disabled
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginTop: '5px',
+                    backgroundColor: '#f0f0f0', // Greyed out
+                    color: '#888', // Text color to indicate disabled
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    cursor: 'not-allowed', // Prevents selection
+                  }}
+                >
+                  <option value="auto">Auto</option>
+                </select>
 
-      {/* Number of Days */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Number of Days:</strong>
-        </label>
-        <select
-          value="1"
-          disabled
-          style={{
-            width: '100%',
-            padding: '8px',
-            marginTop: '5px',
-            backgroundColor: '#f0f0f0', // Greyed out
-            color: '#888', // Text color to indicate disabled
-            border: '1px solid #ccc',
-            borderRadius: '4px',
-            cursor: 'not-allowed', // Prevents selection
-          }}
-        >
-          <option value="1">1</option>
-        </select>
+                {/* Pro Feature Message */}
+                <p className="text-sm text-gray-600 mt-1">
+                  Manual mode is a <strong>Pro feature</strong>.{" "}
+                  <span
+                    className="text-blue-600 cursor-pointer hover:underline"
+                    onClick={() => router.push('/subscriptions')}
+                  >
+                    Upgrade Now
+                  </span>
+                </p>
+              </div>
 
-        {/* Pro Feature Message */}
-        <p className="text-sm text-gray-600 mt-1">
-          Days over 1 is a <strong>Pro feature</strong>.{" "}
-          <span
-            className="text-blue-600 cursor-pointer hover:underline"
-            onClick={() => router.push('/subscriptions')}
-          >
-            Upgrade Now
-          </span>
-        </p>
-      </div>
+              {/* Meal Type Dropdown */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Meal Type:</strong>
+                </label>
+                <select
+                  value={mealType}
+                  onChange={(e) => setMealType(e.target.value)}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                >
+                  <option value="All">All (Breakfast, Lunch, Dinner, 2 Snacks)</option>
+                  <option value="Breakfast">Breakfast</option>
+                  <option value="Lunch">Lunch</option>
+                  <option value="Dinner">Dinner</option>
+                  <option value="Snack">Snack</option>
+                </select>
+              </div>
 
-      {/* Calories */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Calories (daily total):</strong>
-        </label>
-        <input
-          type="number"
-          value={calories}
-          onChange={(e) => setCalories(Number(e.target.value))}
-          style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-        />
-      </div>
+              {/* Number of Days */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Number of Days:</strong>
+                </label>
+                <select
+                  value="1"
+                  disabled
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginTop: '5px',
+                    backgroundColor: '#f0f0f0', // Greyed out
+                    color: '#888', // Text color to indicate disabled
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    cursor: 'not-allowed', // Prevents selection
+                  }}
+                >
+                  <option value="1">1</option>
+                </select>
 
-      {/* Auto-calculated or manual input fields */}
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Carbs (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={carbs}
-          onChange={(e) => setCarbs(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
+                {/* Pro Feature Message */}
+                <p className="text-sm text-gray-600 mt-1">
+                  Days over 1 is a <strong>Pro feature</strong>.{" "}
+                  <span
+                    className="text-blue-600 cursor-pointer hover:underline"
+                    onClick={() => router.push('/subscriptions')}
+                  >
+                    Upgrade Now
+                  </span>
+                </p>
+              </div>
 
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Protein (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={protein}
-          onChange={(e) => setProtein(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
+              {/* Calories */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Calories (daily total):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={calories}
+                  onChange={(e) => setCalories(Number(e.target.value))}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                />
+              </div>
 
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Fat (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={fat}
-          onChange={(e) => setFat(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
+              {/* Auto-calculated or manual input fields */}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Carbs (grams per day):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={carbs}
+                  onChange={(e) => setCarbs(Number(e.target.value))}
+                  disabled={calculationMode === 'auto'}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    marginTop: '5px',
+                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
+                  }}
+                />
+              </div>
 
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Fiber (grams per day):</strong>
-        </label>
-        <input
-          type="number"
-          value={fiber}
-          onChange={(e) => setFiber(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Protein (grams per day):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={protein}
+                  onChange={(e) => setProtein(Number(e.target.value))}
+                  disabled={calculationMode === 'auto'}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    marginTop: '5px',
+                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
+                  }}
+                />
+              </div>
 
-      <div style={{ marginBottom: '10px' }}>
-        <label>
-          <strong>Sugar (grams per day limit):</strong>
-        </label>
-        <input
-          type="number"
-          value={sugar}
-          onChange={(e) => setSugar(Number(e.target.value))}
-          disabled={calculationMode === 'auto'}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            marginTop: '5px',
-            backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-          }}
-        />
-      </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Fat (grams per day):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={fat}
+                  onChange={(e) => setFat(Number(e.target.value))}
+                  disabled={calculationMode === 'auto'}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    marginTop: '5px',
+                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
+                  }}
+                />
+              </div>
 
-      {/* Error Message */}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Fiber (grams per day):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={fiber}
+                  onChange={(e) => setFiber(Number(e.target.value))}
+                  disabled={calculationMode === 'auto'}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    marginTop: '5px',
+                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
+                  }}
+                />
+              </div>
 
-      {/* Upgrade Now Button */}
-      <button
-        onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
-        className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
-      >
-        Upgrade Now
-      </button>
+              <div style={{ marginBottom: '10px' }}>
+                <label>
+                  <strong>Sugar (grams per day limit):</strong>
+                </label>
+                <input
+                  type="number"
+                  value={sugar}
+                  onChange={(e) => setSugar(Number(e.target.value))}
+                  disabled={calculationMode === 'auto'}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    marginTop: '5px',
+                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
+                  }}
+                />
+              </div>
 
-      {/* Generate Free Plan - Now a Text Button */}
-      <div className="flex justify-center mt-2">
-        <p
-          onClick={fetchMealPlan}
-          className="text-teal-600 text-lg cursor-pointer font-bold"
-        >
-          {loading ? "Loading..." : "Generate Free Plan"}
-        </p>
-      </div>
+              {/* Error Message */}
+              {error && <p style={{ color: 'red' }}>{error}</p>}
 
-      {/* Display Meal Plan and Accept Button */}
-      {mealPlan && (
-        <div>
-          <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
-            <ReactMarkdown
-              components={{
-                h2: ({ node, ...props }) => (
-                  <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
-                ),
-                h3: ({ node, ...props }) => (
-                  <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
-                ),          
-                h4: ({ node, ...props }) => (
-                  <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
-                ),
-                p: ({ node, ...props }) => (
-                  <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
-                ),
-                ul: ({ node, ...props }) => (
-                  <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
-                ),
-                li: ({ node, ...props }) => (
-                  <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
-                ),
-                strong: ({ node, children, ...props }) => {
-                  const text = String(children);
-                  if (
-                    text.includes('BREAKFAST:') || 
-                    text.includes('LUNCH:') || 
-                    text.includes('DINNER:') || 
-                    text.includes('SNACK:')
-                  ) {
-                    return (
-                      <strong style={{ 
-                        fontSize: '18px', 
-                        fontWeight: 'bold', 
-                        display: 'block', 
-                        marginTop: '24px', 
-                        marginBottom: '16px' 
-                      }} {...props}>
-                        {children}
-                      </strong>
-                    );
-                  } else if (
-                    text.includes('Nutrition:') || 
-                    text.includes('Ingredients:') || 
-                    text.includes('Instructions:')
-                  ) {
-                    return (
-                      <strong style={{ 
-                        fontSize: '18px', 
-                        fontWeight: 'bold', 
-                        display: 'block', 
-                        marginTop: '16px' 
-                      }} {...props}>
-                        {children}
-                      </strong>
-                    );
-                  }
-                  return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
-                }
-              }}
-            >
-              {mealPlan}
-            </ReactMarkdown>
+              {/* Upgrade Now Button */}
+              <button
+                onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
+                className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
+              >
+                Upgrade Now
+              </button>
+
+              {/* Generate Free Plan - Now a Text Button */}
+              <div className="flex justify-center mt-2">
+                <p
+                  onClick={fetchMealPlan}
+                  className="text-teal-600 text-lg cursor-pointer font-bold"
+                >
+                  {loading ? "Loading..." : "Generate Free Plan"}
+                </p>
+              </div>
+
+              {/* Display Meal Plan and Accept Button */}
+              {mealPlan && (
+                <div>
+                  <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
+                    <ReactMarkdown
+                      components={{
+                        h2: ({ node, ...props }) => (
+                          <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
+                        ),
+                        h3: ({ node, ...props }) => (
+                          <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
+                        ),          
+                        h4: ({ node, ...props }) => (
+                          <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
+                        ),
+                        p: ({ node, ...props }) => (
+                          <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
+                        ),
+                        ul: ({ node, ...props }) => (
+                          <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
+                        ),
+                        li: ({ node, ...props }) => (
+                          <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
+                        ),
+                        strong: ({ node, children, ...props }) => {
+                          const text = String(children);
+                          if (
+                            text.includes('BREAKFAST:') || 
+                            text.includes('LUNCH:') || 
+                            text.includes('DINNER:') || 
+                            text.includes('SNACK:')
+                          ) {
+                            return (
+                              <strong style={{ 
+                                fontSize: '18px', 
+                                fontWeight: 'bold', 
+                                display: 'block', 
+                                marginTop: '24px', 
+                                marginBottom: '16px' 
+                              }} {...props}>
+                                {children}
+                              </strong>
+                            );
+                          } else if (
+                            text.includes('Nutrition:') || 
+                            text.includes('Ingredients:') || 
+                            text.includes('Instructions:')
+                          ) {
+                            return (
+                              <strong style={{ 
+                                fontSize: '18px', 
+                                fontWeight: 'bold', 
+                                display: 'block', 
+                                marginTop: '16px' 
+                              }} {...props}>
+                                {children}
+                              </strong>
+                            );
+                          }
+                          return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
+                        }
+                      }}
+                    >
+                      {mealPlan}
+                    </ReactMarkdown>
+                  </div>
+
+                    {/* Accept Meal Plan Button */}
+                    <button
+                      onClick={handleAcceptMealPlan}
+                      disabled={loading || acceptingMealPlan}
+                      style={{
+                        display: 'block', // Makes the button a block-level element
+                        width: '100%',    // Sets the button's width to 100% of its parent
+                        padding: '10px 20px',
+                        backgroundColor: acceptingMealPlan ? '#004d40' : '#00897b',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        marginTop: '15px',
+                      }}
+                    >
+                  {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Accept Meal Plan Button */}
-          <button
-            onClick={handleAcceptMealPlan}
-            disabled={loading || acceptingMealPlan}
-            style={{
-              display: 'block', // Makes the button a block-level element
-              width: '100%',    // Sets the button's width to 100% of its parent
-              padding: '10px 20px',
-              backgroundColor: acceptingMealPlan ? '#004d40' : '#00897b',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              marginTop: '15px',
-            }}
-          >
-            {acceptingMealPlan ? 'Processing...' : 'Accept Meal Plan'}
-          </button>
-        </div>
-      )}
-    </div> 
-  </div>
+        </main>
+        <div className="w-full h-32"></div> {/* Empty box for future content */}
+        <footer className="fixed bottom-0 left-0 right-0 z-30 w-full bg-gray-500 text-white text-center py-6">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
+            {/* Left - Branding */}
+            <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
+            
+            {/* Middle - Links */}
+            <div className="flex space-x-6 mt-4 md:mt-0">
+              <a href="/about" className="hover:text-gray-300 transition-colors">About</a>
+              <a href="https://form.typeform.com/to/r6ucQF6l" className="hover:text-gray-300 transition-colors">Contact</a>
+              <a href="/terms" className="hover:text-gray-300 transition-colors">Terms</a>
+              <a href="/privacy" className="hover:text-gray-300 transition-colors">Privacy</a>
+            </div>
+          </div>
+      </footer>
+    </>
   );
 }

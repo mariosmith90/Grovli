@@ -29,7 +29,7 @@ const HomePage = () => {
     <div className="relative min-h-screen w-full bg-gray-900">
       {/* Background Image */}
       <div 
-        className="absolute inset-0 z-0"
+        className="fixed inset-0 z-0"
         style={{
           backgroundImage: `url('/homepage.jpeg')`, 
           backgroundSize: 'cover',
@@ -41,52 +41,71 @@ const HomePage = () => {
         <div className="absolute inset-0 bg-black/50" />
       </div>
 
-      {/* Navigation Bar */}
-      <nav className="relative z-20 w-full p-6 bg-gray-800 bg-opacity-90 shadow-md">
-        <div className="flex justify-between items-center max-w-7xl mx-auto">
-          {/* Logo */}
-          <div 
-            className="text-white text-5xl font-bold cursor-pointer" 
-            onClick={() => router.push('/home')}
-          >
-            Grovli
-          </div>
+    {/* Navigation Bar */}
+    <nav className="fixed top-0 left-0 w-full p-6 bg-gray-500 bg-opacity-90 shadow-md z-50">            
+      <div className="flex justify-between items-center max-w-7xl mx-auto">
+        <div 
+          className="text-white text-5xl font-bold cursor-pointer" 
+          onClick={() => router.push('/home')}
+        >
+          Grovli
+        </div>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex space-x-6 items-center">
-            {isAuthenticated ? (
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex space-x-6 items-center">
+          {isAuthenticated ? (
+            <>
               <button
                 onClick={() => router.push('/subscriptions')}
                 className="text-white text-lg font-semibold hover:text-gray-300 transition"
               >
                 Plans
               </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => router.push('/login')}
-                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
-                >
-                  Login
-                </button>
-                <button
-                  onClick={() => router.push('/register')}
-                  className="text-white text-lg font-semibold hover:text-gray-300 transition"
-                >
-                  Register
-                </button>
-              </>
-            )}
-          </div>
-
-          {!isAuthenticated && (
-            <div className="md:hidden relative">
-              <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
-                <Menu size={32} />
+              <button
+                onClick={() => router.push('/account')}
+                className="text-white text-lg font-semibold hover:text-gray-300 transition"
+              >
+                Account
               </button>
-              {menuOpen && (
-                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
-                  <ul className="py-2 text-gray-900">
+              <button
+                onClick={() => { 
+                  localStorage.removeItem("token"); // Logout
+                  setIsAuthenticated(false);
+                  router.push('/login'); 
+                }}
+                className="text-white text-lg font-semibold hover:text-gray-300 transition"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => router.push('/login')}
+                className="text-white text-lg font-semibold hover:text-gray-300 transition"
+              >
+                Login
+              </button>
+              <button
+                onClick={() => router.push('/register')}
+                className="text-white text-lg font-semibold hover:text-gray-300 transition"
+              >
+                Register
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Mobile Navigation - Always Visible */}
+        <div className="md:hidden relative">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
+            <Menu size={32} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
+              <ul className="py-2 text-gray-900">
+                {!isAuthenticated ? (
+                  <>
                     <li>
                       <button 
                         onClick={() => { 
@@ -109,13 +128,52 @@ const HomePage = () => {
                         Register
                       </button>
                     </li>
-                  </ul>
-                </div>
-              )}
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      <button 
+                        onClick={() => { 
+                          router.push('/subscriptions'); 
+                          setMenuOpen(false); 
+                        }} 
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Plans
+                      </button>
+                    </li>
+                    <li>
+                      <button 
+                        onClick={() => { 
+                          router.push('/account'); 
+                          setMenuOpen(false); 
+                        }} 
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Account
+                      </button>
+                    </li>
+                    <li>
+                      <button 
+                        onClick={() => { 
+                          localStorage.removeItem("token"); // Log out
+                          setIsAuthenticated(false);
+                          router.push('/login');
+                          setMenuOpen(false); 
+                        }} 
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Logout
+                      </button>
+                    </li>
+                  </>
+                )}
+              </ul>
             </div>
           )}
         </div>
-      </nav>
+      </div>
+    </nav>
 
       {/* Main Content */}
       <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-hidden">
@@ -148,7 +206,7 @@ const HomePage = () => {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full bg-gray-800 text-white text-center py-6 mt-10">
+      <footer className="fixed bottom-0 left-0 right-0 z-30 w-full bg-gray-500 text-white text-center py-6"> 
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
           {/* Left - Branding */}
           <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
