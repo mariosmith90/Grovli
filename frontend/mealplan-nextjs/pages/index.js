@@ -17,7 +17,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
-  const [setIngredients] = useState([]);  
+  const [ingredients, setIngredients] = useState([]);  
   const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
 
   // Auto-calculate macros based on calories
