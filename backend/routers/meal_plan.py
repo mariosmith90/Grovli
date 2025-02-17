@@ -11,7 +11,7 @@ from typing import List, Optional, Set
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
 
 # USDA FoodData Central API URL
-USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
+USDA_API_URL = "https://api.nalx.usda.gov/fdc/v1/foods/search"
 
 class MealPlanText(BaseModel):
     meal_plan: str
@@ -180,7 +180,7 @@ async def generate_meal_plan(request: MealPlanRequest):
                 )
 
                 response = client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "You are a precision-focused nutritionist and chef that creates detailed, accurate meal plans with exact measurements and clear cooking instructions. Always create unique recipe names."},
                         {"role": "user", "content": prompt},
