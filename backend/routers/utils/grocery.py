@@ -3,6 +3,7 @@ import requests
 import os
 import json
 import openai
+from collections import Counter
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -69,9 +70,10 @@ async def create_shopping_list(ingredients: List[str], name: str = "Weekly Meal 
     }
 
     cleaned_ingredients = [clean_ingredient_name(ingredient) for ingredient in ingredients]
+    ingredient_counts = Counter(cleaned_ingredients)
     payload = {
         "title": name,
-        "line_items": [{"name": ing, "quantity": 1} for ing in cleaned_ingredients]
+        "line_items": [{"name": ing, "quantity": qty} for ing, qty in ingredient_counts.items()]
     }
 
     print("📢 Payload being sent to Instacart:")
@@ -97,7 +99,7 @@ async def create_shopping_list(ingredients: List[str], name: str = "Weekly Meal 
         return ShoppingListResponse(
             list_id="dev-list", 
             url=products_link_url,
-            items=[{"name": ing} for ing in cleaned_ingredients] 
+            items=[{"name": ing, "quantity": qty} for ing, qty in ingredient_counts.items()] 
         )
 
     except requests.exceptions.RequestException as e:
