@@ -11,7 +11,7 @@ from typing import List, Optional, Set
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
 
 # USDA FoodData Central API URL
-USDA_API_URL = "https://api.nalx.usda.gov/fdc/v1/foods/search"
+USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 
 class MealPlanText(BaseModel):
     meal_plan: str
