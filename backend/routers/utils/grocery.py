@@ -35,7 +35,7 @@ def clean_ingredient_name(ingredient: str) -> str:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-40-mini",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2
         )
