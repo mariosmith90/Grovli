@@ -16,8 +16,8 @@ export default function Home() {
   const [mealPlan, setMealPlan] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [calculationMode, setCalculationMode] = useState('auto'); // 'manual' or 'auto'
-  const [ingredients, setIngredients] = useState([]);  
+  const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
+  const [setIngredients] = useState([]);  
   const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
 
   // Auto-calculate macros based on calories
@@ -65,7 +65,7 @@ export default function Home() {
       if (!preferences.trim()) {
         throw new Error('Please enter your dietary preferences');
       }
-  
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,7 +150,7 @@ export default function Home() {
     }    
   };
   
-  return (
+  return (    
     <div className="relative min-h-screen w-full bg-gray-900">
       {/* Background Image */}
       <div 
@@ -165,14 +165,14 @@ export default function Home() {
         {/* Overlay */}
         <div className="absolute inset-0 bg-black/50" />
       </div>
-  
+
     {/* Main Content */}
     <div className="relative z-10 p-6 font-sans max-w-4xl mx-auto bg-white/90 backdrop-blur-md rounded-lg shadow-lg p-8">
       <h1 
         className="text-4xl font-bold text-gray-900 mb-6 cursor-pointer"
         onClick={() => router.push('/home')}
       >
-        Grovli AI (Beta)
+        Grovli AI Planner
       </h1>
       
       {/* Dietary Preferences */}
@@ -385,7 +385,7 @@ export default function Home() {
       {/* Upgrade Now Button */}
       <button
         onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
-        className="w-full py-2 px-4 mb-4 text-white bg-orange-500 rounded-lg hover:bg-orange-600 transition-colors text-lg font-medium"
+        className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
       >
         Upgrade Now
       </button>
@@ -394,7 +394,7 @@ export default function Home() {
       <div className="flex justify-center mt-2">
         <p
           onClick={fetchMealPlan}
-          className="text-blue-600 text-lg cursor-pointer font-bold hover:underline"
+          className="text-teal-600 text-lg cursor-pointer font-bold"
         >
           {loading ? "Loading..." : "Generate Free Plan"}
         </p>
@@ -472,8 +472,10 @@ export default function Home() {
             onClick={handleAcceptMealPlan}
             disabled={loading || acceptingMealPlan}
             style={{
+              display: 'block', // Makes the button a block-level element
+              width: '100%',    // Sets the button's width to 100% of its parent
               padding: '10px 20px',
-              backgroundColor: acceptingMealPlan ? "#6c757d" : "#28A745",
+              backgroundColor: acceptingMealPlan ? '#004d40' : '#00897b',
               color: '#fff',
               border: 'none',
               borderRadius: '5px',
@@ -481,7 +483,7 @@ export default function Home() {
               marginTop: '15px',
             }}
           >
-            {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
+            {acceptingMealPlan ? 'Processing...' : 'Accept Meal Plan'}
           </button>
         </div>
       )}
