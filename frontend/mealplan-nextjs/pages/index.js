@@ -20,7 +20,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
   const [ingredients, setIngredients] = useState([]);  
-  const [acceptingMealPlan, setAcceptingMealPlan] = useState(false);
+  const [orderingPlanIngredients, setOrderingPlanIngredients] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
 
@@ -125,7 +125,7 @@ export default function Home() {
     }
   };
 
-  const handleAcceptMealPlan = async () => {
+  const handleOrderPlanIngredients = async () => {
     if (!mealPlan.trim()) {
         setError("No meal plan available to extract ingredients.");
         return;
@@ -133,7 +133,7 @@ export default function Home() {
 
     try {
         setError("");
-        setAcceptingMealPlan(true);
+        setOrderingPlanIngredients(true);
         
         console.log("📢 Sending request to create shopping list...");
         
@@ -168,7 +168,7 @@ export default function Home() {
         console.error("Error:", error);
         setError(error.message);
     } finally {
-        setAcceptingMealPlan(false);
+        setOrderingPlanIngredients(false);
     }    
   };
   
@@ -284,7 +284,7 @@ export default function Home() {
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full">     
                   {/* Section Header */}
                 <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '15px' }}>
-                  Customize Your Meal Plan
+                  Customize Meal Plan
                 </h2>
               {/* Dietary Preferences */}
               <div style={{ marginBottom: '10px' }}>
@@ -580,13 +580,13 @@ export default function Home() {
 
                     {/* Accept Meal Plan Button */}
                     <button
-                      onClick={handleAcceptMealPlan}
-                      disabled={loading || acceptingMealPlan}
+                      onClick={handleOrderPlanIngredients}
+                      disabled={loading || orderingPlanIngredients}
                       style={{
                         display: 'block', // Makes the button a block-level element
                         width: '100%',    // Sets the button's width to 100% of its parent
                         padding: '10px 20px',
-                        backgroundColor: acceptingMealPlan ? '#004d40' : '#00897b',
+                        backgroundColor: orderingPlanIngredients ? '#004d40' : '#00897b',
                         color: '#fff',
                         border: 'none',
                         borderRadius: '5px',
@@ -594,8 +594,19 @@ export default function Home() {
                         marginTop: '15px',
                       }}
                     >
-                  {acceptingMealPlan ? "Processing..." : "Accept Meal Plan"}
+                  {orderingPlanIngredients ? "Processing..." : "Order Plan Ingredients"}
                 </button>
+
+              {/* Save Meal Plan -
+              <div className="flex justify-center mt-2">
+                <p
+                  onClick={fetchMealPlan}
+                  className="text-teal-600 text-lg cursor-pointer font-bold"
+                >
+                  {loading ? "Uploading..." : "Save Meal Plan"}
+                </p>
+              </div> */}
+
               </div>
             )}
           </div>
