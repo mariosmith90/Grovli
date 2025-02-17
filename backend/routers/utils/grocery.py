@@ -1,6 +1,7 @@
 from typing import List, Dict
 import requests
 import os
+import json
 import openai
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -20,16 +21,23 @@ client = openai.OpenAI(api_key=api_key)
 
 def clean_ingredient_name(ingredient: str) -> str:
     """
-    Uses OpenAI GPT to intelligently remove macros and units from ingredient names.
-    Returns only the essential product name.
+    Uses OpenAI GPT to remove macros, units, and preparation descriptors from ingredient names.
+    Returns only the essential raw product name.
     """
     prompt = f"""
-    Remove any numbers, macro details (calories, carbs, protein, fat, fiber, sugar), 
-    and measurement units (cup, tbsp, tsp, oz, grams, ml, lb) from the following ingredient 
-    while keeping the essential product name intact:
-    
-    "{ingredient}"
-    
+    Extract only the raw, unprocessed ingredient name from the following text.
+    Remove any numbers, nutritional details (calories, carbs, protein, fat, fiber, sugar), 
+    measurement units (cup, tbsp, tsp, oz, grams, ml, lb), and preparation descriptions.
+
+    Example conversions:
+    - "1/2 cup cooked quinoa" → "quinoa"
+    - "3 oz grilled chicken breast" → "chicken breast"
+    - "1 tbsp diced onion" → "onion"
+    - "2 cups mashed sweet potato" → "sweet potato"
+    - "4 slices cheddar cheese" → "cheddar cheese"
+
+    Ingredient: "{ingredient}"
+
     Return only the cleaned product name.
     """
 
@@ -39,12 +47,12 @@ def clean_ingredient_name(ingredient: str) -> str:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2
         )
-        cleaned_name = response.choices[0].message.content.strip()
+        cleaned_name = response.choices[0].message.content.strip().strip('"') 
         return cleaned_name
 
     except Exception as e:
         print(f"Error calling OpenAI API: {str(e)}")
-        return ingredient 
+        return ingredient
     
 async def create_shopping_list(ingredients: List[str], name: str = "Weekly Meal Plan") -> ShoppingListResponse: 
     """
@@ -65,6 +73,9 @@ async def create_shopping_list(ingredients: List[str], name: str = "Weekly Meal 
         "title": name,
         "line_items": [{"name": ing, "quantity": 1} for ing in cleaned_ingredients]
     }
+
+    print("📢 Payload being sent to Instacart:")
+    print(json.dumps(payload, indent=2))
 
     try:
         response = requests.post(
