@@ -1,17 +1,23 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from routers.utils.extract import extract_ingredients_from_meal_plan
+from routers.utils.extract import extract_ingredients_from_meal_plan, save_meal
 from routers.utils.grocery import create_shopping_list, update_shopping_list
 import openai
 import os
 import requests
-import re
+import re, random
 from typing import List, Optional, Set
+from pymongo import MongoClient
 
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
 
 # USDA FoodData Central API URL
 USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
+
+# Connect to MongoDB
+client = MongoClient(os.getenv("MONGO_URI"))
+db = client["meal_plans_db"]
+meals_collection = db["meals"]
 
 class MealPlanText(BaseModel):
     meal_plan: str
@@ -129,21 +135,103 @@ def fetch_ingredient_macros(ingredient: str):
 
     return macros
 
+@router.post("/archive_meal_plan/")
+async def archive_meal_plan(request: MealPlanText):
+    """
+    Saves each meal in a generated meal plan separately to the database for future reuse.
+    """
+    if not request.meal_plan.strip():
+        raise HTTPException(status_code=400, detail="Meal plan cannot be empty")
+
+    ingredients = extract_ingredients_from_meal_plan(request.meal_plan)
+
+    # Extract dietary type
+    dietary_type_match = re.search(r"(?<=for a )([\w\s]+)(?= diet)", request.meal_plan)
+    dietary_type = dietary_type_match.group(1) if dietary_type_match else "Unknown"
+
+    # Extract individual meals
+    meal_pattern = re.compile(r"### MEAL: (.+?)\n(.+?)(?=\n### MEAL:|\Z)", re.DOTALL)
+    meal_matches = meal_pattern.findall(request.meal_plan)
+
+    for meal_name, meal_text in meal_matches:
+        # Extract macros for each meal
+        macro_patterns = {
+            "calories": r"Total calories:\s*(\d+)",
+            "protein": r"Protein:\s*(\d+)g",
+            "carbs": r"Carbohydrates:\s*(\d+)g",
+            "fat": r"Fat:\s*(\d+)g",
+            "fiber": r"Fiber:\s*(\d+)g",
+            "sugar": r"Sugar:\s*≤?(\d+)g"
+        }
+        
+        macros = {}
+        for key, pattern in macro_patterns.items():
+            match = re.search(pattern, meal_text)
+            macros[key] = int(match.group(1)) if match else 0
+
+        # Extract ingredients specific to this meal
+        meal_ingredients = extract_ingredients_from_meal_plan(meal_text)
+
+        # Save each meal separately
+        save_meal(meal_name.strip(), meal_text, meal_ingredients, dietary_type, macros)
+
+    return {"status": "success", "message": "Meals archived successfully"}
+
+
+def find_meal_by_macros(meal_type: str, dietary_type: str, calories: int):
+    """
+    Searches MongoDB for meals matching the base identifier: {meal_type}_{dietary_type}_{calories}.
+    If meals exist, randomly selects one.
+    """
+
+    base_meal_id = f"{meal_type}_{dietary_type}_{calories}".lower()
+
+    matching_meals = list(meals_collection.find({"base_meal_id": base_meal_id}))
+
+    if matching_meals:
+        selected_meal = random.choice(matching_meals)  # Pick a random meal
+        print(f"✅ Selected meal '{selected_meal['meal_name']}' from {len(matching_meals)} options for {base_meal_id}.")
+        return selected_meal
+    else:
+        print(f"⚠️ No meals found for {base_meal_id}. Generating a new meal.")
+        return None
+
 @router.post("/")
 async def generate_meal_plan(request: MealPlanRequest):
-    try:
-        session_tracker.clear()
-        
+    """
+    Generates a meal plan by first checking MongoDB for existing meals that match the requested macros.
+    If no match is found, it generates new meals via OpenAI.
+    """
+
+    full_meal_plan = []
+    adjusted_macros = {
+        "calories": request.calories,
+        "protein": request.protein,
+        "carbs": request.carbs,
+        "fat": request.fat,
+        "fiber": request.fiber,
+        "sugar": request.sugar,
+    }
+
+    base_meal_id = f"{request.meal_type}_{request.dietary_preferences}_{request.calories}".lower()
+
+    print(f"🔍 Checking for existing meals under {base_meal_id}...")
+
+    # Try to find an existing meal in the category
+    existing_meal = find_meal_by_macros(request.meal_type, request.dietary_preferences, request.calories)
+
+    if existing_meal:
+        print(f"✅ Using stored meal: {existing_meal['meal_name']} ({existing_meal['meal_id']})")
+        full_meal_plan.append(existing_meal["meal_text"])  # Ensure meal text is appended
+    else:
+        print(f"⚠️ No existing meal found. Generating a new meal.")
+
+        # OpenAI API Key
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise HTTPException(status_code=500, detail="OpenAI API key not configured")
 
         client = openai.OpenAI(api_key=api_key)
-
-        if "keto" in request.dietary_preferences.lower():
-            request.fat = int(request.calories * 0.80 / 9)
-            request.protein = int(request.calories * 0.15 / 4)
-            request.carbs = int(request.calories * 0.05 / 4)
 
         meal_type_text = (
             "Breakfast, Lunch, Dinner, and two snacks"
@@ -151,145 +239,59 @@ async def generate_meal_plan(request: MealPlanRequest):
             else request.meal_type
         )
 
-        full_meal_plan = []
-        max_retries = 3
+        prompt = (
+            f"Create a unique meal plan for a {request.dietary_preferences} diet with {request.calories} calories.\n"
+            f"Each day must include: {meal_type_text}.\n\n"
+            f"**Expected Macros:**\n"
+            f"- Total calories: {request.calories} kcal\n"
+            f"- Carbohydrates: {request.carbs}g\n"
+            f"- Protein: {request.protein}g\n"
+            f"- Fat: {request.fat}g\n"
+            f"- Fiber: {request.fiber}g\n"
+            f"- Sugar: ≤{request.sugar}g\n\n"
+            f"**Important: Generate completely unique recipes that have not been used before.**\n\n"
+            f"**Format Requirements:**\n"
+            f"1. Each meal title must be formatted as ### MEAL: Recipe Name\n"
+            f"2. Include a '**Nutrition:**' section with total meal macros\n"
+            f"3. List ingredients under '**Ingredients:**'\n"
+            f"4. Provide macros per ingredient\n"
+            f"5. Provide detailed instructions under '**Instructions:**'\n"
+        )
 
-        for day in range(1, request.num_days + 1):
-            day_completed = False
-            retry_count = 0
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a precision-focused nutritionist and chef that creates detailed, accurate meal plans with exact measurements and clear cooking instructions. Always create unique recipe names."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7
+        )
 
-            while not day_completed and retry_count < max_retries:
-                prompt = (
-                    f"Create a unique meal plan for Day {day} of {request.num_days} for a {request.dietary_preferences} diet.\n"
-                    f"Each day must include: {meal_type_text}.\n\n"
-                    f"## Day {day}\n"
-                    f"**Expected Macros for Day {day}:**\n"
-                    f"- Total calories: {request.calories} kcal\n"
-                    f"- Carbohydrates: {request.carbs}g\n"
-                    f"- Protein: {request.protein}g\n"
-                    f"- Fat: {request.fat}g\n"
-                    f"- Fiber: {request.fiber}g\n"
-                    f"- Sugar: ≤{request.sugar}g\n\n"
-                    f"**Important: Generate completely unique recipes that have not been used before.**\n\n"
-                    f"**Format Requirements:**\n"
-                    f"1. Each meal title must be formatted as ### MEAL: Recipe Name\n"
-                    f"2. Include a '**Nutrition:**' section with total meal macros\n"
-                    f"3. List ingredients under '**Ingredients:**'\n"
-                    f"4. Provide macros per ingredient\n"
-                    f"5. Provide detailed instructions under '**Instructions:**'\n"
-                )
+        meal_plan = response.choices[0].message.content
 
-                response = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are a precision-focused nutritionist and chef that creates detailed, accurate meal plans with exact measurements and clear cooking instructions. Always create unique recipe names."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.7
-                )
+        # Extract individual meal names from the meal plan
+        meal_names = extract_recipe_titles(meal_plan)
 
-                meal_plan = response.choices[0].message.content
-                recipe_titles = extract_recipe_titles(meal_plan)
+        if not meal_names:
+            meal_names = [f"Meal for {base_meal_id}"]
 
-                has_duplicates = False
-                for title in recipe_titles:
-                    if session_tracker.is_duplicate(title):
-                        has_duplicates = True
-                        break
+        # Save each meal separately with a new unique identifier
+        for meal_name in meal_names:
+            ingredients = extract_ingredients_from_meal_plan(meal_plan)
 
-                if not has_duplicates:
-                    for title in recipe_titles:
-                        session_tracker.add_recipe(title)
+            save_meal(meal_name, meal_plan, ingredients, request.dietary_preferences, {
+                "calories": request.calories, "protein": request.protein,
+                "carbs": request.carbs, "fat": request.fat,
+                "fiber": request.fiber, "sugar": request.sugar
+            }, request.meal_type)
 
-                    meal_lines = meal_plan.split("\n")
-                    updated_meal_plan = []
-                    current_section = None
-                    ingredients = []
+            full_meal_plan.append(meal_plan)
 
-                    for line in meal_lines:
-                        if not updated_meal_plan and not line.strip():
-                            continue
+    # Ensure the response properly prints the full meal plan
+    meal_plan_text = "\n\n".join(full_meal_plan)
+    print(f"📄 Full Meal Plan Output:\n{meal_plan_text}")  # Debugging output
 
-                        if line.strip().startswith("**Ingredients:**"):
-                            current_section = "ingredients"
-                            updated_meal_plan.append(line)
-                            continue
-
-                        if line.strip().startswith("**Instructions:**"):
-                            current_section = "instructions"
-                            updated_meal_plan.append(line)
-                            continue
-
-                        if current_section == "ingredients":
-                            if line.strip() and not line.strip().startswith("**"):
-                                ingredients.append(line.strip())
-                            updated_meal_plan.append(line)
-                        else:
-                            updated_meal_plan.append(line)
-
-                    ingredient_macros = {}
-                    for ingredient in ingredients:
-                        macros = fetch_ingredient_macros(ingredient)
-                        if macros:
-                            ingredient_macros[ingredient] = macros
-
-                    for ingredient, macros in ingredient_macros.items():
-                        macros_str = ", ".join(f"{key}: {value}g" for key, value in macros.items())
-                        updated_meal_plan.append(f"- {ingredient}: {macros_str}")
-
-                    if day > 1:
-                        full_meal_plan.append(f"\n### Day {day}\n")
-
-                    full_meal_plan.append("\n".join(updated_meal_plan))
-                    day_completed = True
-                else:
-                    retry_count += 1
-
-            if not day_completed:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unable to generate unique recipes for day {day} after {max_retries} attempts"
-                )
-
-        try:
-            # Creating shopping list from already extracted ingredients
-            shopping_list = await create_shopping_list(
-                ingredients,  # We already have this from the meal plan generation
-                f"Meal Plan - {request.dietary_preferences}"
-            )
-            
-            return {
-                "meal_plan": "\n\n".join(full_meal_plan),
-                "adjusted_macros": {
-                    "calories": request.calories,
-                    "carbs": request.carbs,
-                    "protein": request.protein,
-                    "fat": request.fat,
-                    "fiber": request.fiber,
-                    "sugar": request.sugar,
-                },
-                "shopping_list": {
-                    "url": shopping_list.url,
-                    "items": shopping_list.items
-                },               
-                # "redirect_url": shopping_list.url
-            }
-        except Exception as e:
-            print(f"Warning: Failed to create shopping list: {str(e)}")
-            # Return without shopping list if creation fails
-            return {
-                "meal_plan": "\n\n".join(full_meal_plan),
-                "adjusted_macros": {
-                    "calories": request.calories,
-                    "carbs": request.carbs,
-                    "protein": request.protein,
-                    "fat": request.fat,
-                    "fiber": request.fiber,
-                    "sugar": request.sugar,
-                }
-            }
-
-    except openai.OpenAIError as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "meal_plan": meal_plan_text,
+        "adjusted_macros": adjusted_macros,
+    }

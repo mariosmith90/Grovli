@@ -596,17 +596,6 @@ export default function Home() {
                     >
                   {orderingPlanIngredients ? "Processing..." : "Order Plan Ingredients"}
                 </button>
-
-              {/* Save Meal Plan -
-              <div className="flex justify-center mt-2">
-                <p
-                  onClick={fetchMealPlan}
-                  className="text-teal-600 text-lg cursor-pointer font-bold"
-                >
-                  {loading ? "Uploading..." : "Save Meal Plan"}
-                </p>
-              </div> */}
-
               </div>
             )}
           </div>

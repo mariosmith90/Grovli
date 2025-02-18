@@ -11,9 +11,12 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USDA_API_KEY=${USDA_API_KEY}
       - INSTACART_API_KEY=${INSTACART_API_KEY}
+      - MONGO_URI=${MONGO_URI}
       - PYTHONPATH=/app
     networks:
       - mealplan-network
+    depends_on:
+      - mongodb
       
   frontend:
     build: ./frontend/mealplan-nextjs
@@ -25,6 +28,23 @@ services:
       - mealplan-network
     depends_on:
       - backend
+
+  mongodb:
+    image: mongo:7.0
+    container_name: grovli-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    networks:
+      - mealplan-network
+
+volumes:
+  mongodb_data:
 
 networks:
   mealplan-network:
