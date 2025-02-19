@@ -1,6 +1,8 @@
 __pycache__/
+.next/
 *.pyc
 *.pyo
 .env
+.next
 node_modules
 frontend/mealplan-nextjs/.env
