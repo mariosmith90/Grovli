@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { Menu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import MealCard from "../features/mealcard";
+
 
 export default function Home() {
   const router = useRouter();
@@ -78,100 +80,94 @@ export default function Home() {
     }
   }, [calories, calculationMode, preferences]);  
 
-  const fetchMealPlan = async () => {
-    try {
-      setError('');
-      setMealPlan('');
-      setLoading(true);
-  
-      if (!preferences.trim()) {
-        throw new Error('Please enter your dietary preferences');
-      }
+const fetchMealPlan = async () => {
+  try {
+    setError('');
+    setLoading(true);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dietary_preferences: preferences.trim(),
-          meal_type: mealType,
-          num_days: numDays,
-          carbs: carbs,
-          calories: calories,
-          protein: protein,
-          sugar: sugar,
-          fat: fat,
-          fiber: fiber,
-        }),
-      });
-  
-      const data = await response.json();
-  
-      if (!response.ok) {
-        throw new Error(data.detail || 'API request failed');
-      }
-  
-      // Update state with adjusted macros from backend
-      setCarbs(data.adjusted_macros.carbs);
-      setProtein(data.adjusted_macros.protein);
-      setFat(data.adjusted_macros.fat);
-      setFiber(data.adjusted_macros.fiber);
-  
-      setMealPlan(data.meal_plan);
-    } catch (error) {
-      console.error('Error:', error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dietary_preferences: preferences.trim(),
+        meal_type: mealType,
+        num_days: numDays,
+        carbs: carbs,
+        calories: calories,
+        protein: protein,
+        sugar: sugar,
+        fat: fat,
+        fiber: fiber,
+      }),
+    });
 
-  const handleOrderPlanIngredients = async () => {
-    if (!mealPlan.trim()) {
-        setError("No meal plan available to extract ingredients.");
-        return;
+    const data = await response.json();
+    console.log("API Response:", data); // Debugging output
+
+    if (!response.ok) {
+      throw new Error(data.detail || 'API request failed');
     }
 
-    try {
-        setError("");
-        setOrderingPlanIngredients(true);
-        
-        console.log("📢 Sending request to create shopping list...");
-        
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/create_shopping_list/`, {
-            method: "POST",
+    // Ensure mealPlan is correctly updated
+    setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+    console.log("Meal Plan Data After Set:", data.meal_plan); // ✅ Confirming state update
+  } catch (error) {
+    console.error('Error:', error);
+    setError(error.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+      const handleOrderPlanIngredients = async () => {
+        if (!Array.isArray(mealPlan) || mealPlan.length === 0) {
+          setError("No meal plan available to extract ingredients.");
+          return;
+        }
+
+        try {
+          setError("");
+          setOrderingPlanIngredients(true);
+
+          console.log("📢 Sending request to create shopping list...");
+
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/shopping_list/create_shopping_list/`, {
+            method: "POST", // ✅ Ensure this is a POST request
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
-                meal_plan: mealPlan,
-                list_name: `Meal Plan - ${preferences}`
+              meal_plan: JSON.stringify(mealPlan), // ✅ Ensure proper structure
+              list_name: `Meal Plan - ${preferences}`
             }),
-        });
+          });
 
-        const data = await response.json();
-        console.log("Full API Response:", data);
+          const data = await response.json();
+          console.log("Full API Response:", data);
 
-        if (!response.ok) {
+          if (!response.ok) {
             throw new Error(data.detail || "Failed to create shopping list.");
-        }
+          }
 
-        const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
-        setIngredients(cleanedIngredients);
-        
-        const urlToOpen = data.redirect_url || data.shopping_list?.url;
-        if (urlToOpen) {
+          // ✅ Extract shopping list and URL
+          const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
+          setIngredients(cleanedIngredients);
+
+          // ✅ Redirect to Instacart
+          const urlToOpen = data.redirect_url || data.shopping_list?.url;
+          if (urlToOpen) {
             console.log("✅ Redirecting to:", urlToOpen);
             window.open(urlToOpen, "_blank", "noopener,noreferrer");
-        } else {
+          } else {
             console.error("No URL found in API response.");
-            throw new Error("No URL found in API response.");
-        }
-    } catch (error) {
-        console.error("Error:", error);
-        setError(error.message);
-    } finally {
-        setOrderingPlanIngredients(false);
-    }    
-  };
-  
+            throw new Error("No shopping list URL found.");
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          setError(error.message);
+        } finally {
+          setOrderingPlanIngredients(false);
+        }    
+      };
+      
       return ( 
         <>
           {/* Navigation Bar */}
@@ -511,89 +507,36 @@ export default function Home() {
                 </p>
               </div>
 
-              {/* Display Meal Plan and Accept Button */}
-              {mealPlan && (
-                <div>
-                  <div style={{ marginTop: '20px', backgroundColor: '#f4f4f4', padding: '15px' }}>
-                    <ReactMarkdown
-                      components={{
-                        h2: ({ node, ...props }) => (
-                          <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '20px' }} {...props} />
-                        ),
-                        h3: ({ node, ...props }) => (
-                          <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '24px', color: '#333' }} {...props} />
-                        ),          
-                        h4: ({ node, ...props }) => (
-                          <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '14px' }} {...props} />
-                        ),
-                        p: ({ node, ...props }) => (
-                          <p style={{ margin: '10px 0', fontSize: '14px' }} {...props} />
-                        ),
-                        ul: ({ node, ...props }) => (
-                          <ul style={{ listStyleType: 'disc', marginLeft: '20px', textAlign: 'left' }} {...props} />
-                        ),
-                        li: ({ node, ...props }) => (
-                          <li style={{ marginBottom: '5px', lineHeight: '1.5', textAlign: 'left' }} {...props} />
-                        ),
-                        strong: ({ node, children, ...props }) => {
-                          const text = String(children);
-                          if (
-                            text.includes('BREAKFAST:') || 
-                            text.includes('LUNCH:') || 
-                            text.includes('DINNER:') || 
-                            text.includes('SNACK:')
-                          ) {
-                            return (
-                              <strong style={{ 
-                                fontSize: '18px', 
-                                fontWeight: 'bold', 
-                                display: 'block', 
-                                marginTop: '24px', 
-                                marginBottom: '16px' 
-                              }} {...props}>
-                                {children}
-                              </strong>
-                            );
-                          } else if (
-                            text.includes('Nutrition:') || 
-                            text.includes('Ingredients:') || 
-                            text.includes('Instructions:')
-                          ) {
-                            return (
-                              <strong style={{ 
-                                fontSize: '18px', 
-                                fontWeight: 'bold', 
-                                display: 'block', 
-                                marginTop: '16px' 
-                              }} {...props}>
-                                {children}
-                              </strong>
-                            );
-                          }
-                          return <strong style={{ fontWeight: 'bold' }} {...props}>{children}</strong>;
-                        }
-                      }}
-                    >
-                      {mealPlan}
-                    </ReactMarkdown>
-                  </div>
+            {console.log("Meal Plan Data in Render:", mealPlan)}
 
-                    {/* Accept Meal Plan Button */}
-                    <button
-                      onClick={handleOrderPlanIngredients}
-                      disabled={loading || orderingPlanIngredients}
-                      style={{
-                        display: 'block', // Makes the button a block-level element
-                        width: '100%',    // Sets the button's width to 100% of its parent
-                        padding: '10px 20px',
-                        backgroundColor: orderingPlanIngredients ? '#004d40' : '#00897b',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '5px',
-                        cursor: 'pointer',
-                        marginTop: '15px',
+            {/* Display Meal Plan */}
+            {Array.isArray(mealPlan) && mealPlan.length > 0 && (
+              <div className="mt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {mealPlan.map((meal, index) => (
+                    <MealCard
+                      key={index}
+                      title={meal?.title || "Untitled Meal"}
+                      nutrition={meal?.nutrition || {
+                        calories: 0,
+                        protein: 0,
+                        carbs: 0,
+                        fat: 0,
+                        fiber: 0,
+                        sugar: 0
                       }}
-                    >
+                      ingredients={meal?.ingredients || []}
+                      instructions={meal?.instructions || "No instructions provided."}
+                    />
+                  ))}
+                </div>
+
+                {/* Accept Meal Plan Button */}
+                <button
+                  onClick={handleOrderPlanIngredients}
+                  disabled={loading || orderingPlanIngredients}
+                  className="w-full py-2 px-4 mt-6 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
+                >
                   {orderingPlanIngredients ? "Processing..." : "Order Plan Ingredients"}
                 </button>
               </div>

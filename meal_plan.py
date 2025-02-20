@@ -357,129 +357,32 @@ async def generate_meal_plan(request: MealPlanRequest):
     return {"meal_plan": formatted_meals, "cached": False}
 
 def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash):
-    """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""
+    """Extended save_meal function that includes the request hash for better caching."""
+    meal_calories = macros.get("calories", 0)
+    unique_id = f"{random.randint(10000, 99999)}"
+    full_meal_id = f"{meal_type}_{dietary_type}_{meal_calories}_{unique_id}"
+
     # Check for duplicate before saving
     existing_meal = meals_collection.find_one({
         "meal_name": meal_name,
         "request_hash": request_hash
     })
+
     if existing_meal:
         return  # Avoid duplicates
 
-    # Generate IDs
-    meal_calories = macros.get("calories", 0)
-    unique_id = f"{random.randint(10000, 99999)}"
-    full_meal_id = f"{meal_type}_{dietary_type}_{meal_calories}_{unique_id}"
-    
-    # USDA validation
-    validated_ingredients = []
-    usda_macros = {
-        "calories": 0,
-        "protein": 0,
-        "carbs": 0,
-        "fat": 0,
-        "sugar": 0,
-        "fiber": 0
-    }
-    validation_count = 0
-    
-    # Process ingredients if available in expected format
-    if isinstance(ingredients, list) and ingredients:
-        for ingredient in ingredients:
-            if not isinstance(ingredient, dict) or "name" not in ingredient:
-                validated_ingredients.append(ingredient)
-                continue
-            
-            try:
-                # Clean ingredient name for better USDA matching
-                clean_name = re.sub(r'^\d+\s*[\d/]*\s*(?:cup|tbsp|tsp|oz|g|lb|ml|l)s?\s*', '', ingredient["name"], flags=re.IGNORECASE)
-                clean_name = re.sub(r'diced|chopped|minced|sliced|cooked|raw|fresh|frozen|canned', '', clean_name, flags=re.IGNORECASE)
-                clean_name = clean_name.strip()
-                
-                # Get USDA data
-                usda_data = fetch_ingredient_macros(clean_name)
-                
-                if usda_data:
-                    # Keep track of USDA validation and attach data to ingredient
-                    ingredient["usda_validated"] = True
-                    ingredient["usda_macros"] = usda_data
-                    validation_count += 1
-                    
-                    # Try to extract quantity
-                    quantity_str = ingredient.get("quantity", "")
-                    grams = 0
-                    
-                    # Simple quantity extraction
-                    if "g" in quantity_str:
-                        match = re.search(r'(\d+(?:\.\d+)?)\s*g', quantity_str)
-                        if match:
-                            grams = float(match.group(1))
-                    elif "cup" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 240  # ~240g per cup
-                    elif "tbsp" in quantity_str.lower() or "tablespoon" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 15  # ~15g per tbsp  
-                    elif "oz" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 28.35  # ~28.35g per oz
-                    else:
-                        # Try to extract just the number
-                        match = re.search(r'^(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1))
-                        else:
-                            grams = 100  # Default if no quantity found
-                    
-                    # Calculate nutrition based on quantity
-                    factor = grams / 100.0  # USDA data is per 100g
-                    for key in usda_macros:
-                        if key in usda_data:
-                            usda_macros[key] += usda_data[key] * factor
-                else:
-                    ingredient["usda_validated"] = False
-                
-                validated_ingredients.append(ingredient)
-                
-            except Exception as e:
-                print(f"Error validating ingredient '{ingredient.get('name', 'unknown')}': {str(e)}")
-                ingredient["usda_validated"] = False
-                validated_ingredients.append(ingredient)
-    
-    # Determine if we should use USDA validated macros
-    validation_success = False
-    if ingredients and validation_count >= len(ingredients) * 0.5:
-        # Round values and use USDA macros if enough ingredients validated
-        usda_macros = {k: round(v, 1) for k, v in usda_macros.items()}
-        validation_success = True
-        print(f"✅ USDA validation successful: {validation_count}/{len(ingredients)} ingredients validated")
-        print(f"Original macros: {macros}")
-        print(f"USDA macros: {usda_macros}")
-    
-    # Use the appropriate macros
-    final_macros = usda_macros if validation_success else macros
-    
-    # Add validation metadata
-    final_macros["usda_validated"] = validation_success
-    
-    # Build meal data
+    # Build meal data with request hash included
     meal_data = {
         "meal_id": full_meal_id,
         "meal_plan_id": meal_plan_id,
         "meal_name": meal_name,
         "meal_text": meal_text,
-        "ingredients": validated_ingredients,
+        "ingredients": ingredients,
         "dietary_type": dietary_type,
         "meal_type": meal_type,
-        "macros": final_macros,
-        "original_macros": macros if validation_success else None,
-        "request_hash": request_hash,
+        "macros": macros,
+        "request_hash": request_hash,  # Add request hash for direct lookup
         "created_at": datetime.datetime.now()
     }
 
-    # Save to database
     meals_collection.insert_one(meal_data)
-    return meal_data

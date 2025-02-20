@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.meal_plan import router as meal_plan_router
+from routers.utils.grocery import router as shopping_list_router
 
 app = FastAPI()
 
@@ -15,6 +16,8 @@ app.add_middleware(
 
 # Include the router
 app.include_router(meal_plan_router)
+app.include_router(shopping_list_router)
+
 
 @app.get("/")
 def root():

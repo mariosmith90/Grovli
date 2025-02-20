@@ -1,4 +1,4 @@
-import re, os, random
+import re, os, random, datetime
 from typing import List
 from pymongo import MongoClient
 
@@ -7,59 +7,73 @@ client = MongoClient(os.getenv("MONGO_URI"))
 db = client["meal_plans_db"]
 meals_collection = db["meals"]
 
-def extract_ingredients_from_meal_plan(meal_plan: str) -> List[str]:
+from typing import List, Dict
+
+def extract_ingredients_from_meal_plan(meal_plan: List[Dict]) -> List[str]:
     """
-    Extracts ingredients from a formatted meal plan text using regex.
-    """
-    ingredient_section_pattern = re.compile(r"\*\*Ingredients:\*\*\s*(.*?)\n\n", re.DOTALL)
-    ingredient_matches = ingredient_section_pattern.findall(meal_plan)
+    Extracts ingredient names from a structured meal plan.
 
-    ingredients = []
-    for match in ingredient_matches:
-        lines = match.strip().split("\n")
-        for line in lines:
-            clean_line = line.strip()
-            if clean_line and not clean_line.startswith("- "):  # Exclude bullet points if present
-                ingredients.append(clean_line)
+    Expected meal plan format:
+    [
+        {
+            "title": "Meal Name",
+            "ingredients": [
+                {"name": "Chicken Breast", "quantity": "6 oz"},
+                {"name": "Mixed Greens", "quantity": "2 cups"}
+            ],
+            "instructions": "Step-by-step cooking instructions."
+        },
+        ...
+    ]
 
-    return list(set(ingredients))  # Remove duplicates
-
-def save_meal(meal_name: str, meal_text: str, ingredients: list, dietary_type: str, macros: dict, meal_type: str):
-    """
-    Saves individual meals into the database if they do not already exist.
-    Meals are uniquely identified by {meal_type}_{dietary_type}_{calories}_{unique_id}.
+    Returns:
+        A list of unique ingredient names.
     """
 
-    base_meal_id = f"{meal_type}_{dietary_type}_{macros.get('calories', 0)}".lower()
+    ingredients = set()  # Using a set to remove duplicates
 
-    # Generate a unique 5-digit identifier
+    for meal in meal_plan:
+        meal_ingredients = meal.get("ingredients", [])
+        for ingredient in meal_ingredients:
+            if isinstance(ingredient, dict) and "name" in ingredient:
+                ingredients.add(ingredient["name"].strip())  # Extract only the ingredient name
+
+    return list(ingredients)  # Convert set back to a list for return
+
+def save_meal(meal_name: str, meal_text: str, ingredients: list, dietary_type: str, macros: dict, meal_plan_id: str = None, meal_type: str = None, request_hash: str = None):
+    """Saves meals into MongoDB with unique `meal_plan_id`."""
+    meal_calories = macros.get("calories", 0)
+    
+    # Handle optional parameters for backward compatibility
+    meal_type = meal_type or "Unknown"
+    meal_plan_id = meal_plan_id or f"{meal_type}_{dietary_type}_{meal_calories}_{random.randint(10000, 99999)}"
+    
+    base_meal_id = f"{meal_type}_{dietary_type}_{meal_calories}".lower()
     unique_id = f"{random.randint(10000, 99999)}"
     full_meal_id = f"{base_meal_id}_{unique_id}"
 
-    # Check if this meal name already exists under this base ID
     existing_meal = meals_collection.find_one({
-        "meal_id": base_meal_id,
-        "meal_name": meal_name
+        "meal_name": meal_name,
+        "meal_plan_id": meal_plan_id
     })
 
     if existing_meal:
-        print(f"⚠️ Meal '{meal_name}' ({full_meal_id}) already exists in the database.")
-        return
+        return  # Avoid duplicates
 
-    # Clean ingredients (remove numbering/bullets)
-    cleaned_ingredients = [re.sub(r"^\d+\.\s*", "", ing).strip() for ing in ingredients]
-
-    # Save each meal independently
     meal_data = {
-        "meal_id": full_meal_id,  # Unique meal identifier
-        "base_meal_id": base_meal_id,  # Used for category-level lookup
+        "meal_id": full_meal_id,
+        "meal_plan_id": meal_plan_id,
         "meal_name": meal_name,
         "meal_text": meal_text,
-        "ingredients": cleaned_ingredients,
+        "ingredients": ingredients,
         "dietary_type": dietary_type,
         "meal_type": meal_type,
-        "macros": macros,
+        "macros": macros
     }
+    
+    # Add request_hash if provided for better caching
+    if request_hash:
+        meal_data["request_hash"] = request_hash
+        meal_data["created_at"] = datetime.datetime.now()
 
     meals_collection.insert_one(meal_data)
-    print(f"✅ Meal '{meal_name}' ({full_meal_id}) saved to the database.")
