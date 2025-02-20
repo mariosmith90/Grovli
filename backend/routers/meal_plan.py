@@ -258,11 +258,23 @@ async def generate_meal_plan(request: MealPlanRequest):
     - Total Fiber: {total_macros["fiber"]}g
     - Total Sugar: {total_macros["sugar"]}g
 
+
     **Instructions:**
+    - Prioritize **whole, raw, and unprocessed ingredients** (e.g., fresh fruits, vegetables, whole grains, legumes, nuts, seeds, and lean meats).
+    - Avoid or **minimize highly processed, refined, and prepackaged foods** (e.g., protein powders, packaged mixes, frozen meals, processed sauces, and artificial sweeteners).
+    - Do **not** use **pre-mixed** or **frozen** fruits or vegetables. Instead, specify **individual** fresh produce items (e.g., "fresh spinach" instead of "frozen spinach," "cherry tomatoes" instead of "mixed salad greens").
+    - Seasonings and condiments should be minimal and based on **whole-food sources** (e.g., fresh herbs, lemon juice, vinegar, olive oil, natural spices).
     - Do **not** split total macros evenly across meals.
     - Ensure each meal has a **title, per-ingredient macros, and a total nutrition breakdown**.
     - Calories must match the **actual meal composition**, not be an arbitrary split.
     - All meals should share the **same `meal_plan_id`: `{meal_plan_id}`** to ensure they are stored as a group.
+
+    **Instructions Formatting:**
+    - Keep instructions **short, clear, and practical**.
+    - Use simple, easy-to-follow steps (avoid unnecessary details).
+    - Provide cooking times only when necessary.
+    - Offer basic cooking guidance (e.g., "Roast at 400°F for 20 minutes," "Stir occasionally to prevent burning").
+    - Keep wording **conversational but direct**.
 
     **Return the response strictly in this JSON format:**
     ```json
@@ -304,7 +316,7 @@ async def generate_meal_plan(request: MealPlanRequest):
                     }}
                 }}
             ],
-            "instructions": "Step-by-step cooking instructions."
+            "instructions": "1. **Prepare the Chicken**: In a small bowl, mix together the lemon juice, olive oil, minced garlic, fresh thyme, salt, and black pepper. Coat the chicken breast with the marinade and let it sit for at least 30 minutes (or overnight for deeper flavor).\\n\\n2. **Roast the Sweet Potatoes**: Preheat the oven to 400°F (200°C). Wash and dice the sweet potato into 1-inch cubes. Toss with a drizzle of olive oil, a pinch of salt, and black pepper. Spread evenly on a baking sheet and roast for 25-30 minutes, flipping halfway, until tender and caramelized.\\n\\n3. **Cook the Chicken**: Heat a grill pan or outdoor grill over medium-high heat. Remove the chicken from the marinade and grill for about 5-6 minutes per side, or until fully cooked and the internal temperature reaches 165°F (75°C). Let the chicken rest for 5 minutes before slicing.\\n\\n4. **Steam the Broccoli**: While the chicken is resting, bring a small pot of water to a boil. Place a steamer basket over the pot and add the broccoli florets. Cover and steam for 4-5 minutes until bright green and tender-crisp. Remove from heat and season with a pinch of salt.\\n\\n5. **Assemble and Serve**: Arrange the sliced grilled chicken, roasted sweet potatoes, and steamed broccoli on a plate. Drizzle any remaining juices from the chicken over the dish. Serve immediately and enjoy!\\n\\n**Chef’s Tip:** Add a sprinkle of crushed red pepper flakes or a squeeze of fresh lemon juice over the broccoli for extra flavor!"
         }}
     ]
     ```
