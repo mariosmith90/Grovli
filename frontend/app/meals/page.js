@@ -1,8 +1,11 @@
+"use client";
+
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import { useRouter } from 'next/navigation';
 import { Menu } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import MealCard from "../features/mealcard";
+import { useUser } from "@auth0/nextjs-auth0"; 
+import { getAccessToken } from "@auth0/nextjs-auth0";
 
 
 export default function Home() {
@@ -23,13 +26,8 @@ export default function Home() {
   const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
   const [ingredients, setIngredients] = useState([]);  
   const [orderingPlanIngredients, setOrderingPlanIngredients] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    setIsAuthenticated(!!token);
-  }, []);
+  const { user, isLoading } = useUser();
+  const isAuthenticated = !!user;
   
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -85,9 +83,17 @@ const fetchMealPlan = async () => {
     setError('');
     setLoading(true);
 
+    const tokenResponse = await getAccessToken(); 
+    const token = tokenResponse?.accessToken || "";
+
+    const { accessToken } = await getAccessToken();
+
     const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`   
+      },      
       body: JSON.stringify({
         dietary_preferences: preferences.trim(),
         meal_type: mealType,
@@ -176,7 +182,7 @@ const fetchMealPlan = async () => {
               {/* Title with Link */}
               <div 
                 className="text-white text-5xl font-bold cursor-pointer" 
-                onClick={() => router.push('/home')}
+                onClick={() => router.push('/')}
               >
                 Grovli
               </div>
@@ -194,7 +200,7 @@ const fetchMealPlan = async () => {
                           <li>
                             <button 
                               onClick={async() => { 
-                                router.push('/login'); 
+                                router.push('/api/auth/login'); 
                                 setMenuOpen(false); 
                               }} 
                               className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
@@ -243,7 +249,7 @@ const fetchMealPlan = async () => {
                               onClick={async() => { 
                                 localStorage.removeItem("token"); // Log out
                                 setIsAuthenticated(false);
-                                router.push('/login');
+                                router.push('/api/auth/login');
                                 setMenuOpen(false); 
                               }} 
                               className="w-full text-left px-4 py-2 hover:bg-gray-200 block"

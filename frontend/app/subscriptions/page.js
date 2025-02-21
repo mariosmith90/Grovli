@@ -1,4 +1,6 @@
-import { useRouter } from "next/router";
+"use client"
+
+import { useRouter } from "next/navigation";
 
 export default function Subscriptions() {
   const router = useRouter();

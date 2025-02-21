@@ -44,14 +44,20 @@ function MealCard({ title, nutrition, ingredients, instructions }) {
               Nutritional Information
             </h4>
 
-            <div className="grid grid-cols-6 gap-3">
-              <NutrientMetric 
-                icon={<Flame className="w-4 h-4 text-orange-500" />} 
-                value={nutrition.calories} 
-                unit="kcal"
-                label="Calories"
-                highlight={true} 
-              />
+            {/* ✅ Place Calories in a full-width row, macros below */}
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+              {/* 🔥 Calories spans full row */}
+              <div className="md:col-span-6">
+                <NutrientMetric 
+                  icon={<Flame className="w-4 h-4 text-orange-500" />} 
+                  value={nutrition.calories} 
+                  unit="kcal"
+                  label="Calories"
+                  highlight={true} 
+                />
+              </div>
+
+              {/* 🥩 Protein, 🍞 Carbs, 🧈 Fat, 🌿 Fiber, 🍬 Sugar in a 5-column row */}
               <NutrientMetric value={nutrition.protein} unit="g" label="Protein" />
               <NutrientMetric value={nutrition.carbs} unit="g" label="Carbs" />
               <NutrientMetric value={nutrition.fat} unit="g" label="Fat" />

@@ -19,7 +19,7 @@ services:
       - mongodb
       
   frontend:
-    build: ./frontend/mealplan-nextjs
+    build: ./frontend
     ports:
       - "3000:3000"
     environment:
