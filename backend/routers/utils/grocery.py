@@ -37,61 +37,24 @@ class ShoppingListRequest(BaseModel):
     meal_plan: str
     list_name: Optional[str] = "Weekly Meal Plan"
     list_id: Optional[str] = None
-    
-def clean_ingredient_name(ingredient: str) -> str:
-    """
-    Uses OpenAI GPT to remove macros, units, and preparation descriptors from ingredient names.
-    Returns only the essential raw product name.
-    """
-    prompt = f"""
-    Extract only the raw, unprocessed ingredient name from the following text.
-    Remove any numbers, nutritional details (calories, carbs, protein, fat, fiber, sugar), 
-    measurement units (cup, tbsp, tsp, oz, grams, ml, lb), and preparation descriptions.
-
-    Example conversions:
-    - "1/2 cup cooked quinoa" → "quinoa"
-    - "3 oz grilled chicken breast" → "chicken breast"
-    - "1 tbsp diced onion" → "onion"
-    - "2 cups mashed sweet potato" → "sweet potato"
-    - "4 slices cheddar cheese" → "cheddar cheese"
-
-    Ingredient: "{ingredient}"
-
-    Return only the cleaned product name.
-    """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2
-        )
-        cleaned_name = response.choices[0].message.content.strip()
-        return cleaned_name.split("\n")[0]  # Ensure only one word is returned
-
-    except Exception as e:
-        print(f"Error calling OpenAI API: {str(e)}")
-        return ingredient  # Return original ingredient in case of failure
 
 @router.post("/create_shopping_list/")
 async def create_shopping_list_endpoint(request: ShoppingListRequest):
     """
-    Create a shopping list on Instacart from the meal plan ingredients.
-    Returns both the shopping list details and the Instacart URL.
+    Create a shopping list from extracted meal plan ingredients.
     """
     if not request.meal_plan.strip():
         raise HTTPException(status_code=400, detail="Meal plan cannot be empty")
-    
+
     try:
-        # ✅ Debug: Print the received meal_plan
-        print("📝 Raw meal plan request:", request.meal_plan)
+        # ✅ Parse meal plan JSON and extract ingredients
+        meal_plan_data = json.loads(request.meal_plan)
 
-        # ✅ Parse JSON meal plan and extract ingredients
-        meal_plan_data = json.loads(request.meal_plan)  # Ensure it's treated as a list
-        ingredients = extract_ingredients_from_meal_plan(meal_plan_data)
-
-        # ✅ Debug: Print the extracted ingredients
-        print("🥦 Extracted ingredients:", ingredients)
+        # ✅ Extract ingredients from each meal in the meal plan list
+        ingredients = []
+        for meal in meal_plan_data:  # meal_plan_data is a list of meal dictionaries
+            if "ingredients" in meal and isinstance(meal["ingredients"], list):
+                ingredients.extend(meal["ingredients"])
 
         if not ingredients:
             raise HTTPException(status_code=400, detail="No ingredients extracted from the meal plan.")
@@ -99,12 +62,18 @@ async def create_shopping_list_endpoint(request: ShoppingListRequest):
         # Create new shopping list
         result = await create_shopping_list(ingredients, request.list_name)
 
+        ingredient_names = [ingredient["name"] for ingredient in ingredients]  # ✅ Extract only names for shopping list
+
         return {
             "status": "success",
             "message": "Shopping list created",
-            "shopping_list": result.dict(),
+            "shopping_list": {
+                "list_id": result.list_id,
+                "url": result.url,
+                "items": ingredient_names  # ✅ Send only names to Instacart
+            }
         }
-            
+
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid meal plan format. Expected JSON.")
     except Exception as e:
@@ -124,8 +93,8 @@ async def create_shopping_list(ingredients: List[str], name: str = "Weekly Meal 
         "Content-Type": "application/json"
     }
 
-    cleaned_ingredients = [clean_ingredient_name(ingredient) for ingredient in ingredients]
-    ingredient_counts = Counter(cleaned_ingredients)
+    ingredient_counts = Counter([ingredient["name"] for ingredient in ingredients if isinstance(ingredient, dict) and "name" in ingredient])
+    
     payload = {
         "title": name,
         "line_items": [{"name": ing, "quantity": qty} for ing, qty in ingredient_counts.items()]

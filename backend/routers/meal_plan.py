@@ -248,75 +248,82 @@ async def generate_meal_plan(request: MealPlanRequest):
     client = openai.OpenAI(api_key=api_key)
 
     prompt = f"""
-    Generate {num_meals_needed} unique {request.meal_type.lower()} meals for a {request.dietary_preferences} diet.
-    Each meal must strictly follow **this total daily macronutrient goal**:
+    Generate {num_meals_needed} complete, **single-serving** {request.meal_type.lower()} meals for a {request.dietary_preferences} diet.  
+    Prioritize recipes from **Food & Wine, Bon Appétit, and Serious Eats**. Each meal must:
 
-    - Total Daily Calories: {total_macros["calories"]} kcal
-    - Total Protein: {total_macros["protein"]}g
-    - Total Carbs: {total_macros["carbs"]}g
-    - Total Fat: {total_macros["fat"]}g
-    - Total Fiber: {total_macros["fiber"]}g
-    - Total Sugar: {total_macros["sugar"]}g
+    - Be **a single-serving portion**, accurately scaled  
+    - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)  
+    - Match **individual meal macros** (±1% of target values):  
+        • Calories: {total_macros['calories']} kcal  
+        • Protein: {total_macros['protein']} g  
+        • Carbs: {total_macros['carbs']} g  
+        • Fat: {total_macros['fat']} g  
+        • Fiber: {total_macros['fiber']} g  
+        • Sugar: {total_macros['sugar']} g  
 
+    ### **Mandatory Requirements**:
+    1. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")  
+    2. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")  
+    3. **Calculate macros per ingredient and ensure total macros match per serving**  
+    4. **List all essential ingredients** (cooking fats, seasonings, and garnishes)  
+    5. **Validate meal totals against individual ingredient macros**  
+    6. **All meals must share** meal_plan_id: `{meal_plan_id}`  
 
-    **Instructions:**
-    - Prioritize **whole, raw, and unprocessed ingredients** (e.g., fresh fruits, vegetables, whole grains, legumes, nuts, seeds, and lean meats).
-    - Avoid or **minimize highly processed, refined, and prepackaged foods** (e.g., protein powders, packaged mixes, frozen meals, processed sauces, and artificial sweeteners).
-    - Do **not** use **pre-mixed** or **frozen** fruits or vegetables. Instead, specify **individual** fresh produce items (e.g., "fresh spinach" instead of "frozen spinach," "cherry tomatoes" instead of "mixed salad greens").
-    - Seasonings and condiments should be minimal and based on **whole-food sources** (e.g., fresh herbs, lemon juice, vinegar, olive oil, natural spices).
-    - Do **not** split total macros evenly across meals.
-    - Ensure each meal has a **title, per-ingredient macros, and a total nutrition breakdown**.
-    - Calories must match the **actual meal composition**, not be an arbitrary split.
-    - All meals should share the **same `meal_plan_id`: `{meal_plan_id}`** to ensure they are stored as a group.
+    ---
 
-    **Instructions Formatting:**
-    - Keep instructions **short, clear, and practical**.
-    - Use simple, easy-to-follow steps (avoid unnecessary details).
-    - Provide cooking times only when necessary.
-    - Offer basic cooking guidance (e.g., "Roast at 400°F for 20 minutes," "Stir occasionally to prevent burning").
-    - Keep wording **conversational but direct**.
-
-    **Return the response strictly in this JSON format:**
+    ### **Example Response Format**:
     ```json
     [
         {{
-            "title": "Meal Name",
+            "title": "Herb-Roasted Chicken with Vegetables",
             "meal_plan_id": "{meal_plan_id}",
             "nutrition": {{
-                "calories": 450,
-                "protein": 35,
-                "carbs": 50,
-                "fat": 15,
-                "fiber": 7,
-                "sugar": 12
+                "calories": 625,
+                "protein": 42,
+                "carbs": 38,
+                "fat": 22,
+                "fiber": 8,
+                "sugar": 9
             }},
             "ingredients": [
                 {{
-                    "name": "Ingredient 1",
-                    "quantity": "1 cup",
+                    "name": "Boneless chicken breast",
+                    "quantity": "6 oz",
                     "macros": {{
-                        "calories": 200,
-                        "protein": 10,
-                        "carbs": 30,
-                        "fat": 5,
-                        "fiber": 3,
-                        "sugar": 5
+                        "calories": 280,
+                        "protein": 38,
+                        "carbs": 0,
+                        "fat": 12,
+                        "fiber": 0,
+                        "sugar": 0
                     }}
                 }},
                 {{
-                    "name": "Ingredient 2",
-                    "quantity": "2 oz",
+                    "name": "Olive oil",
+                    "quantity": "1 tbsp",
                     "macros": {{
-                        "calories": 250,
-                        "protein": 25,
-                        "carbs": 20,
-                        "fat": 10,
-                        "fiber": 4,
-                        "sugar": 7
+                        "calories": 119,
+                        "protein": 0,
+                        "carbs": 0,
+                        "fat": 14,
+                        "fiber": 0,
+                        "sugar": 0
+                    }}
+                }},
+                {{
+                    "name": "Fresh rosemary",
+                    "quantity": "1 tsp chopped",
+                    "macros": {{
+                        "calories": 2,
+                        "protein": 0,
+                        "carbs": 0,
+                        "fat": 0,
+                        "fiber": 0,
+                        "sugar": 0
                     }}
                 }}
             ],
-            "instructions": "1. **Prepare the Chicken**: In a small bowl, mix together the lemon juice, olive oil, minced garlic, fresh thyme, salt, and black pepper. Coat the chicken breast with the marinade and let it sit for at least 30 minutes (or overnight for deeper flavor).\\n\\n2. **Roast the Sweet Potatoes**: Preheat the oven to 400°F (200°C). Wash and dice the sweet potato into 1-inch cubes. Toss with a drizzle of olive oil, a pinch of salt, and black pepper. Spread evenly on a baking sheet and roast for 25-30 minutes, flipping halfway, until tender and caramelized.\\n\\n3. **Cook the Chicken**: Heat a grill pan or outdoor grill over medium-high heat. Remove the chicken from the marinade and grill for about 5-6 minutes per side, or until fully cooked and the internal temperature reaches 165°F (75°C). Let the chicken rest for 5 minutes before slicing.\\n\\n4. **Steam the Broccoli**: While the chicken is resting, bring a small pot of water to a boil. Place a steamer basket over the pot and add the broccoli florets. Cover and steam for 4-5 minutes until bright green and tender-crisp. Remove from heat and season with a pinch of salt.\\n\\n5. **Assemble and Serve**: Arrange the sliced grilled chicken, roasted sweet potatoes, and steamed broccoli on a plate. Drizzle any remaining juices from the chicken over the dish. Serve immediately and enjoy!\\n\\n**Chef’s Tip:** Add a sprinkle of crushed red pepper flakes or a squeeze of fresh lemon juice over the broccoli for extra flavor!"
+            "instructions": "1. **Prep Chicken**: Pat dry chicken. Mix 1 tsp rosemary, 1/2 tsp salt, 1/4 tsp pepper. Rub onto chicken.\\n2. **Cook**: Heat olive oil in oven-safe skillet. Sear chicken 3 mins/side. Transfer to 400°F oven for 18 mins.\\n3. **Rest**: Let chicken rest 5 mins before serving."
         }}
     ]
     ```
@@ -325,7 +332,7 @@ async def generate_meal_plan(request: MealPlanRequest):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
