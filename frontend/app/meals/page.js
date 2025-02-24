@@ -23,11 +23,49 @@ export default function Home() {
   const [mealPlan, setMealPlan] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [calculationMode ] = useState('auto'); // 'manual' or 'auto'
+  const [calculationMode ] = useState('auto');
   const [ingredients, setIngredients] = useState([]);  
   const [orderingPlanIngredients, setOrderingPlanIngredients] = useState(false);
   const { user, isLoading } = useUser();
   const isAuthenticated = !!user;
+  const [isPro, setIsPro] = useState(false);
+
+
+  useEffect(() => {
+    const fetchSubscriptionStatus = async () => {
+      if (!user) return;
+
+      try {
+        // const { accessToken } = await getAccessToken({
+        //   authorizationParams: {
+        //     audience: "https://grovli.citigrove.com/audience", 
+        //     scope: "openid profile email read:users update:users update:users_app_metadata read:app_metadata"
+        //   }
+        // });
+
+        // console.log("Retrieved Access Token:", accessToken);
+
+        // if (!accessToken) {
+        //   throw new Error("Failed to retrieve access token.");
+        // }
+
+        // ✅ Decode JWT and check the app_metadata
+        const tokenPayload = JSON.parse(atob(accessToken.split(".")[1])); // Decode JWT payload
+        console.log("Decoded Token Payload:", tokenPayload);
+
+        // ✅ Ensure metadata is correctly set
+        const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
+        setIsPro(userSubscription === "pro");
+
+      } catch (err) {
+        console.error("Error fetching subscription status:", err);
+      }
+    };
+
+    if (!isLoading) {
+      fetchSubscriptionStatus();
+    }
+  }, [user, isLoading]);
   
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -87,6 +125,17 @@ const fetchMealPlan = async () => {
     const token = tokenResponse?.accessToken || "";
 
     const { accessToken } = await getAccessToken();
+
+    // const { accessToken } = await getAccessToken({
+    //   authorizationParams: {
+    //     audience: "https://grovli.citigrove.com/audience",
+    //     scope: "openid profile email read:users update:users update:users_app_metadata read:app_metadata"        
+    //   }
+    // });
+    
+    // if (!accessToken) {
+    //   throw new Error("Failed to retrieve access token.");
+    // }
 
     const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
       method: 'POST',

@@ -8,3 +8,4 @@ pymupdf==1.22.5
 python-multipart==0.0.9
 requests
 pymongo
+stripe

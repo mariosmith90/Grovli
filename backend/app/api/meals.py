@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from routers.utils.extract import extract_ingredients_from_meal_plan, save_meal
 import openai
 import os
 import requests
 import re, random, json, datetime
-from typing import List, Optional, Set
+from typing import List, Set
 from pymongo import MongoClient
 
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
@@ -101,8 +100,6 @@ async def archive_meal_plan(request: MealPlanText):
     if not request.meal_plan.strip():
         raise HTTPException(status_code=400, detail="Meal plan cannot be empty")
 
-    ingredients = extract_ingredients_from_meal_plan(request.meal_plan)
-
     # Extract dietary type
     dietary_type_match = re.search(r"(?<=for a )([\w\s]+)(?= diet)", request.meal_plan)
     dietary_type = dietary_type_match.group(1) if dietary_type_match else "Unknown"
@@ -132,18 +129,6 @@ async def archive_meal_plan(request: MealPlanText):
             macros[key] = int(match.group(1)) if match else 0
 
         # Extract ingredients specific to this meal
-        meal_ingredients = extract_ingredients_from_meal_plan(meal_text)
-
-        # Save each meal separately
-        save_meal(
-            meal_name=meal_name.strip(), 
-            meal_text=meal_text, 
-            ingredients=meal_ingredients, 
-            dietary_type=dietary_type, 
-            macros=macros,
-            meal_plan_id=archive_id,
-            meal_type=meal_type
-        )
 
     return {"status": "success", "message": "Meals archived successfully", "meal_plan_id": archive_id}
 

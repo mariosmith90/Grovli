@@ -3,7 +3,7 @@ import requests, os, json, openai
 from collections import Counter
 from fastapi import HTTPException
 from pydantic import BaseModel
-from routers.meal_plan import extract_ingredients_from_meal_plan, MealPlanText
+from app.api.meals import MealPlanText
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 
@@ -21,17 +21,6 @@ if not api_key:
     raise ValueError("OpenAI API key not configured")
 
 client = openai.OpenAI(api_key=api_key)
-
-@router.post("/extract_ingredients/")
-async def extract_ingredients(meal_plan_request: MealPlanText):
-    """
-    Extract ingredients from the given meal plan text.
-    """
-    if not meal_plan_request.meal_plan.strip():
-        raise HTTPException(status_code=400, detail="Meal plan cannot be empty")
-
-    ingredients = extract_ingredients_from_meal_plan(meal_plan_request.meal_plan)
-    return {"ingredients": ingredients}
 
 class ShoppingListRequest(BaseModel):
     meal_plan: str

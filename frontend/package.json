@@ -8,6 +8,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.3.0",
     "@auth0/nextjs-auth0": "^4.0.2",
     "@heroicons/react": "^2.2.0",
     "lucide-react": "^0.475.0",
