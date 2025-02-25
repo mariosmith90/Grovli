@@ -203,6 +203,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         print(f"✅ Found cached meal plan for request hash: {request_hash}")
         formatted_meals = [
             {
+                "id": meal["meal_id"],
                 "title": meal["meal_name"],
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
@@ -253,6 +254,16 @@ async def generate_meal_plan(request: MealPlanRequest):
     4. **List all essential ingredients** (cooking fats, seasonings, and garnishes)  
     5. **Validate meal totals against individual ingredient macros**  
     6. **All meals must share** meal_plan_id: `{meal_plan_id}`  
+
+    ---
+
+    ### **Instructions Formatting Requirements**:
+    - **Each instruction step must be detailed, clear, and structured for ease of use**  
+    - **Use precise cooking techniques** (e.g., “sear over medium-high heat for 3 minutes per side until golden brown”)  
+    - **Include prep instructions** (e.g., “Finely mince garlic,” “Dice bell peppers into ½-inch cubes”)  
+    - **Specify temperatures, times, and sensory indicators** (e.g., “Roast at 400°F for 20 minutes until caramelized”)  
+    - **Use line breaks for readability**  
+    - **Include plating instructions** (e.g., “Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs”)  
 
     ---
 
@@ -308,7 +319,28 @@ async def generate_meal_plan(request: MealPlanRequest):
                     }}
                 }}
             ],
-            "instructions": "1. **Prep Chicken**: Pat dry chicken. Mix 1 tsp rosemary, 1/2 tsp salt, 1/4 tsp pepper. Rub onto chicken.\\n2. **Cook**: Heat olive oil in oven-safe skillet. Sear chicken 3 mins/side. Transfer to 400°F oven for 18 mins.\\n3. **Rest**: Let chicken rest 5 mins before serving."
+            "instructions": "### **Step 1: Prepare Ingredients**\\n
+            - Preheat the oven to **400°F (200°C)**.\\n
+            - Pat the **chicken breast** dry with a paper towel.\\n
+            - Finely chop **1 tsp fresh rosemary**.\\n
+            - In a small bowl, mix **1/2 tsp salt**, **1/4 tsp black pepper**, and chopped rosemary.\\n\\n
+
+            ### **Step 2: Sear the Chicken**\\n
+            - Heat **1 tbsp olive oil** in an oven-safe skillet over **medium-high heat**.\\n
+            - Once hot, place the chicken breast in the pan and **sear for 3 minutes** on one side until golden brown.\\n
+            - Flip and sear for another **3 minutes** on the other side.\\n\\n
+
+            ### **Step 3: Roast the Chicken**\\n
+            - Transfer the skillet to the preheated oven.\\n
+            - Roast for **18 minutes**, or until the internal temperature reaches **165°F (75°C)**.\\n
+            - Remove from the oven and let rest for **5 minutes**.\\n\\n
+
+            ### **Step 4: Serve**\\n
+            - Transfer the chicken to a **warm plate**.\\n
+            - Drizzle with any pan juices.\\n
+            - Garnish with an extra **pinch of fresh rosemary**.\\n\\n
+
+            Enjoy!"
         }}
     ]
     ```
@@ -317,7 +349,7 @@ async def generate_meal_plan(request: MealPlanRequest):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
@@ -329,6 +361,12 @@ async def generate_meal_plan(request: MealPlanRequest):
 
         if not isinstance(generated_meals, list):
             raise ValueError("AI response is not a valid list of meals.")
+
+        for meal in generated_meals:
+            meal_calories = meal["nutrition"]["calories"]
+            unique_id = f"{random.randint(10000, 99999)}"
+            meal["meal_id"] = f"{request.meal_type}_{request.dietary_preferences}_{meal_calories}_{unique_id}"
+
 
         # Save all newly generated meals with the request hash for future caching
         for meal in generated_meals:
@@ -346,6 +384,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         # Format generated meals
         formatted_meals = [
             {
+                "id": meal["meal_id"], 
                 "title": meal["title"],
                 "nutrition": meal["nutrition"],
                 "ingredients": meal["ingredients"],
@@ -359,6 +398,24 @@ async def generate_meal_plan(request: MealPlanRequest):
         raise HTTPException(status_code=500, detail="Failed to parse AI-generated meal plan.")
 
     return {"meal_plan": formatted_meals, "cached": False}
+
+@router.get("/{meal_id}")
+async def get_meal_by_id(meal_id: str):
+    """
+    Retrieves a specific meal by its meal_id hash.
+    """
+    meal = meals_collection.find_one({"meal_id": meal_id})
+    
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    return {
+        "id": meal["meal_id"],
+        "title": meal["meal_name"],
+        "nutrition": meal["macros"],
+        "ingredients": meal["ingredients"],
+        "instructions": meal["meal_text"],
+    }
 
 def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash):
     """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""

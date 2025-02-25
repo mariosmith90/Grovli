@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Menu } from 'lucide-react';
-import MealCard from "../features/mealcard";
+import MealCard from "../elements/mealcard";
 import { useUser } from "@auth0/nextjs-auth0"; 
 import { getAccessToken } from "@auth0/nextjs-auth0";
 
@@ -31,11 +31,11 @@ export default function Home() {
   const [isPro, setIsPro] = useState(false);
 
 
-  useEffect(() => {
-    const fetchSubscriptionStatus = async () => {
-      if (!user) return;
+  // useEffect(() => {
+  //   const fetchSubscriptionStatus = async () => {
+  //     if (!user) return;
 
-      try {
+  //     try {
         // const { accessToken } = await getAccessToken({
         //   authorizationParams: {
         //     audience: "https://grovli.citigrove.com/audience", 
@@ -49,23 +49,23 @@ export default function Home() {
         //   throw new Error("Failed to retrieve access token.");
         // }
 
-        // ✅ Decode JWT and check the app_metadata
-        const tokenPayload = JSON.parse(atob(accessToken.split(".")[1])); // Decode JWT payload
-        console.log("Decoded Token Payload:", tokenPayload);
+      //   // ✅ Decode JWT and check the app_metadata
+      //   const tokenPayload = JSON.parse(atob(accessToken.split(".")[1])); // Decode JWT payload
+      //   console.log("Decoded Token Payload:", tokenPayload);
 
-        // ✅ Ensure metadata is correctly set
-        const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
-        setIsPro(userSubscription === "pro");
+      //   // ✅ Ensure metadata is correctly set
+      //   const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
+      //   setIsPro(userSubscription === "pro");
 
-      } catch (err) {
-        console.error("Error fetching subscription status:", err);
-      }
-    };
+      // } catch (err) {
+      //   console.error("Error fetching subscription status:", err);
+      // }
+  //   };
 
-    if (!isLoading) {
-      fetchSubscriptionStatus();
-    }
-  }, [user, isLoading]);
+  //   if (!isLoading) {
+  //     fetchSubscriptionStatus();
+  //   }
+  // }, [user, isLoading]);
   
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -79,6 +79,42 @@ export default function Home() {
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [menuOpen]);
+
+  useEffect(() => {
+    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
+
+    if (savedData) {
+      setPreferences(savedData.preferences || '');
+      setMealType(savedData.mealType || 'All');
+      setNumDays(savedData.numDays || 1);
+      setCarbs(savedData.carbs || 0);
+      setCalories(savedData.calories || 0);
+      setProtein(savedData.protein || 0);
+      setSugar(savedData.sugar || 0);
+      setFat(savedData.fat || 0);
+      setFiber(savedData.fiber || 0);
+      setMealPlan(savedData.mealPlan || []);
+    }
+  }, []);
+
+  // 🔹 Save inputs to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(
+      "mealPlanInputs",
+      JSON.stringify({
+        preferences,
+        mealType,
+        numDays,
+        carbs,
+        calories,
+        protein,
+        sugar,
+        fat,
+        fiber,
+        mealPlan
+      })
+    );
+  }, [preferences, mealType, numDays, carbs, calories, protein, sugar, fat, fiber, mealPlan]);
 
   // Auto-calculate macros based on calories
   useEffect(() => {
@@ -571,6 +607,7 @@ const fetchMealPlan = async () => {
                   {mealPlan.map((meal, index) => (
                     <MealCard
                       key={index}
+                      id={meal.id}
                       title={meal?.title || "Untitled Meal"}
                       nutrition={meal?.nutrition || {
                         calories: 0,
