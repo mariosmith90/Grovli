@@ -81,7 +81,7 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
                   </div>
 
                   {ingredient.macros && (
-                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2">
+                    <div className="text-lg text-gray-500 mt-1 flex flex-wrap gap-x-2">
                       <MacroTag value={`${ingredient.macros.calories} kcal`} color="bg-orange-50 text-orange-700" />
                       <MacroTag value={`${ingredient.macros.protein}g protein`} color="bg-blue-50 text-blue-700" />
                       <MacroTag value={`${ingredient.macros.carbs}g carbs`} color="bg-green-50 text-green-700" />
@@ -139,7 +139,7 @@ function NutrientMetric({ icon, value, unit, label, highlight = false }) {
 // **Macro Display Component**
 function MacroTag({ value, color }) {
   return (
-    <span className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-medium ${color}`}>
+    <span className={`inline-block rounded-md px-2 py-1 text-base font-medium ${color}`}>
       {value}
     </span>
   );

@@ -49,7 +49,7 @@ class MealPlanRequest(BaseModel):
 
 # Define the expected number of meals based on Meal Type
 MEAL_TYPE_COUNTS = {
-    "All": 5,       
+    "Full Day": 5,       
     "Breakfast": 1,
     "Lunch": 1,
     "Dinner": 1,
@@ -190,8 +190,8 @@ async def generate_meal_plan(request: MealPlanRequest):
     If enough meals do not exist, it generates new meals with OpenAI.
     """
     # Step 1: Determine the correct number and types of meals needed
-    if request.meal_type == "All":
-        # For "All", we need multiple meal types
+    if request.meal_type == "Full Day":
+        # For "Full Day", we need multiple meal types
         meal_counts = {
             "Breakfast": 1,
             "Lunch": 1, 
@@ -245,7 +245,7 @@ async def generate_meal_plan(request: MealPlanRequest):
     }
     
     # For single meal type requests, use all macros
-    if request.meal_type != "All":
+    if request.meal_type != "Full Day":
         meal_macros = {
             request.meal_type: {
                 "calories": request.calories,
@@ -257,7 +257,7 @@ async def generate_meal_plan(request: MealPlanRequest):
             }
         }
     else:
-        # For "All" meal type, distribute macros proportionally
+        # For "Full Day" meal type, distribute macros proportionally
         meal_macros = {}
         for meal_type, ratio in meal_type_calorie_ratio.items():
             # Multiply by meal count for that type (e.g., 2 snacks)

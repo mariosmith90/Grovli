@@ -12,7 +12,7 @@ export default function Home() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [preferences, setPreferences] = useState('');
-  const [mealType, setMealType] = useState('All');
+  const [mealType, setMealType] = useState('Full Day');
   const [numDays, setNumDays] = useState(1);
   const [carbs, setCarbs] = useState(0);
   const [calories, setCalories] = useState(0);
@@ -29,6 +29,17 @@ export default function Home() {
   const { user, isLoading } = useUser();
   const isAuthenticated = !!user;
   const [isPro, setIsPro] = useState(false);
+  const [manualInput, setManualInput] = useState(false);
+  const dietOptions = [
+    "Asian",
+    "Caribbean",
+    "Clean", 
+    "Keto", 
+    "Mediterranean",
+    "Paleo",
+    "Vegan", 
+    "Vegetarian",
+  ];
 
 
   // useEffect(() => {
@@ -262,11 +273,11 @@ const fetchMealPlan = async () => {
       return ( 
         <>
           {/* Navigation Bar */}
-          <nav className="fixed top-0 left-0 w-full p-6 bg-gray-500 bg-opacity-90 shadow-md z-50">            
-            <div className="flex justify-between items-center max-w-7xl mx-auto">
-              {/* Title with Link */}
+          <nav className="fixed top-0 left-0 w-full py-3 px-4 bg-gray-500 bg-opacity-90 shadow-md z-50">            
+            <div className="flex justify-between items-center max-w-6xl mx-auto">
+              {/* Title with Link (Smaller Text) */}
               <div 
-                className="text-white text-5xl font-bold cursor-pointer" 
+                className="text-white text-2xl font-bold cursor-pointer" 
                 onClick={() => router.push('/')}
               >
                 Grovli
@@ -368,214 +379,281 @@ const fetchMealPlan = async () => {
               </div>
 
               <main className="relative z-10 p-6 max-w-4xl mx-auto min-h-screen flex flex-col justify-center">
-                <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full">     
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full">
+                  
                   {/* Section Header */}
-                <h2 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '15px' }}>
-                  Customize Meal Plan
-                </h2>
-              {/* Dietary Preferences */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Dietary Preferences:</strong>
+                  <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    Plan Your Meal
+                  </h2>
+
+                  {/* Dietary Preferences Section */}
+                  <div className="mb-6">
+                    <label className="block text-lg font-semibold text-gray-800 mb-2">
+                      What do you like to eat?
+                    </label>
+
+
+                  {/* Manual Input Field (Hidden Unless Toggle is On) */}
+                  {manualInput ? (
+                    <input
+                      type="text"
+                      placeholder="Enter dietary preference"
+                      value={preferences}
+                      onChange={(e) => setPreferences(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                    />
+                  ) : (
+                    // Bubble Buttons for Dietary Selection
+                    <div className="flex flex-wrap gap-2">
+                      {dietOptions.map((option) => (
+                        <button
+                          key={option}
+                          onClick={() => setPreferences(option)}
+                          className={`px-4 py-2 rounded-full border-2 ${
+                            preferences === option 
+                              ? "bg-teal-500 text-white border-teal-500"
+                              : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                          } transition-all`}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Macro Calculation Mode */}
+                <div className="mb-6">
+                  <label className="block text-lg font-semibold text-gray-800 mb-2">
+                    Macro Calculation Mode
+                  </label>
+
+                  <div className="flex items-center space-x-4">
+                    {/* Auto Mode - Default Selection */}
+                    <button 
+                      onClick={() => setCalculationMode("auto")}
+                      className={`px-4 py-2 rounded-full border-2 ${
+                        calculationMode === "auto"
+                          ? "bg-teal-500 text-white border-teal-500"
+                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                      } transition-all`}
+                    >
+                      Auto
+                    </button>
+
+                    {/* Manual Mode - Disabled for Non-Pro Users */}
+                    <button 
+                      disabled={!isPro}
+                      onClick={() => isPro && setCalculationMode("manual")}
+                      className={`px-4 py-2 rounded-full border-2 ${
+                        isPro
+                          ? calculationMode === "manual"
+                            ? "bg-teal-500 text-white border-teal-500"
+                            : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                          : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
+                      } transition-all`}
+                    >
+                      Manual
+                    </button>
+                  </div>
+
+                  {/* Pro Feature Message */}
+                  {!isPro && (
+                    <p className="text-sm text-gray-600 mt-2">
+                      Manual mode is a <strong>Pro feature</strong>.{" "}
+                      <span
+                        className="text-blue-600 cursor-pointer hover:underline"
+                        onClick={() => router.push('/subscriptions')}
+                      >
+                        Upgrade Now
+                      </span>
+                    </p>
+                  )}
+                </div>
+
+              {/* Meal Type Selection */}
+              <div className="mb-6">
+                <label className="block text-lg font-semibold text-gray-800 mb-2">
+                  Meal Type
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g., Vegetarian, Vegan"
-                  value={preferences}
-                  onChange={(e) => setPreferences(e.target.value)}
-                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-                />
+
+                <div className="flex flex-wrap gap-2">
+                  {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => setMealType(option)}
+                      className={`px-4 py-2 rounded-full border-2 ${
+                        mealType === option 
+                          ? "bg-teal-500 text-white border-teal-500"
+                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                      } transition-all`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Calculation Mode Toggle */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Macro Calculation Mode:</strong>
+              {/* Number of Days Selection */}
+              <div className="mb-6">
+                <label className="block text-lg font-semibold text-gray-800 mb-2">
+                  Number of Days
                 </label>
-                <select
-                  value="auto"
-                  disabled
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginTop: '5px',
-                    backgroundColor: '#f0f0f0', // Greyed out
-                    color: '#888', // Text color to indicate disabled
-                    border: '1px solid #ccc',
-                    borderRadius: '4px',
-                    cursor: 'not-allowed', // Prevents selection
-                  }}
-                >
-                  <option value="auto">Auto</option>
-                </select>
+
+                <div className="flex flex-wrap gap-2">
+                  {[1, 3, 5, 7].map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
+                      className={`px-4 py-2 rounded-full border-2 transition-all ${
+                        numDays === option
+                          ? "bg-teal-500 text-white border-teal-500"
+                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                      } ${!isPro && option !== 1 ? "opacity-50 cursor-not-allowed" : ""}`}
+                      disabled={!isPro && option !== 1}
+                    >
+                      {option} {option === 1 ? "Day" : "Days"}
+                    </button>
+                  ))}
+                </div>
 
                 {/* Pro Feature Message */}
-                <p className="text-sm text-gray-600 mt-1">
-                  Manual mode is a <strong>Pro feature</strong>.{" "}
-                  <span
-                    className="text-blue-600 cursor-pointer hover:underline"
-                    onClick={() => router.push('/subscriptions')}
-                  >
-                    Upgrade Now
+                {!isPro && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    Days over 1 is a <strong>Pro feature</strong>.{" "}
+                    <span
+                      className="text-blue-600 cursor-pointer hover:underline"
+                      onClick={() => router.push('/subscriptions')}
+                    >
+                      Upgrade Now
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* Calorie & Macro Selection Section */}
+              <div className="mb-6">
+                <label className="block text-lg font-semibold text-gray-800 mb-2">
+                  Set Your Daily Calories
+                </label>
+
+                <div className="flex items-center space-x-4">
+                  <input 
+                    type="range" 
+                    min="1000" 
+                    max="4000" 
+                    step="50" 
+                    value={calories} 
+                    onChange={(e) => setCalories(Number(e.target.value))}
+                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-lg font-semibold text-gray-800">
+                    {calories} kcal
                   </span>
-                </p>
+                </div>
               </div>
 
-              {/* Meal Type Dropdown */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Meal Type:</strong>
-                </label>
-                <select
-                  value={mealType}
-                  onChange={(e) => setMealType(e.target.value)}
-                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-                >
-                  <option value="All">All (Breakfast, Lunch, Dinner, 2 Snacks)</option>
-                  <option value="Breakfast">Breakfast</option>
-                  <option value="Lunch">Lunch</option>
-                  <option value="Dinner">Dinner</option>
-                  <option value="Snack">Snack</option>
-                </select>
-              </div>
+              {/* Macros - Only Show When Calories are Set */}
+              {calories > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-md font-semibold text-gray-700 mb-2">Macronutrients</h3>
 
-              {/* Number of Days */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Number of Days:</strong>
-                </label>
-                <select
-                  value="1"
-                  disabled
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    marginTop: '5px',
-                    backgroundColor: '#f0f0f0', // Greyed out
-                    color: '#888', // Text color to indicate disabled
-                    border: '1px solid #ccc',
-                    borderRadius: '4px',
-                    cursor: 'not-allowed', // Prevents selection
-                  }}
-                >
-                  <option value="1">1</option>
-                </select>
+                  {/* Carbs Slider */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-medium">Carbs (g/day)</label>
+                    <div className="flex items-center space-x-4">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="600" 
+                        step="1" 
+                        value={carbs} 
+                        onChange={(e) => isPro && setCarbs(Number(e.target.value))}
+                        disabled={!isPro}
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                      />
+                      <span className="text-gray-800 font-medium">{carbs} g</span>
+                    </div>
+                  </div>
 
-                {/* Pro Feature Message */}
-                <p className="text-sm text-gray-600 mt-1">
-                  Days over 1 is a <strong>Pro feature</strong>.{" "}
-                  <span
-                    className="text-blue-600 cursor-pointer hover:underline"
-                    onClick={() => router.push('/subscriptions')}
-                  >
-                    Upgrade Now
-                  </span>
-                </p>
-              </div>
+                  {/* Protein Slider */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-medium">Protein (g/day)</label>
+                    <div className="flex items-center space-x-4">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="300" 
+                        step="1" 
+                        value={protein} 
+                        onChange={(e) => isPro && setProtein(Number(e.target.value))}
+                        disabled={!isPro}
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                      />
+                      <span className="text-gray-800 font-medium">{protein} g</span>
+                    </div>
+                  </div>
 
-              {/* Calories */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Calories (daily total):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={calories}
-                  onChange={(e) => setCalories(Number(e.target.value))}
-                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-                />
-              </div>
+                  {/* Fat Slider */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-medium">Fat (g/day)</label>
+                    <div className="flex items-center space-x-4">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="200" 
+                        step="1" 
+                        value={fat} 
+                        onChange={(e) => isPro && setFat(Number(e.target.value))}
+                        disabled={!isPro}
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                      />
+                      <span className="text-gray-800 font-medium">{fat} g</span>
+                    </div>
+                  </div>
 
-              {/* Auto-calculated or manual input fields */}
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Carbs (grams per day):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={carbs}
-                  onChange={(e) => setCarbs(Number(e.target.value))}
-                  disabled={calculationMode === 'auto'}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    marginTop: '5px',
-                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-                  }}
-                />
-              </div>
+                  {/* Fiber Slider */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-medium">Fiber (g/day)</label>
+                    <div className="flex items-center space-x-4">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        step="1" 
+                        value={fiber} 
+                        onChange={(e) => isPro && setFiber(Number(e.target.value))}
+                        disabled={!isPro}
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                      />
+                      <span className="text-gray-800 font-medium">{fiber} g</span>
+                    </div>
+                  </div>
 
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Protein (grams per day):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={protein}
-                  onChange={(e) => setProtein(Number(e.target.value))}
-                  disabled={calculationMode === 'auto'}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    marginTop: '5px',
-                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Fat (grams per day):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={fat}
-                  onChange={(e) => setFat(Number(e.target.value))}
-                  disabled={calculationMode === 'auto'}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    marginTop: '5px',
-                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Fiber (grams per day):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={fiber}
-                  onChange={(e) => setFiber(Number(e.target.value))}
-                  disabled={calculationMode === 'auto'}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    marginTop: '5px',
-                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label>
-                  <strong>Sugar (grams per day limit):</strong>
-                </label>
-                <input
-                  type="number"
-                  value={sugar}
-                  onChange={(e) => setSugar(Number(e.target.value))}
-                  disabled={calculationMode === 'auto'}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    marginTop: '5px',
-                    backgroundColor: calculationMode === 'auto' ? '#f0f0f0' : 'white' 
-                  }}
-                />
-              </div>
+                  {/* Sugar Slider */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-medium">Sugar (g/day limit)</label>
+                    <div className="flex items-center space-x-4">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="200" 
+                        step="1" 
+                        value={sugar} 
+                        onChange={(e) => isPro && setSugar(Number(e.target.value))}
+                        disabled={!isPro}
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                      />
+                      <span className="text-gray-800 font-medium">{sugar} g</span>
+                    </div>
+                  </div>
+                </div>
+            )}
 
               {/* Error Message */}
               {error && <p style={{ color: 'red' }}>{error}</p>}
@@ -636,10 +714,10 @@ const fetchMealPlan = async () => {
           </div>
         </main>
         <div className="w-full h-32"></div> {/* Empty box for future content */}
-        <footer className="fixed bottom-0 left-0 right-0 z-30 w-full bg-gray-500 text-white text-center py-6">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-6">
+        <footer className="fixed bottom-0 left-0 right-0 z-30 w-full bg-gray-500 text-white text-center py-3 text-sm">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-4">
             {/* Left - Branding */}
-            <div className="text-lg font-semibold">© {new Date().getFullYear()} Grovli</div>
+            <div className="font-semibold">© {new Date().getFullYear()} Grovli</div>
             
             {/* Middle - Links */}
             <div className="flex space-x-6 mt-4 md:mt-0">
