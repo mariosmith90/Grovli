@@ -49,11 +49,11 @@ class MealPlanRequest(BaseModel):
 
 # Define the expected number of meals based on Meal Type
 MEAL_TYPE_COUNTS = {
-    "Full Day": 5,       
+    "Full Day": 4,       
     "Breakfast": 1,
     "Lunch": 1,
     "Dinner": 1,
-    "Snack": 2,    
+    "Snack": 1,    
 }
 
 def extract_recipe_titles(content: str) -> List[str]:
@@ -196,7 +196,7 @@ async def generate_meal_plan(request: MealPlanRequest):
             "Breakfast": 1,
             "Lunch": 1, 
             "Dinner": 1,
-            "Snack": 2
+            "Snack": 1
         }
         total_meals_needed = sum(meal_counts.values())
     else:
@@ -241,7 +241,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         "Breakfast": 0.25,  # 25% of daily calories
         "Lunch": 0.30,      # 30% of daily calories
         "Dinner": 0.35,     # 35% of daily calories
-        "Snack": 0.05       # 5% of daily calories per snack (10% total for 2 snacks)
+        "Snack": 0.10       # 10% of daily calories per snack (10% total for 1 snacks)
     }
     
     # For single meal type requests, use all macros
@@ -260,7 +260,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         # For "Full Day" meal type, distribute macros proportionally
         meal_macros = {}
         for meal_type, ratio in meal_type_calorie_ratio.items():
-            # Multiply by meal count for that type (e.g., 2 snacks)
+            # Multiply by meal count for that type (e.g., 1 snacks)
             count = meal_counts.get(meal_type, 0)
             if count > 0:
                 type_ratio = ratio * count

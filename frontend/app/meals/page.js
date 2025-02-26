@@ -221,463 +221,469 @@ const fetchMealPlan = async () => {
   }
 };
 
-      const handleOrderPlanIngredients = async () => {
-        if (!Array.isArray(mealPlan) || mealPlan.length === 0) {
-          setError("No meal plan available to extract ingredients.");
-          return;
+    const handleOrderPlanIngredients = async () => {
+      if (!Array.isArray(mealPlan) || mealPlan.length === 0) {
+        setError("No meal plan available to extract ingredients.");
+        return;
+      }
+
+      try {
+        setError("");
+        setOrderingPlanIngredients(true);
+
+        console.log("📢 Sending request to create shopping list...");
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/shopping_list/create_shopping_list/`, {
+          method: "POST", // ✅ Ensure this is a POST request
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            meal_plan: JSON.stringify(mealPlan), // ✅ Ensure proper structure
+            list_name: `Meal Plan - ${preferences}`
+          }),
+        });
+
+        const data = await response.json();
+        console.log("Full API Response:", data);
+
+        if (!response.ok) {
+          throw new Error(data.detail || "Failed to create shopping list.");
         }
 
-        try {
-          setError("");
-          setOrderingPlanIngredients(true);
+        // ✅ Extract shopping list and URL
+        const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
+        setIngredients(cleanedIngredients);
 
-          console.log("📢 Sending request to create shopping list...");
-
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/shopping_list/create_shopping_list/`, {
-            method: "POST", // ✅ Ensure this is a POST request
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              meal_plan: JSON.stringify(mealPlan), // ✅ Ensure proper structure
-              list_name: `Meal Plan - ${preferences}`
-            }),
-          });
-
-          const data = await response.json();
-          console.log("Full API Response:", data);
-
-          if (!response.ok) {
-            throw new Error(data.detail || "Failed to create shopping list.");
-          }
-
-          // ✅ Extract shopping list and URL
-          const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
-          setIngredients(cleanedIngredients);
-
-          // ✅ Redirect to Instacart
-          const urlToOpen = data.redirect_url || data.shopping_list?.url;
-          if (urlToOpen) {
-            console.log("✅ Redirecting to:", urlToOpen);
-            window.open(urlToOpen, "_blank", "noopener,noreferrer");
-          } else {
-            console.error("No URL found in API response.");
-            throw new Error("No shopping list URL found.");
-          }
-        } catch (error) {
-          console.error("Error:", error);
-          setError(error.message);
-        } finally {
-          setOrderingPlanIngredients(false);
-        }    
-      };
+        // ✅ Redirect to Instacart
+        const urlToOpen = data.redirect_url || data.shopping_list?.url;
+        if (urlToOpen) {
+          console.log("✅ Redirecting to:", urlToOpen);
+          window.open(urlToOpen, "_blank", "noopener,noreferrer");
+        } else {
+          console.error("No URL found in API response.");
+          throw new Error("No shopping list URL found.");
+        }
+      } catch (error) {
+        console.error("Error:", error);
+        setError(error.message);
+      } finally {
+        setOrderingPlanIngredients(false);
+      }    
+    };
       
-      return ( 
-        <>
-          {/* Navigation Bar */}
-          <nav className="fixed top-0 left-0 w-full py-3 px-4 bg-gray-500 bg-opacity-90 shadow-md z-50">            
-            <div className="flex justify-between items-center max-w-6xl mx-auto">
-              {/* Title with Link (Smaller Text) */}
-              <div 
-                className="text-white text-2xl font-bold cursor-pointer" 
-                onClick={() => router.push('/')}
-              >
-                Grovli
-              </div>
+    return ( 
+      <>
+        {/* Navigation Bar */}
+        <nav className="fixed top-0 left-0 w-full py-3 px-4 bg-gray-500 bg-opacity-90 shadow-md z-50">            
+          <div className="flex justify-between items-center max-w-6xl mx-auto">
+            {/* Title with Link (Smaller Text) */}
+            <div 
+              className="text-white text-2xl font-bold cursor-pointer" 
+              onClick={() => router.push('/')}
+            >
+              Grovli
+            </div>
+  
+            {/* Mobile Navigation - Always Visible */}
+            <div className="md:hidden relative mobile-menu">
+              <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
+                <Menu size={32} />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
+                  <ul className="py-2 text-gray-900">
+                    {!isAuthenticated ? (
+                      <>
+                        <li>
+                          <button 
+                            onClick={async() => { 
+                              router.push('/api/auth/login'); 
+                              setMenuOpen(false); 
+                            }} 
+                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                          >
+                            Login
+                          </button>
+                        </li>
+                        <li>
+                          <button 
+                            onClick={async() => { 
+                              router.push('/register'); 
+                              setMenuOpen(false); 
+                            }} 
+                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                          >
+                            Register
+                          </button>
+                        </li>
+                      </>
+                    ) : (
+                      <>
+                        <li>
+                          <button 
+                            onClick={async() => { 
+                              router.push('/subscriptions'); 
+                              setMenuOpen(false); 
+                            }} 
+                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                          >
+                            Plans
+                          </button>
+                        </li>
+                        <li>
+                          <button 
+                            onClick={async() => { 
+                              router.push('/account'); 
+                              setMenuOpen(false); 
+                            }} 
+                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                          >
+                            Account
+                          </button>
+                        </li>
+                        <li>
+                          <button 
+                            onClick={async() => { 
+                              localStorage.removeItem("token"); // Log out
+                              setIsAuthenticated(false);
+                              router.push('/api/auth/login');
+                              setMenuOpen(false); 
+                            }} 
+                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                          >
+                            Logout
+                          </button>
+                        </li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </nav>
+  
+      {/* Full-screen white background */}
+      <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
+  
+      {/* Main Content Container - Ensures content starts below navbar */}
+      <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+          
+          {/* Dietary Preferences Section */}
+          <div className="mb-6">
+            <label className="block text-xl font-semibold text-gray-800 mb-2">
+              Plan Your Meals
+            </label>
 
-              {/* Mobile Navigation - Always Visible */}
-              <div className="md:hidden relative mobile-menu">
-                <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
-                  <Menu size={32} />
+            {/* Dietary Preferences - Teal Color */}
+            <p className="text-md font-semibold text-gray-700 mb-1">Dietary Preferences</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
+                <button
+                  key={option}
+                  onClick={() => {
+                    setPreferences((prev) => {
+                      const preferencesArray = prev.split(" ").filter(Boolean);
+                      const updatedPreferences = preferencesArray.filter((item) =>
+                        !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
+                      );
+
+                      return [...updatedPreferences, option].join(" "); 
+                    });
+                  }}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    preferences.includes(option)
+                      ? "bg-teal-500 text-white border-white" 
+                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                  } transition-all`}
+                >
+                  {option}
                 </button>
-                {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
-                    <ul className="py-2 text-gray-900">
-                      {!isAuthenticated ? (
-                        <>
-                          <li>
-                            <button 
-                              onClick={async() => { 
-                                router.push('/api/auth/login'); 
-                                setMenuOpen(false); 
-                              }} 
-                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                            >
-                              Login
-                            </button>
-                          </li>
-                          <li>
-                            <button 
-                              onClick={async() => { 
-                                router.push('/register'); 
-                                setMenuOpen(false); 
-                              }} 
-                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                            >
-                              Register
-                            </button>
-                          </li>
-                        </>
-                      ) : (
-                        <>
-                          <li>
-                            <button 
-                              onClick={async() => { 
-                                router.push('/subscriptions'); 
-                                setMenuOpen(false); 
-                              }} 
-                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                            >
-                              Plans
-                            </button>
-                          </li>
-                          <li>
-                            <button 
-                              onClick={async() => { 
-                                router.push('/account'); 
-                                setMenuOpen(false); 
-                              }} 
-                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                            >
-                              Account
-                            </button>
-                          </li>
-                          <li>
-                            <button 
-                              onClick={async() => { 
-                                localStorage.removeItem("token"); // Log out
-                                setIsAuthenticated(false);
-                                router.push('/api/auth/login');
-                                setMenuOpen(false); 
-                              }} 
-                              className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                            >
-                              Logout
-                            </button>
-                          </li>
-                        </>
-                      )}
-                    </ul>
-                  </div>
-                )}
+              ))}
+            </div>
+
+            {/* Culture Preferences - Orange Color */}
+            <p className="text-md font-semibold text-gray-700 mb-1">Cultural Preferences</p>
+            <div className="flex flex-wrap gap-2">
+              {["Asian", "American", "Caribbean", "Mediterranean"].map((option) => (
+                <button
+                  key={option}
+                  onClick={() => {
+                    setPreferences((prev) => {
+                      const preferencesArray = prev.split(" ").filter(Boolean);
+                      const updatedPreferences = preferencesArray.filter((item) =>
+                        !["Asian", "American", "Caribbean", "Mediterranean"].includes(item)
+                      ); 
+
+                      return [...updatedPreferences, option].join(" "); 
+                    });
+                  }}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    preferences.includes(option)
+                      ? "bg-orange-500 text-white border-white" 
+                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                  } transition-all`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+  
+            {/* Macro Calculation Mode */}
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-800 mb-2">
+                Macro Calculation Mode
+              </label>
+  
+              <div className="flex items-center space-x-4">
+                {/* Auto Mode - Default Selection */}
+                <button 
+                  onClick={() => setCalculationMode("auto")}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    calculationMode === "auto"
+                      ? "bg-teal-500 text-white border-teal-500"
+                      : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                  } transition-all`}
+                >
+                  Auto
+                </button>
+  
+                {/* Manual Mode - Disabled for Non-Pro Users */}
+                <button 
+                  disabled={!isPro}
+                  onClick={() => isPro && setCalculationMode("manual")}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    isPro
+                      ? calculationMode === "manual"
+                        ? "bg-teal-500 text-white border-teal-500"
+                        : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                      : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
+                  } transition-all`}
+                >
+                  Manual
+                </button>
+              </div>
+  
+              {/* Pro Feature Message */}
+              {!isPro && (
+                <p className="text-sm text-gray-600 mt-2">
+                  Manual mode is a <strong>Pro feature</strong>.{" "}
+                  <span
+                    className="text-blue-600 cursor-pointer hover:underline"
+                    onClick={() => router.push('/subscriptions')}
+                  >
+                    Upgrade Now
+                  </span>
+                </p>
+              )}
+            </div>
+  
+            {/* Meal Type Selection */}
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-800 mb-2">
+                Meal Type
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => setMealType(option)}
+                    className={`px-4 py-2 rounded-full border-2 ${
+                      mealType === option 
+                        ? "bg-teal-500 text-white border-white" // Selected: Teal background, white border
+                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" // Unselected: Gray background, white border
+                    } transition-all`}
+                  >
+                    {option}
+                  </button>
+                ))}
               </div>
             </div>
-          </nav>
 
-            {/* Push Content Below Fixed Header */}
-            <div className="pt-24"></div>
-              {/* Background Image */}
-              <div 
-                className="fixed inset-0 z-0 min-h-screen"
-                style={{
-                  backgroundImage: `url('/homepage.jpeg')`, 
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  backgroundRepeat: 'no-repeat'
-                }}
-              >
-                {/* Overlay */}
-                <div className="absolute inset-0 bg-black/50" />
+            {/* Number of Days Selection */}
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-800 mb-2">
+                Number of Days
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                {[1, 3, 5, 7].map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
+                    className={`px-4 py-2 rounded-full border-2 transition-all ${
+                      numDays === option
+                        ? "bg-teal-500 text-white border-white" // Selected: Teal background, white border
+                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" // Unselected: Gray background, white border
+                    } ${!isPro && option !== 1 ? "opacity-50 cursor-not-allowed" : ""}`}
+                    disabled={!isPro && option !== 1}
+                  >
+                    {option} {option === 1 ? "Day" : "Days"}
+                  </button>
+                ))}
               </div>
 
-              <main className="relative z-10 p-6 max-w-4xl mx-auto min-h-screen flex flex-col justify-center">
-                <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full">
-                  
-                  {/* Section Header */}
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">
-                    Plan Your Meal
-                  </h2>
-
-                  {/* Dietary Preferences Section */}
-                  <div className="mb-6">
-                    <label className="block text-lg font-semibold text-gray-800 mb-2">
-                      What do you like to eat?
-                    </label>
-
-
-                  {/* Manual Input Field (Hidden Unless Toggle is On) */}
-                  {manualInput ? (
-                    <input
-                      type="text"
-                      placeholder="Enter dietary preference"
-                      value={preferences}
-                      onChange={(e) => setPreferences(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                    />
-                  ) : (
-                    // Bubble Buttons for Dietary Selection
-                    <div className="flex flex-wrap gap-2">
-                      {dietOptions.map((option) => (
-                        <button
-                          key={option}
-                          onClick={() => setPreferences(option)}
-                          className={`px-4 py-2 rounded-full border-2 ${
-                            preferences === option 
-                              ? "bg-teal-500 text-white border-teal-500"
-                              : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                          } transition-all`}
-                        >
-                          {option}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Macro Calculation Mode */}
-                <div className="mb-6">
-                  <label className="block text-lg font-semibold text-gray-800 mb-2">
-                    Macro Calculation Mode
-                  </label>
-
-                  <div className="flex items-center space-x-4">
-                    {/* Auto Mode - Default Selection */}
-                    <button 
-                      onClick={() => setCalculationMode("auto")}
-                      className={`px-4 py-2 rounded-full border-2 ${
-                        calculationMode === "auto"
-                          ? "bg-teal-500 text-white border-teal-500"
-                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                      } transition-all`}
-                    >
-                      Auto
-                    </button>
-
-                    {/* Manual Mode - Disabled for Non-Pro Users */}
-                    <button 
-                      disabled={!isPro}
-                      onClick={() => isPro && setCalculationMode("manual")}
-                      className={`px-4 py-2 rounded-full border-2 ${
-                        isPro
-                          ? calculationMode === "manual"
-                            ? "bg-teal-500 text-white border-teal-500"
-                            : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                          : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
-                      } transition-all`}
-                    >
-                      Manual
-                    </button>
-                  </div>
-
-                  {/* Pro Feature Message */}
-                  {!isPro && (
-                    <p className="text-sm text-gray-600 mt-2">
-                      Manual mode is a <strong>Pro feature</strong>.{" "}
-                      <span
-                        className="text-blue-600 cursor-pointer hover:underline"
-                        onClick={() => router.push('/subscriptions')}
-                      >
-                        Upgrade Now
-                      </span>
-                    </p>
-                  )}
-                </div>
-
-              {/* Meal Type Selection */}
-              <div className="mb-6">
-                <label className="block text-lg font-semibold text-gray-800 mb-2">
-                  Meal Type
-                </label>
-
-                <div className="flex flex-wrap gap-2">
-                  {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => setMealType(option)}
-                      className={`px-4 py-2 rounded-full border-2 ${
-                        mealType === option 
-                          ? "bg-teal-500 text-white border-teal-500"
-                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                      } transition-all`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Number of Days Selection */}
-              <div className="mb-6">
-                <label className="block text-lg font-semibold text-gray-800 mb-2">
-                  Number of Days
-                </label>
-
-                <div className="flex flex-wrap gap-2">
-                  {[1, 3, 5, 7].map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
-                      className={`px-4 py-2 rounded-full border-2 transition-all ${
-                        numDays === option
-                          ? "bg-teal-500 text-white border-teal-500"
-                          : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                      } ${!isPro && option !== 1 ? "opacity-50 cursor-not-allowed" : ""}`}
-                      disabled={!isPro && option !== 1}
-                    >
-                      {option} {option === 1 ? "Day" : "Days"}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Pro Feature Message */}
-                {!isPro && (
-                  <p className="text-sm text-gray-600 mt-2">
-                    Days over 1 is a <strong>Pro feature</strong>.{" "}
-                    <span
-                      className="text-blue-600 cursor-pointer hover:underline"
-                      onClick={() => router.push('/subscriptions')}
-                    >
-                      Upgrade Now
-                    </span>
-                  </p>
-                )}
-              </div>
-
-              {/* Calorie & Macro Selection Section */}
-              <div className="mb-6">
-                <label className="block text-lg font-semibold text-gray-800 mb-2">
-                  Set Your Daily Calories
-                </label>
-
-                <div className="flex items-center space-x-4">
-                  <input 
-                    type="range" 
-                    min="1000" 
-                    max="4000" 
-                    step="50" 
-                    value={calories} 
-                    onChange={(e) => setCalories(Number(e.target.value))}
-                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <span className="text-lg font-semibold text-gray-800">
-                    {calories} kcal
+              {/* Pro Feature Message */}
+              {!isPro && (
+                <p className="text-sm text-gray-600 mt-2">
+                  Days over 1 is a <strong>Pro feature</strong>.{" "}
+                  <span
+                    className="text-blue-600 cursor-pointer hover:underline"
+                    onClick={() => router.push('/subscriptions')}
+                  >
+                    Upgrade Now
                   </span>
-                </div>
-              </div>
-
-              {/* Macros - Only Show When Calories are Set */}
-              {calories > 0 && (
-                <div className="mt-4">
-                  <h3 className="text-md font-semibold text-gray-700 mb-2">Macronutrients</h3>
-
-                  {/* Carbs Slider */}
-                  <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-medium">Carbs (g/day)</label>
-                    <div className="flex items-center space-x-4">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="600" 
-                        step="1" 
-                        value={carbs} 
-                        onChange={(e) => isPro && setCarbs(Number(e.target.value))}
-                        disabled={!isPro}
-                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
-                      />
-                      <span className="text-gray-800 font-medium">{carbs} g</span>
-                    </div>
-                  </div>
-
-                  {/* Protein Slider */}
-                  <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-medium">Protein (g/day)</label>
-                    <div className="flex items-center space-x-4">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="300" 
-                        step="1" 
-                        value={protein} 
-                        onChange={(e) => isPro && setProtein(Number(e.target.value))}
-                        disabled={!isPro}
-                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
-                      />
-                      <span className="text-gray-800 font-medium">{protein} g</span>
-                    </div>
-                  </div>
-
-                  {/* Fat Slider */}
-                  <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-medium">Fat (g/day)</label>
-                    <div className="flex items-center space-x-4">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="200" 
-                        step="1" 
-                        value={fat} 
-                        onChange={(e) => isPro && setFat(Number(e.target.value))}
-                        disabled={!isPro}
-                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
-                      />
-                      <span className="text-gray-800 font-medium">{fat} g</span>
-                    </div>
-                  </div>
-
-                  {/* Fiber Slider */}
-                  <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-medium">Fiber (g/day)</label>
-                    <div className="flex items-center space-x-4">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        step="1" 
-                        value={fiber} 
-                        onChange={(e) => isPro && setFiber(Number(e.target.value))}
-                        disabled={!isPro}
-                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
-                      />
-                      <span className="text-gray-800 font-medium">{fiber} g</span>
-                    </div>
-                  </div>
-
-                  {/* Sugar Slider */}
-                  <div className="mb-4">
-                    <label className="block text-gray-700 text-sm font-medium">Sugar (g/day limit)</label>
-                    <div className="flex items-center space-x-4">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="200" 
-                        step="1" 
-                        value={sugar} 
-                        onChange={(e) => isPro && setSugar(Number(e.target.value))}
-                        disabled={!isPro}
-                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                          ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
-                      />
-                      <span className="text-gray-800 font-medium">{sugar} g</span>
-                    </div>
-                  </div>
-                </div>
-            )}
-
-              {/* Error Message */}
-              {error && <p style={{ color: 'red' }}>{error}</p>}
-
-              {/* Upgrade Now Button */}
-              <button
-                onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
-                className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
-              >
-                Upgrade Now
-              </button>
-
-              {/* Generate Free Plan - Now a Text Button */}
-              <div className="flex justify-center mt-2">
-                <p
-                  onClick={fetchMealPlan}
-                  className="text-teal-600 text-lg cursor-pointer font-bold"
-                >
-                  {loading ? "Loading..." : "Generate Free Plan"}
                 </p>
+              )}
+            </div>
+              
+            {/* Calorie & Macro Selection Section */}
+            <div className="mb-6">
+              <label className="block text-lg font-semibold text-gray-800 mb-2">
+                Set Your Daily Calories
+              </label>
+  
+              <div className="flex items-center space-x-4">
+                <input 
+                  type="range" 
+                  min="1000" 
+                  max="4000" 
+                  step="50" 
+                  value={calories} 
+                  onChange={(e) => setCalories(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                />
+                <span className="text-lg font-semibold text-gray-800">
+                  {calories} kcal
+                </span>
               </div>
-
-            {console.log("Meal Plan Data in Render:", mealPlan)}
-
+            </div>
+  
+            {/* Macros - Only Show When Calories are Set */}
+            {calories > 0 && (
+              <div className="mt-4">
+                <h3 className="text-md font-semibold text-gray-700 mb-2">Macronutrients</h3>
+  
+                {/* Carbs Slider */}
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-medium">Carbs (g/day)</label>
+                  <div className="flex items-center space-x-4">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="600" 
+                      step="1" 
+                      value={carbs} 
+                      onChange={(e) => isPro && setCarbs(Number(e.target.value))}
+                      disabled={!isPro}
+                      className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                    />
+                    <span className="text-gray-800 font-medium">{carbs} g</span>
+                  </div>
+                </div>
+  
+                {/* Protein Slider */}
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-medium">Protein (g/day)</label>
+                  <div className="flex items-center space-x-4">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="300" 
+                      step="1" 
+                      value={protein} 
+                      onChange={(e) => isPro && setProtein(Number(e.target.value))}
+                      disabled={!isPro}
+                      className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                    />
+                    <span className="text-gray-800 font-medium">{protein} g</span>
+                  </div>
+                </div>
+  
+                {/* Fat Slider */}
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-medium">Fat (g/day)</label>
+                  <div className="flex items-center space-x-4">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="200" 
+                      step="1" 
+                      value={fat} 
+                      onChange={(e) => isPro && setFat(Number(e.target.value))}
+                      disabled={!isPro}
+                      className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                    />
+                    <span className="text-gray-800 font-medium">{fat} g</span>
+                  </div>
+                </div>
+  
+                {/* Fiber Slider */}
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-medium">Fiber (g/day)</label>
+                  <div className="flex items-center space-x-4">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      step="1" 
+                      value={fiber} 
+                      onChange={(e) => isPro && setFiber(Number(e.target.value))}
+                      disabled={!isPro}
+                      className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                    />
+                    <span className="text-gray-800 font-medium">{fiber} g</span>
+                  </div>
+                </div>
+  
+                {/* Sugar Slider */}
+                <div className="mb-4">
+                  <label className="block text-gray-700 text-sm font-medium">Sugar (g/day limit)</label>
+                  <div className="flex items-center space-x-4">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="200" 
+                      step="1" 
+                      value={sugar} 
+                      onChange={(e) => isPro && setSugar(Number(e.target.value))}
+                      disabled={!isPro}
+                      className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
+                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                    />
+                    <span className="text-gray-800 font-medium">{sugar} g</span>
+                  </div>
+                </div>
+              </div>
+            )}
+  
+            {/* Error Message */}
+            {error && <p style={{ color: 'red' }}>{error}</p>}
+  
+            {/* Upgrade Now Button */}
+            <button
+              onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
+              className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
+            >
+              Upgrade Now
+            </button>
+  
+            {/* Generate Free Plan - Now a Text Button */}
+            <div className="flex justify-center mt-2">
+              <p
+                onClick={fetchMealPlan}
+                className="text-teal-600 text-lg cursor-pointer font-bold"
+              >
+                {loading ? "Loading..." : "Generate Free Plan"}
+              </p>
+            </div>
+  
             {/* Display Meal Plan */}
             {Array.isArray(mealPlan) && mealPlan.length > 0 && (
               <div className="mt-6">
@@ -700,7 +706,7 @@ const fetchMealPlan = async () => {
                     />
                   ))}
                 </div>
-
+  
                 {/* Accept Meal Plan Button */}
                 <button
                   onClick={handleOrderPlanIngredients}
@@ -713,13 +719,11 @@ const fetchMealPlan = async () => {
             )}
           </div>
         </main>
-        <div className="w-full h-32"></div> {/* Empty box for future content */}
-        <footer className="fixed bottom-0 left-0 right-0 z-30 w-full bg-gray-500 text-white text-center py-3 text-sm">
+  
+        {/* Footer - Sticks to bottom without pushing content behind */}
+        <footer className="fixed bottom-0 left-0 w-full bg-gray-500 text-white text-center py-3 text-sm">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-4">
-            {/* Left - Branding */}
             <div className="font-semibold">© {new Date().getFullYear()} Grovli</div>
-            
-            {/* Middle - Links */}
             <div className="flex space-x-6 mt-4 md:mt-0">
               <a href="/about" className="hover:text-gray-300 transition-colors">About</a>
               <a href="https://form.typeform.com/to/r6ucQF6l" className="hover:text-gray-300 transition-colors">Contact</a>
@@ -727,7 +731,7 @@ const fetchMealPlan = async () => {
               <a href="/privacy" className="hover:text-gray-300 transition-colors">Privacy</a>
             </div>
           </div>
-      </footer>
-    </>
-  );
-}
+        </footer>
+      </>
+    );
+  }
