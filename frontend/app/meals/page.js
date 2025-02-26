@@ -367,156 +367,160 @@ const fetchMealPlan = async () => {
   
       {/* Main Content Container - Ensures content starts below navbar */}
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
-          
-          {/* Dietary Preferences Section */}
-          <div className="mb-6">
-            <label className="block text-xl font-semibold text-gray-800 mb-2">
-              Plan Your Meals
-            </label>
+      <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+        {/* Plan Your Meals - main title */}
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+          Plan Your Meals
+        </h2>
 
-            {/* Dietary Preferences - Teal Color */}
-            <p className="text-md font-semibold text-gray-700 mb-1">Dietary Preferences</p>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
-                <button
-                  key={option}
-                  onClick={() => {
-                    setPreferences((prev) => {
-                      const preferencesArray = prev.split(" ").filter(Boolean);
-                      const updatedPreferences = preferencesArray.filter((item) =>
-                        !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
-                      );
+        {/* Dietary Preferences Section */}
+        <div className="mb-8"> {/* Consistent mb-8 for all major sections */}
+          {/* First subsection */}
+          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all subsection titles */}
+            A Taste of…
+          </p>
+          <div className="flex flex-wrap gap-2 mb-6"> {/* All button groups have the same mb-6 */}
+            {["Asian", "American", "Caribbean", "Mediterranean"].map((option) => (
+              <button
+                key={option}
+                onClick={() => {
+                  setPreferences((prev) => {
+                    const preferencesArray = prev.split(" ").filter(Boolean);
+                    const updatedPreferences = preferencesArray.filter((item) =>
+                      !["Asian", "American", "Caribbean", "Mediterranean"].includes(item)
+                    );
 
-                      return [...updatedPreferences, option].join(" "); 
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    preferences.includes(option)
-                      ? "bg-teal-500 text-white border-white" 
-                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                  } transition-all`}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-
-            {/* Culture Preferences - Orange Color */}
-            <p className="text-md font-semibold text-gray-700 mb-1">Cultural Preferences</p>
-            <div className="flex flex-wrap gap-2">
-              {["Asian", "American", "Caribbean", "Mediterranean"].map((option) => (
-                <button
-                  key={option}
-                  onClick={() => {
-                    setPreferences((prev) => {
-                      const preferencesArray = prev.split(" ").filter(Boolean);
-                      const updatedPreferences = preferencesArray.filter((item) =>
-                        !["Asian", "American", "Caribbean", "Mediterranean"].includes(item)
-                      ); 
-
-                      return [...updatedPreferences, option].join(" "); 
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    preferences.includes(option)
-                      ? "bg-orange-500 text-white border-white" 
-                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                  } transition-all`}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+                    return [...updatedPreferences, option].join(" "); 
+                  });
+                }}
+                className={`px-4 py-2 rounded-full border-2 ${
+                  preferences.includes(option)
+                    ? "bg-orange-500 text-white border-white" 
+                    : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+                } transition-all`}
+              >
+                {option}
+              </button>
+            ))}
           </div>
-  
-            {/* Macro Calculation Mode */}
-            <div className="mb-6">
-              <label className="block text-lg font-semibold text-gray-800 mb-2">
-                Macro Calculation Mode
-              </label>
-  
-              <div className="flex items-center space-x-4">
-                {/* Auto Mode - Default Selection */}
-                <button 
-                  onClick={() => setCalculationMode("auto")}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    calculationMode === "auto"
-                      ? "bg-teal-500 text-white border-teal-500"
-                      : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                  } transition-all`}
-                >
-                  Auto
-                </button>
-  
-                {/* Manual Mode - Disabled for Non-Pro Users */}
-                <button 
-                  disabled={!isPro}
-                  onClick={() => isPro && setCalculationMode("manual")}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    isPro
-                      ? calculationMode === "manual"
-                        ? "bg-teal-500 text-white border-teal-500"
-                        : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                      : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
-                  } transition-all`}
-                >
-                  Manual
-                </button>
-              </div>
-  
-              {/* Pro Feature Message */}
-              {!isPro && (
-                <p className="text-sm text-gray-600 mt-2">
-                  Manual mode is a <strong>Pro feature</strong>.{" "}
-                  <span
-                    className="text-blue-600 cursor-pointer hover:underline"
-                    onClick={() => router.push('/subscriptions')}
-                  >
-                    Upgrade Now
-                  </span>
-                </p>
-              )}
-            </div>
-  
-            {/* Meal Type Selection */}
-            <div className="mb-6">
-              <label className="block text-lg font-semibold text-gray-800 mb-2">
-                Meal Type
-              </label>
 
-              <div className="flex flex-wrap gap-2">
-                {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => setMealType(option)}
-                    className={`px-4 py-2 rounded-full border-2 ${
-                      mealType === option 
-                        ? "bg-teal-500 text-white border-white" // Selected: Teal background, white border
-                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" // Unselected: Gray background, white border
-                    } transition-all`}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {/* Second subsection */}
+          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all subsection titles */}
+            Your Eating Philosophy
+          </p>
+          <div className="flex flex-wrap gap-2"> {/* No bottom margin on last element */}
+            {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
+              <button
+                key={option}
+                onClick={() => {
+                  setPreferences((prev) => {
+                    const preferencesArray = prev.split(" ").filter(Boolean);
+                    const updatedPreferences = preferencesArray.filter((item) =>
+                      !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
+                    );
+
+                    return [...updatedPreferences, option].join(" "); 
+                  });
+                }}
+                className={`px-4 py-2 rounded-full border-2 ${
+                  preferences.includes(option)
+                    ? "bg-teal-500 text-white border-white" 
+                    : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+                } transition-all`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Macro Calculation Mode */}
+        <div className="mb-8"> {/* Consistent mb-8 for all major sections */}
+          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all section titles */}
+            Macro Calculation Mode
+          </p>
+
+          <div className="flex items-center gap-4 mb-3"> {/* Consistent mb-3 for all button groups */}
+            {/* Auto Mode - Default Selection */}
+            <button 
+              onClick={() => setCalculationMode("auto")}
+              className={`px-4 py-2 rounded-full border-2 ${
+                calculationMode === "auto"
+                  ? "bg-teal-500 text-white border-teal-500"
+                  : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+              } transition-all`}
+            >
+              Auto
+            </button>
+
+            {/* Manual Mode - Disabled for Non-Pro Users */}
+            <button 
+              disabled={!isPro}
+              onClick={() => isPro && setCalculationMode("manual")}
+              className={`px-4 py-2 rounded-full border-2 ${
+                isPro
+                  ? calculationMode === "manual"
+                    ? "bg-teal-500 text-white border-teal-500"
+                    : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                  : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
+              } transition-all`}
+            >
+              Manual
+            </button>
+          </div>
+
+          {/* Pro Feature Message - same spacing for all pro messages */}
+          {!isPro && (
+            <p className="text-sm text-gray-600">
+              Manual mode is a <strong>Pro feature</strong>.{" "}
+              <span
+                className="text-blue-600 cursor-pointer hover:underline"
+                onClick={() => router.push('/subscriptions')}
+              >
+                Upgrade Now
+              </span>
+            </p>
+          )}
+        </div>
+
+        {/* Meal Type Selection */}
+        <div className="mb-8"> {/* Consistent mb-8 for all major sections */}
+          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all section titles */}
+            Meal Type
+          </p>
+
+          <div className="flex flex-wrap gap-2"> {/* No bottom margin on last element */}
+            {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+              <button
+                key={option}
+                onClick={() => setMealType(option)}
+                className={`px-4 py-2 rounded-full border-2 ${
+                  mealType === option 
+                    ? "bg-teal-500 text-white border-white" 
+                    : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                } transition-all`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
 
             {/* Number of Days Selection */}
-            <div className="mb-6">
-              <label className="block text-lg font-semibold text-gray-800 mb-2">
+            <div className="mb-8"> {/* Keep consistent mb-8 spacing */}
+              <p className="text-base font-semibold text-gray-700 mb-3">
                 Number of Days
-              </label>
+              </p>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mb-3">
                 {[1, 3, 5, 7].map((option) => (
                   <button
                     key={option}
                     onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
                     className={`px-4 py-2 rounded-full border-2 transition-all ${
                       numDays === option
-                        ? "bg-teal-500 text-white border-white" // Selected: Teal background, white border
-                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" // Unselected: Gray background, white border
+                        ? "bg-teal-500 text-white border-white" 
+                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
                     } ${!isPro && option !== 1 ? "opacity-50 cursor-not-allowed" : ""}`}
                     disabled={!isPro && option !== 1}
                   >
@@ -527,7 +531,7 @@ const fetchMealPlan = async () => {
 
               {/* Pro Feature Message */}
               {!isPro && (
-                <p className="text-sm text-gray-600 mt-2">
+                <p className="text-sm text-gray-600">
                   Days over 1 is a <strong>Pro feature</strong>.{" "}
                   <span
                     className="text-blue-600 cursor-pointer hover:underline"
@@ -538,13 +542,13 @@ const fetchMealPlan = async () => {
                 </p>
               )}
             </div>
-              
-            {/* Calorie & Macro Selection Section */}
-            <div className="mb-6">
-              <label className="block text-lg font-semibold text-gray-800 mb-2">
+                
+            {/* Calorie & Macro Selection Section - REDUCED spacing */}
+            <div className="mb-4"> {/* Reduced from mb-8 to mb-4 to bring closer to macros */}
+              <p className="text-base font-semibold text-gray-700 mb-3">
                 Set Your Daily Calories
-              </label>
-  
+              </p>
+
               <div className="flex items-center space-x-4">
                 <input 
                   type="range" 
@@ -555,20 +559,20 @@ const fetchMealPlan = async () => {
                   onChange={(e) => setCalories(Number(e.target.value))}
                   className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
                 />
-                <span className="text-lg font-semibold text-gray-800">
+                <span className="text-lg font-semibold text-gray-800 min-w-16 text-right">
                   {calories} kcal
                 </span>
               </div>
             </div>
-  
-            {/* Macros - Only Show When Calories are Set */}
+
+            {/* Macros Section - Add a small top spacing */}
             {calories > 0 && (
-              <div className="mt-4">
-                <h3 className="text-md font-semibold text-gray-700 mb-2">Macronutrients</h3>
-  
+              <div className="mb-8 mt-2"> {/* Added mt-2 for a small gap */}
+                <h3 className="text-lg font-semibold text-gray-700 mb-3">Macronutrients</h3>
+
                 {/* Carbs Slider */}
                 <div className="mb-4">
-                  <label className="block text-gray-700 text-sm font-medium">Carbs (g/day)</label>
+                  <label className="block text-gray-700 text-sm font-medium mb-2">Carbs (g/day)</label>
                   <div className="flex items-center space-x-4">
                     <input 
                       type="range" 
@@ -581,7 +585,7 @@ const fetchMealPlan = async () => {
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
                         ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
-                    <span className="text-gray-800 font-medium">{carbs} g</span>
+                    <span className="text-gray-800 font-medium min-w-12 text-right">{carbs} g</span>
                   </div>
                 </div>
   
