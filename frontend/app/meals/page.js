@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Menu } from 'lucide-react';
-import MealCard from "../elements/mealcard";
+import MealCard from "../../components/mealcard";
 import { useUser } from "@auth0/nextjs-auth0"; 
 import { getAccessToken } from "@auth0/nextjs-auth0";
 
