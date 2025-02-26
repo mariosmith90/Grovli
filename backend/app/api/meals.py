@@ -267,6 +267,12 @@ async def generate_meal_plan(request: MealPlanRequest):
 
     ---
 
+    ### **Strict JSON Formatting Requirements**:
+    - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
+    - Represent newlines in instructions as \\n
+    - Ensure all strings use double quotes
+    - No trailing commas in JSON arrays/objects
+
     ### **Example Response Format**:
     ```json
     [
@@ -347,6 +353,9 @@ async def generate_meal_plan(request: MealPlanRequest):
     **Strictly return only JSON with no extra text.**
     """
 
+# Fix for the generate_meal_plan function in paste.txt
+# Replace the section that creates and saves meals with this
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -355,22 +364,28 @@ async def generate_meal_plan(request: MealPlanRequest):
         )
 
         response_text = response.choices[0].message.content.strip()
-        cleaned_response_text = re.sub(r"^```json\n|\n```$", "", response_text)  # Fix markdown JSON issue
+
+        # Improved JSON extraction with robust regex
+        json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
+        if json_match:
+            cleaned_response_text = json_match.group(1).strip()
+        else:
+            cleaned_response_text = response_text.strip() 
 
         generated_meals = json.loads(cleaned_response_text)
 
         if not isinstance(generated_meals, list):
             raise ValueError("AI response is not a valid list of meals.")
 
+        # Format generated meals and save to DB
+        formatted_meals = []
+        
         for meal in generated_meals:
-            meal_calories = meal["nutrition"]["calories"]
+            # Generate a unique ID for this meal
             unique_id = f"{random.randint(10000, 99999)}"
-            meal["meal_id"] = f"{request.meal_type}_{request.dietary_preferences}_{meal_calories}_{unique_id}"
-
-
-        # Save all newly generated meals with the request hash for future caching
-        for meal in generated_meals:
-            save_meal_with_hash(
+            
+            # Save the meal to the database with the unique ID
+            saved_meal = save_meal_with_hash(
                 meal["title"],
                 meal["instructions"],
                 meal["ingredients"],
@@ -378,20 +393,18 @@ async def generate_meal_plan(request: MealPlanRequest):
                 meal["nutrition"],
                 meal_plan_id,
                 request.meal_type,
-                request_hash  # Add the request hash
+                request_hash,
+                unique_id  # Pass the unique ID to the save function
             )
-
-        # Format generated meals
-        formatted_meals = [
-            {
-                "id": meal["meal_id"], 
+            
+            # Add to the formatted meals list
+            formatted_meals.append({
+                "id": unique_id,  # Use JUST the unique ID as the meal identifier
                 "title": meal["title"],
                 "nutrition": meal["nutrition"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["instructions"]
-            }
-            for meal in generated_meals
-        ]
+            })
 
     except json.JSONDecodeError as e:
         print(f"⚠️ JSONDecodeError: {e}")
@@ -402,13 +415,25 @@ async def generate_meal_plan(request: MealPlanRequest):
 @router.get("/{meal_id}")
 async def get_meal_by_id(meal_id: str):
     """
-    Retrieves a specific meal by its meal_id hash.
+    Retrieves a specific meal by its meal_id.
     """
+    print(f"🔎 Looking up meal with ID: {meal_id}")  # Debugging
+    
+    # Direct lookup by meal_id
     meal = meals_collection.find_one({"meal_id": meal_id})
     
     if not meal:
-        raise HTTPException(status_code=404, detail="Meal not found")
+        print(f"⚠️ Meal not found with ID: {meal_id}")
+        # Try using meal_id as a regex pattern as a fallback
+        pattern = re.escape(meal_id)
+        meal = meals_collection.find_one({"meal_id": {"$regex": f".*{pattern}.*"}})
+        
+    if not meal:
+        print(f"⚠️ Meal still not found with pattern: {meal_id}")
+        raise HTTPException(status_code=404, detail=f"Meal not found with ID: {meal_id}")
 
+    print(f"✅ Found meal: {meal.get('meal_name')}")
+    
     return {
         "id": meal["meal_id"],
         "title": meal["meal_name"],
@@ -417,7 +442,7 @@ async def get_meal_by_id(meal_id: str):
         "instructions": meal["meal_text"],
     }
 
-def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash):
+def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
     """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""
     # Check for duplicate before saving
     existing_meal = meals_collection.find_one({
@@ -425,12 +450,7 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
         "request_hash": request_hash
     })
     if existing_meal:
-        return  # Avoid duplicates
-
-    # Generate IDs
-    meal_calories = macros.get("calories", 0)
-    unique_id = f"{random.randint(10000, 99999)}"
-    full_meal_id = f"{meal_type}_{dietary_type}_{meal_calories}_{unique_id}"
+        return existing_meal  # Return the existing meal instead of None
     
     # USDA validation
     validated_ingredients = []
@@ -528,7 +548,7 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     
     # Build meal data
     meal_data = {
-        "meal_id": full_meal_id,
+        "meal_id": meal_id,  # Use the provided meal_id directly
         "meal_plan_id": meal_plan_id,
         "meal_name": meal_name,
         "meal_text": meal_text,

@@ -100,7 +100,10 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
         {/* See Recipe Link - Pushed to Bottom */}
         <div className="mt-auto text-center">
           <button
-            onClick={() => router.push(`/recipes/${id}`)}
+            onClick={() => {
+              console.log("Navigating to recipe with ID:", id);
+              router.push(`/recipes/${id}`);
+            }}
             className="text-teal-600 hover:text-teal-800 font-semibold transition"
           >
             See Recipe →
