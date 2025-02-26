@@ -2,7 +2,12 @@ __pycache__/
 **/.next/
 *.pyc
 *.pyo
+**/.smbdelete*
 .env
 .next
 node_modules
-frontend/mealplan-nextjs/.env
+frontend/mealplan-nextjs/.env.smbdelete*
+frontend/app/recipes/\[id]/._page.js
+frontend/app/meals/._page.js
+backend/app/api/.smbdeleteAAA8cbd4.4
+._.gitignore

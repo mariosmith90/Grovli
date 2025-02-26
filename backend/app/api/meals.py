@@ -189,17 +189,31 @@ async def generate_meal_plan(request: MealPlanRequest):
     Generates a meal plan by retrieving stored meals from MongoDB first.
     If enough meals do not exist, it generates new meals with OpenAI.
     """
-    num_meals_needed = MEAL_TYPE_COUNTS.get(request.meal_type, 1)
+    # Step 1: Determine the correct number and types of meals needed
+    if request.meal_type == "All":
+        # For "All", we need multiple meal types
+        meal_counts = {
+            "Breakfast": 1,
+            "Lunch": 1, 
+            "Dinner": 1,
+            "Snack": 2
+        }
+        total_meals_needed = sum(meal_counts.values())
+    else:
+        # For specific meal types, we need the count from the mapping
+        meal_counts = {request.meal_type: MEAL_TYPE_COUNTS.get(request.meal_type, 1)}
+        total_meals_needed = meal_counts[request.meal_type]
 
-    # Step 1: Create a SIMPLE deterministic hash key that identifies this exact request
-    # This guarantees the same requests get the same results
+    print(f"🍽️ Generating meal plan with {total_meals_needed} total meals: {meal_counts}")
+
+    # Step 2: Create a deterministic hash key that identifies this exact request
     request_hash = f"{request.meal_type}_{request.dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
     print(f"🔑 Request hash: {request_hash}")
     
-    # Step 2: Check if we already have a meal plan for this exact request
-    existing_meal_plan = list(meals_collection.find({"request_hash": request_hash}).limit(num_meals_needed))
+    # Step 3: Check if we already have a meal plan for this exact request
+    existing_meal_plan = list(meals_collection.find({"request_hash": request_hash}).limit(total_meals_needed))
     
-    if len(existing_meal_plan) >= num_meals_needed:
+    if len(existing_meal_plan) >= total_meals_needed:
         print(f"✅ Found cached meal plan for request hash: {request_hash}")
         formatted_meals = [
             {
@@ -207,24 +221,57 @@ async def generate_meal_plan(request: MealPlanRequest):
                 "title": meal["meal_name"],
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
-                "instructions": meal["meal_text"]
+                "instructions": meal["meal_text"],
+                "meal_type": meal["meal_type"]  # Include meal type in response
             }
-            for meal in existing_meal_plan[:num_meals_needed]
+            for meal in existing_meal_plan[:total_meals_needed]
         ]
         return {"meal_plan": formatted_meals, "cached": True}
 
-    # Step 3: If no cached plan exists, generate a new one
+    # Step 4: If no cached plan exists, generate a new one
     print(f"⚠️ No cached meal plan found. Generating new meals.")
     meal_plan_id = f"{request_hash}_{random.randint(10000, 99999)}"
     
-    total_macros = {
-        "calories": request.calories,
-        "protein": request.protein,
-        "carbs": request.carbs,
-        "fat": request.fat,
-        "fiber": request.fiber,
-        "sugar": request.sugar,
+    # Calculate the macronutrient distribution per meal type
+    # This is a simplified approach - in a real app, you'd want to distribute macros intelligently
+    # based on meal types (breakfast vs dinner vs snack)
+    
+    # For simplicity, we'll allocate macros proportionally based on typical calorie distribution
+    meal_type_calorie_ratio = {
+        "Breakfast": 0.25,  # 25% of daily calories
+        "Lunch": 0.30,      # 30% of daily calories
+        "Dinner": 0.35,     # 35% of daily calories
+        "Snack": 0.05       # 5% of daily calories per snack (10% total for 2 snacks)
     }
+    
+    # For single meal type requests, use all macros
+    if request.meal_type != "All":
+        meal_macros = {
+            request.meal_type: {
+                "calories": request.calories,
+                "protein": request.protein,
+                "carbs": request.carbs,
+                "fat": request.fat,
+                "fiber": request.fiber,
+                "sugar": request.sugar
+            }
+        }
+    else:
+        # For "All" meal type, distribute macros proportionally
+        meal_macros = {}
+        for meal_type, ratio in meal_type_calorie_ratio.items():
+            # Multiply by meal count for that type (e.g., 2 snacks)
+            count = meal_counts.get(meal_type, 0)
+            if count > 0:
+                type_ratio = ratio * count
+                meal_macros[meal_type] = {
+                    "calories": int(request.calories * type_ratio),
+                    "protein": int(request.protein * type_ratio),
+                    "carbs": int(request.carbs * type_ratio),
+                    "fat": int(request.fat * type_ratio),
+                    "fiber": int(request.fiber * type_ratio),
+                    "sugar": int(request.sugar * type_ratio)
+                }
 
     # OpenAI API setup
     api_key = os.getenv("OPENAI_API_KEY")
@@ -232,183 +279,164 @@ async def generate_meal_plan(request: MealPlanRequest):
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
 
     client = openai.OpenAI(api_key=api_key)
-
-    prompt = f"""
-    Generate {num_meals_needed} complete, **single-serving** {request.meal_type.lower()} meals for a {request.dietary_preferences} diet.  
-    Prioritize recipes from **Food & Wine, Bon Appétit, and Serious Eats**. Each meal must:
-
-    - Be **a single-serving portion**, accurately scaled  
-    - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)  
-    - Match **individual meal macros** (±1% of target values):  
-        • Calories: {total_macros['calories']} kcal  
-        • Protein: {total_macros['protein']} g  
-        • Carbs: {total_macros['carbs']} g  
-        • Fat: {total_macros['fat']} g  
-        • Fiber: {total_macros['fiber']} g  
-        • Sugar: {total_macros['sugar']} g  
-
-    ### **Mandatory Requirements**:
-    1. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")  
-    2. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")  
-    3. **Calculate macros per ingredient and ensure total macros match per serving**  
-    4. **List all essential ingredients** (cooking fats, seasonings, and garnishes)  
-    5. **Validate meal totals against individual ingredient macros**  
-    6. **All meals must share** meal_plan_id: `{meal_plan_id}`  
-
-    ---
-
-    ### **Instructions Formatting Requirements**:
-    - **Each instruction step must be detailed, clear, and structured for ease of use**  
-    - **Use precise cooking techniques** (e.g., “sear over medium-high heat for 3 minutes per side until golden brown”)  
-    - **Include prep instructions** (e.g., “Finely mince garlic,” “Dice bell peppers into ½-inch cubes”)  
-    - **Specify temperatures, times, and sensory indicators** (e.g., “Roast at 400°F for 20 minutes until caramelized”)  
-    - **Use line breaks for readability**  
-    - **Include plating instructions** (e.g., “Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs”)  
-
-    ---
-
-    ### **Strict JSON Formatting Requirements**:
-    - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
-    - Represent newlines in instructions as \\n
-    - Ensure all strings use double quotes
-    - No trailing commas in JSON arrays/objects
-
-    ### **Example Response Format**:
-    ```json
-    [
-        {{
-            "title": "Herb-Roasted Chicken with Vegetables",
-            "meal_plan_id": "{meal_plan_id}",
-            "nutrition": {{
-                "calories": 625,
-                "protein": 42,
-                "carbs": 38,
-                "fat": 22,
-                "fiber": 8,
-                "sugar": 9
-            }},
-            "ingredients": [
-                {{
-                    "name": "Boneless chicken breast",
-                    "quantity": "6 oz",
-                    "macros": {{
-                        "calories": 280,
-                        "protein": 38,
-                        "carbs": 0,
-                        "fat": 12,
-                        "fiber": 0,
-                        "sugar": 0
-                    }}
-                }},
-                {{
-                    "name": "Olive oil",
-                    "quantity": "1 tbsp",
-                    "macros": {{
-                        "calories": 119,
-                        "protein": 0,
-                        "carbs": 0,
-                        "fat": 14,
-                        "fiber": 0,
-                        "sugar": 0
-                    }}
-                }},
-                {{
-                    "name": "Fresh rosemary",
-                    "quantity": "1 tsp chopped",
-                    "macros": {{
-                        "calories": 2,
-                        "protein": 0,
-                        "carbs": 0,
-                        "fat": 0,
-                        "fiber": 0,
-                        "sugar": 0
-                    }}
-                }}
-            ],
-            "instructions": "### **Step 1: Prepare Ingredients**\\n
-            - Preheat the oven to **400°F (200°C)**.\\n
-            - Pat the **chicken breast** dry with a paper towel.\\n
-            - Finely chop **1 tsp fresh rosemary**.\\n
-            - In a small bowl, mix **1/2 tsp salt**, **1/4 tsp black pepper**, and chopped rosemary.\\n\\n
-
-            ### **Step 2: Sear the Chicken**\\n
-            - Heat **1 tbsp olive oil** in an oven-safe skillet over **medium-high heat**.\\n
-            - Once hot, place the chicken breast in the pan and **sear for 3 minutes** on one side until golden brown.\\n
-            - Flip and sear for another **3 minutes** on the other side.\\n\\n
-
-            ### **Step 3: Roast the Chicken**\\n
-            - Transfer the skillet to the preheated oven.\\n
-            - Roast for **18 minutes**, or until the internal temperature reaches **165°F (75°C)**.\\n
-            - Remove from the oven and let rest for **5 minutes**.\\n\\n
-
-            ### **Step 4: Serve**\\n
-            - Transfer the chicken to a **warm plate**.\\n
-            - Drizzle with any pan juices.\\n
-            - Garnish with an extra **pinch of fresh rosemary**.\\n\\n
-
-            Enjoy!"
-        }}
-    ]
-    ```
-    **Strictly return only JSON with no extra text.**
-    """
-
-# Fix for the generate_meal_plan function in paste.txt
-# Replace the section that creates and saves meals with this
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-
-        response_text = response.choices[0].message.content.strip()
-
-        # Improved JSON extraction with robust regex
-        json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
-        if json_match:
-            cleaned_response_text = json_match.group(1).strip()
-        else:
-            cleaned_response_text = response_text.strip() 
-
-        generated_meals = json.loads(cleaned_response_text)
-
-        if not isinstance(generated_meals, list):
-            raise ValueError("AI response is not a valid list of meals.")
-
-        # Format generated meals and save to DB
-        formatted_meals = []
+    
+    # Generate meals for each meal type
+    all_generated_meals = []
+    
+    for meal_type, macros in meal_macros.items():
+        num_meals = meal_counts.get(meal_type, 1)
         
-        for meal in generated_meals:
-            # Generate a unique ID for this meal
-            unique_id = f"{random.randint(10000, 99999)}"
-            
-            # Save the meal to the database with the unique ID
-            saved_meal = save_meal_with_hash(
-                meal["title"],
-                meal["instructions"],
-                meal["ingredients"],
-                request.dietary_preferences,
-                meal["nutrition"],
-                meal_plan_id,
-                request.meal_type,
-                request_hash,
-                unique_id  # Pass the unique ID to the save function
-            )
-            
-            # Add to the formatted meals list
-            formatted_meals.append({
-                "id": unique_id,  # Use JUST the unique ID as the meal identifier
-                "title": meal["title"],
-                "nutrition": meal["nutrition"],
-                "ingredients": meal["ingredients"],
-                "instructions": meal["instructions"]
-            })
+        prompt = f"""
+        Generate {num_meals} complete, **single-serving** {meal_type.lower()} meals for a {request.dietary_preferences} diet.
+        The total combined calories of these {meal_type} meals **must equal exactly** {macros['calories']} kcal.
 
-    except json.JSONDecodeError as e:
-        print(f"⚠️ JSONDecodeError: {e}")
-        raise HTTPException(status_code=500, detail="Failed to parse AI-generated meal plan.")
+        Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes 
+        that could appear in these publications, with proper culinary techniques and flavor combinations.
+
+        Each meal must be individually balanced and the sum of all {meal_type} meals should meet these targets:
+
+        - Be **a single-serving portion**, accurately scaled  
+        - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)  
+        - Match **combined meal macros** (±1% of target values):  
+            • Calories: {macros['calories']} kcal  
+            • Protein: {macros['protein']} g  
+            • Carbs: {macros['carbs']} g  
+            • Fat: {macros['fat']} g  
+            • Fiber: {macros['fiber']} g  
+            • Sugar: {macros['sugar']} g  
+
+        ### **Mandatory Requirements**:
+        1. **All {num_meals} meals must be {meal_type} meals**
+        2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")  
+        3. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")  
+        4. **Calculate macros per ingredient and ensure total macros match per serving**  
+        5. **List all essential ingredients** (cooking fats, seasonings, and garnishes)  
+        6. **Validate meal totals against individual ingredient macros**  
+        7. **All meals must share** meal_plan_id: `{meal_plan_id}` 
+        8. **Each recipe must feel like an authentic recipe from Food & Wine, Bon Appétit, or Serious Eats**
+ 
+        ---
+
+        ### **Instructions Formatting Requirements**:
+        - **Each instruction step must be detailed, clear, and structured for ease of use**  
+        - **Use precise cooking techniques** (e.g., "sear over medium-high heat for 3 minutes per side until golden brown")  
+        - **Include prep instructions** (e.g., "Finely mince garlic," "Dice bell peppers into ½-inch cubes")  
+        - **Specify temperatures, times, and sensory indicators** (e.g., "Roast at 400°F for 20 minutes until caramelized")  
+        - **Use line breaks for readability**  
+        - **Include plating instructions** (e.g., "Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs")  
+
+        ---
+
+        ### **Strict JSON Formatting Requirements**:
+        - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
+        - Represent newlines in instructions as \\n
+        - Ensure all strings use double quotes
+        - No trailing commas in JSON arrays/objects
+
+        ### **Example Response Format**:
+        ```json
+        [
+            {{
+                "title": "Herb-Roasted Chicken with Vegetables",
+                "meal_plan_id": "{meal_plan_id}",
+                "meal_type": "{meal_type}",
+                "nutrition": {{
+                    "calories": 625,
+                    "protein": 42,
+                    "carbs": 38,
+                    "fat": 22,
+                    "fiber": 8,
+                    "sugar": 9
+                }},
+                "ingredients": [
+                    {{
+                        "name": "Boneless chicken breast",
+                        "quantity": "6 oz",
+                        "macros": {{
+                            "calories": 280,
+                            "protein": 38,
+                            "carbs": 0,
+                            "fat": 12,
+                            "fiber": 0,
+                            "sugar": 0
+                        }}
+                    }}
+                ],
+                "instructions": "### **Step 1: Prepare Ingredients**\\n..."
+            }}
+        ]
+        ```
+        **Strictly return only JSON with no extra text.**
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
+            )
+
+            response_text = response.choices[0].message.content.strip()
+
+            # Improved JSON extraction with robust regex
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
+            if json_match:
+                cleaned_response_text = json_match.group(1).strip()
+            else:
+                cleaned_response_text = response_text.strip() 
+
+            meals_for_type = json.loads(cleaned_response_text)
+
+            if not isinstance(meals_for_type, list):
+                raise ValueError(f"AI response for {meal_type} is not a valid list of meals.")
+
+            # Ensure each meal has the correct meal_type
+            for meal in meals_for_type:
+                meal["meal_type"] = meal_type
+                
+            # Add these meals to our collection
+            all_generated_meals.extend(meals_for_type)
+
+        except Exception as e:
+            print(f"⚠️ Error generating {meal_type} meals: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to generate {meal_type} meals: {str(e)}"
+            )
+
+    # Verify we have the correct number of meals
+    if len(all_generated_meals) != total_meals_needed:
+        print(f"⚠️ Warning: Generated {len(all_generated_meals)} meals but needed {total_meals_needed}")
+        
+    # Format generated meals and save to DB
+    formatted_meals = []
+    
+    for meal in all_generated_meals:
+        # Generate a unique ID for this meal
+        unique_id = f"{random.randint(10000, 99999)}"
+        
+        # Save the meal to the database with the unique ID
+        saved_meal = save_meal_with_hash(
+            meal["title"],
+            meal["instructions"],
+            meal["ingredients"],
+            request.dietary_preferences,
+            meal["nutrition"],
+            meal_plan_id,
+            meal["meal_type"],  # Use the specific meal type
+            request_hash,
+            unique_id
+        )
+        
+        # Add to the formatted meals list
+        formatted_meals.append({
+            "id": unique_id,
+            "title": meal["title"],
+            "nutrition": meal["nutrition"],
+            "ingredients": meal["ingredients"],
+            "instructions": meal["instructions"],
+            "meal_type": meal["meal_type"]  # Include meal type in response
+        })
 
     return {"meal_plan": formatted_meals, "cached": False}
 
