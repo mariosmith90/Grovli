@@ -371,7 +371,7 @@ async def generate_meal_plan(request: MealPlanRequest):
 
         try:
             response = client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7
             )
