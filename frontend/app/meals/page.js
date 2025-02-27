@@ -168,6 +168,11 @@ const fetchMealPlan = async () => {
     setError('');
     setLoading(true);
 
+    // Reset the UI state before fetching a new plan
+    setMealPlan([]);  // Clear previous meal plan
+    setIngredients([]);  // Clear ingredients
+    setOrderingPlanIngredients(false);
+
     const tokenResponse = await getAccessToken(); 
     const token = tokenResponse?.accessToken || "";
 
