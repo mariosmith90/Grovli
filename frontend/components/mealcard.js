@@ -1,23 +1,22 @@
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, Utensils, Clock, Flame, Activity } from "lucide-react";
 
-function MealCard({ id, title, nutrition, ingredients, instructions }) {
+function MealCard({ id, title, nutrition, ingredients, instructions, onSelect, isSelected }) {
   const router = useRouter();
-  const [selected, setSelected] = useState(false);
   
   return (
     <div 
-      className={`relative bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 group flex flex-col
-        ${selected 
+      className={`relative bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 group flex flex-col cursor-pointer
+        ${isSelected 
           ? "ring-2 ring-teal-500 translate-y-[-2px]" 
           : "hover:translate-y-[-4px] hover:shadow-xl"}`}
+      onClick={() => onSelect && onSelect(id)}
     >
       {/* Grey Overlay When Selected */}
-      {selected && <div className="absolute inset-0 bg-gray-200/50 backdrop-blur-sm transition-opacity duration-300" />}
+      {isSelected && <div className="absolute inset-0 bg-gray-200/50 backdrop-blur-sm transition-opacity duration-300" />}
 
       {/* Selection Indicator */}
-      {selected && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-400 to-teal-600" />}
+      {isSelected && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-400 to-teal-600" />}
       
       <div className="p-6 relative z-10 flex flex-col flex-grow">
         {/* Header */}
@@ -25,7 +24,7 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
           <h3 className="text-xl font-bold text-gray-800 tracking-tight group-hover:text-teal-700 transition-colors">
             {title}
           </h3>
-          {selected && (
+          {isSelected && (
             <div className="bg-teal-100 text-teal-700 rounded-full py-1 px-3 flex items-center text-xs font-semibold">
               <CheckIcon className="w-3 h-3 mr-1" />
               Selected
@@ -64,7 +63,7 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
         )}
         
         {/* Ingredients */}
-        {ingredients.length > 0 && (
+        {ingredients && ingredients.length > 0 && (
           <div className="mb-6 flex-grow">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
               <Utensils className="w-4 h-4 mr-1 text-teal-600" />
@@ -100,7 +99,8 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
         {/* See Recipe Link - Pushed to Bottom */}
         <div className="mt-auto text-center">
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent triggering selection
               console.log("Navigating to recipe with ID:", id);
               router.push(`/recipes/${id}`);
             }}
@@ -112,7 +112,7 @@ function MealCard({ id, title, nutrition, ingredients, instructions }) {
       </div>
 
       {/* Bottom Selection Indicator */}
-      {selected && <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-teal-600 to-teal-400" />}
+      {isSelected && <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-teal-600 to-teal-400" />}
     </div>
   );
 }

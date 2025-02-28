@@ -30,6 +30,7 @@ export default function Home() {
   const isAuthenticated = !!user;
   const [isPro, setIsPro] = useState(false);
   const [manualInput, setManualInput] = useState(false);
+  const [selectedRecipes, setSelectedRecipes] = useState([]);
   const dietOptions = [
     "Asian",
     "Caribbean",
@@ -41,6 +42,71 @@ export default function Home() {
     "Vegetarian",
   ];
 
+  // Handle recipe selection/deselection
+  const handleMealSelection = (id) => {
+    console.log("Selection toggled for meal:", id);
+    setSelectedRecipes(prevSelected => {
+      if (prevSelected.includes(id)) {
+        return prevSelected.filter(recipeId => recipeId !== id);
+      } else {
+        return [...prevSelected, id];
+      }
+    });
+  };
+
+  // Save selected recipes function
+  const saveSelectedRecipes = async () => {
+    if (!isAuthenticated) {
+      router.push('/api/auth/login');
+      return;
+    }
+
+    const selectedMeals = mealPlan.filter(meal => selectedRecipes.includes(meal.id));
+    
+    if (selectedMeals.length === 0) {
+      alert('Please select at least one recipe to save.');
+      return;
+    }
+    
+    try {
+      const { accessToken } = await getAccessToken({
+        authorizationParams: {
+          audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
+          scope: "openid profile email"
+        }
+      });
+      
+      if (!accessToken) {
+        throw new Error('Authentication error');
+      }
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          recipes: selectedMeals,
+          plan_name: `Meal Plan - ${preferences || 'Custom'}`
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'API error');
+      }
+      
+      const result = await response.json();
+      console.log('Saved recipes:', result);
+      alert('Your recipes have been saved successfully!');
+      setSelectedRecipes([]);
+      
+    } catch (error) {
+      console.error('Error saving recipes:', error);
+      alert('This feature is in development. Please try again later.');
+    }
+  };
 
   // useEffect(() => {
   //   const fetchSubscriptionStatus = async () => {
@@ -167,6 +233,7 @@ const fetchMealPlan = async () => {
   try {
     setError('');
     setLoading(true);
+    setSelectedRecipes([]);
 
     // Reset the UI state before fetching a new plan
     setMealPlan([]);  // Clear previous meal plan
@@ -692,7 +759,7 @@ const fetchMealPlan = async () => {
                 {loading ? "Loading..." : "Generate Free Plan"}
               </p>
             </div>
-  
+
             {/* Display Meal Plan */}
             {Array.isArray(mealPlan) && mealPlan.length > 0 && (
               <div className="mt-6">
@@ -712,18 +779,33 @@ const fetchMealPlan = async () => {
                       }}
                       ingredients={meal?.ingredients || []}
                       instructions={meal?.instructions || "No instructions provided."}
+                      onSelect={handleMealSelection}
+                      isSelected={selectedRecipes.includes(meal.id)}
                     />
                   ))}
                 </div>
-  
-                {/* Accept Meal Plan Button */}
-                <button
-                  onClick={handleOrderPlanIngredients}
-                  disabled={loading || orderingPlanIngredients}
-                  className="w-full py-2 px-4 mt-6 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
-                >
-                  {orderingPlanIngredients ? "Processing..." : "Order Plan Ingredients"}
-                </button>
+
+                {/* This div adds consistent spacing */}
+                <div className="mt-6"> 
+                  {/* Save Selected Recipes Button - appears only when recipes are selected */}
+                  {selectedRecipes.length > 0 && (
+                    <button
+                      onClick={saveSelectedRecipes}
+                      className="w-full py-2 px-4 mb-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
+                    >
+                      Save Meals ({selectedRecipes.length})
+                    </button>
+                  )}
+
+                  {/* Order Plan Ingredients Button */}
+                  <button
+                    onClick={handleOrderPlanIngredients}
+                    disabled={loading || orderingPlanIngredients}
+                    className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
+                  >
+                    {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
