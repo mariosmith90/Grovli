@@ -457,11 +457,8 @@ export default function Home() {
                         </li>
                         <li>
                           <button 
-                            onClick={async() => { 
-                              localStorage.removeItem("token"); // Log out
-                              setIsAuthenticated(false);
-                              router.push('/api/auth/login');
-                              setMenuOpen(false); 
+                            onClick={() => {
+                              router.push('/auth/logout');
                             }} 
                             className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
                           >

@@ -53,7 +53,7 @@ const HomePage = () => {
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           <div
             className="text-white text-5xl font-bold cursor-pointer"
-            onClick={() => router.push("/home")}
+            onClick={() => router.push("/")}
           >
             Grovli
           </div>
