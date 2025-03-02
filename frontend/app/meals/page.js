@@ -245,6 +245,13 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // Only fetch subscription status when user is loaded and authenticated
+    if (!isLoading && user) {
+      fetchSubscriptionStatus();
+    }
+  }, [user, isLoading]); // Re-run when user or isLoading changes
+  
+  useEffect(() => {
     const handleOutsideClick = (event) => {
       if (menuOpen && 
           !event.target.closest(".mobile-menu") && 
