@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useUser, getAccessToken  } from "@auth0/nextjs-auth0"; 
 import { Menu } from 'lucide-react';
 import MealCard from "../../components/mealcard";
-import { useUser } from "@auth0/nextjs-auth0"; 
-import { getAccessToken } from "@auth0/nextjs-auth0";
-
 
 export default function Home() {
   const router = useRouter();
@@ -54,96 +52,198 @@ export default function Home() {
     });
   };
 
-  // Save selected recipes function
-  const saveSelectedRecipes = async () => {
-    if (!isAuthenticated) {
-      router.push('/api/auth/login');
-      return;
-    }
+    // 1. fetchMealPlan with updated Auth0 token retrieval
+    const fetchMealPlan = async () => {
+      try {
+        setError('');
+        setLoading(true);
+        setSelectedRecipes([]);
+        
+        // Reset UI state
+        setMealPlan([]); 
+        setIngredients([]);
+        setOrderingPlanIngredients(false);
+        
+        // Get the token using the client-side getAccessToken helper
+        let accessToken;
+        if (user) {
+          try {
+            // Updated Auth0 v4 token retrieval with audience parameter
+            const token = await getAccessToken({
+              authorizationParams: {
+                audience: "https://grovli.citigrove.com/audience"
+              }
+            });
+            accessToken = token;
+            console.log("✅ Access token retrieved successfully");
+          } catch (tokenError) {
+            console.error("❌ Error retrieving access token:", tokenError);
+          }
+        }
+        
+        // Check API URL
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        if (!apiUrl) {
+          throw new Error("API URL is not defined. Check your environment variables.");
+        }
+        
+        // Prepare headers
+        const headers = {
+          'Content-Type': 'application/json',
+        };
+        
+        // Add authorization header if token exists
+        if (accessToken) {
+          headers['Authorization'] = `Bearer ${accessToken}`;
+        }
+        
+        // Make request
+        const response = await fetch(`${apiUrl}/mealplan/`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            dietary_preferences: preferences.trim(),
+            meal_type: mealType,
+            num_days: numDays,
+            carbs,
+            calories,
+            protein,
+            sugar,
+            fat,
+            fiber,
+          }),
+        });
+        
+        // Handle HTTP errors
+        if (!response.ok) {
+          let errorDetail;
+          try {
+            const errorData = await response.json();
+            errorDetail = errorData.detail || `HTTP error ${response.status}`;
+          } catch (e) {
+            errorDetail = `HTTP error ${response.status}`;
+          }
+          throw new Error(errorDetail);
+        }
+        
+        // Parse response
+        const data = await response.json();
+        
+        // Update state with meal plan data
+        if (data && data.meal_plan) {
+          setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+        } else {
+          setMealPlan([]);
+          throw new Error("Invalid API response format");
+        }
+      } catch (error) {
+        console.error('Error fetching meal plan:', error);
+        setError(`Error: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const selectedMeals = mealPlan.filter(meal => selectedRecipes.includes(meal.id));
-    
-    if (selectedMeals.length === 0) {
-      alert('Please select at least one recipe to save.');
-      return;
-    }
-    
+  // 2. fetchSubscriptionStatus with updated Auth0 token retrieval
+  const fetchSubscriptionStatus = async () => {
+    if (!user) return;
+
     try {
-      const { accessToken } = await getAccessToken({
+      // Updated Auth0 v4 token retrieval
+      const token = await getAccessToken({
         authorizationParams: {
-          audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
-          scope: "openid profile email"
+          audience: "https://grovli.citigrove.com/audience"
         }
       });
       
-      if (!accessToken) {
-        throw new Error('Authentication error');
+      if (!token) {
+        throw new Error("Failed to retrieve access token.");
       }
-      
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({
-          recipes: selectedMeals,
-          plan_name: `Meal Plan - ${preferences || 'Custom'}`
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'API error');
-      }
-      
-      const result = await response.json();
-      console.log('Saved recipes:', result);
-      alert('Your recipes have been saved successfully!');
-      setSelectedRecipes([]);
-      
-    } catch (error) {
-      console.error('Error saving recipes:', error);
-      alert('This feature is in development. Please try again later.');
+
+      // Decode JWT and check subscription
+      const tokenPayload = JSON.parse(atob(token.split(".")[1]));
+      const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
+      setIsPro(userSubscription === "pro");
+    } catch (err) {
+      console.error("Error fetching subscription status:", err);
     }
   };
 
-  // useEffect(() => {
-  //   const fetchSubscriptionStatus = async () => {
-  //     if (!user) return;
 
-  //     try {
-        // const { accessToken } = await getAccessToken({
-        //   authorizationParams: {
-        //     audience: "https://grovli.citigrove.com/audience", 
-        //     scope: "openid profile email read:users update:users update:users_app_metadata read:app_metadata"
-        //   }
-        // });
+  // 3. saveSelectedRecipes with updated Auth0 token retrieval
+  const saveSelectedRecipes = async () => {
+    if (!user) {
+      console.warn("User is not authenticated. Redirecting to login.");
+      // Updated login route without /api prefix
+      router.push("/auth/login?returnTo=/dashboard");
+      return;
+    }
 
-        // console.log("Retrieved Access Token:", accessToken);
+    if (!Array.isArray(mealPlan) || mealPlan.length === 0) {
+      console.warn("Meal plan is empty.");
+      alert("No meal plan available.");
+      return;
+    }
 
-        // if (!accessToken) {
-        //   throw new Error("Failed to retrieve access token.");
-        // }
+    const selectedMeals = mealPlan.filter((meal) => selectedRecipes.includes(meal.id));
+    if (selectedMeals.length === 0) {
+      console.warn("No meals selected.");
+      alert("Please select at least one recipe to save.");
+      return;
+    }
 
-      //   // ✅ Decode JWT and check the app_metadata
-      //   const tokenPayload = JSON.parse(atob(accessToken.split(".")[1])); // Decode JWT payload
-      //   console.log("Decoded Token Payload:", tokenPayload);
+    try {
+      console.log("🔑 Attempting to retrieve access token...");
+      
+      // Updated Auth0 v4 token retrieval with audience parameter
+      const token = await getAccessToken({
+        authorizationParams: {
+          audience: "https://grovli.citigrove.com/audience"
+        }
+      });
+      
+      if (!token) {
+        console.error("🚨 Failed to retrieve access token.");
+        alert("Session error. Please log in again.");
+        router.push("/auth/login?returnTo=/dashboard");
+        return;
+      }
 
-      //   // ✅ Ensure metadata is correctly set
-      //   const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
-      //   setIsPro(userSubscription === "pro");
+      console.log("📤 Sending selected meals to API");
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          recipes: selectedMeals,
+          plan_name: `Meal Plan - ${preferences || "Custom"}`,
+        }),
+      });
 
-      // } catch (err) {
-      //   console.error("Error fetching subscription status:", err);
-      // }
-  //   };
+      if (response.status === 401) {
+        console.error("🚨 Unauthorized: Token may be expired.");
+        alert("Session expired. Please log in again.");
+        router.push("/auth/login?returnTo=/dashboard");
+        return;
+      }
 
-  //   if (!isLoading) {
-  //     fetchSubscriptionStatus();
-  //   }
-  // }, [user, isLoading]);
-  
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "API request failed");
+      }
+
+      console.log("✅ Successfully saved recipes:", data);
+      alert("Your recipes have been saved successfully!");
+      setSelectedRecipes([]); // Clear selection after saving
+
+    } catch (error) {
+      console.error("❌ Error saving recipes:", error);
+      setError("Failed to save recipes. Please try again later.");
+    }
+  };
+
   useEffect(() => {
     const handleOutsideClick = (event) => {
       if (menuOpen && 
@@ -228,71 +328,7 @@ export default function Home() {
       setSugar(0);
     }
   }, [calories, calculationMode, preferences]);  
-
-const fetchMealPlan = async () => {
-  try {
-    setError('');
-    setLoading(true);
-    setSelectedRecipes([]);
-
-    // Reset the UI state before fetching a new plan
-    setMealPlan([]);  // Clear previous meal plan
-    setIngredients([]);  // Clear ingredients
-    setOrderingPlanIngredients(false);
-
-    const tokenResponse = await getAccessToken(); 
-    const token = tokenResponse?.accessToken || "";
-
-    const { accessToken } = await getAccessToken();
-
-    // const { accessToken } = await getAccessToken({
-    //   authorizationParams: {
-    //     audience: "https://grovli.citigrove.com/audience",
-    //     scope: "openid profile email read:users update:users update:users_app_metadata read:app_metadata"        
-    //   }
-    // });
     
-    // if (!accessToken) {
-    //   throw new Error("Failed to retrieve access token.");
-    // }
-
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`   
-      },      
-      body: JSON.stringify({
-        dietary_preferences: preferences.trim(),
-        meal_type: mealType,
-        num_days: numDays,
-        carbs: carbs,
-        calories: calories,
-        protein: protein,
-        sugar: sugar,
-        fat: fat,
-        fiber: fiber,
-      }),
-    });
-
-    const data = await response.json();
-    console.log("API Response:", data); // Debugging output
-
-    if (!response.ok) {
-      throw new Error(data.detail || 'API request failed');
-    }
-
-    // Ensure mealPlan is correctly updated
-    setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
-    console.log("Meal Plan Data After Set:", data.meal_plan); // ✅ Confirming state update
-  } catch (error) {
-    console.error('Error:', error);
-    setError(error.message);
-  } finally {
-    setLoading(false);
-  }
-};
-
     const handleOrderPlanIngredients = async () => {
       if (!Array.isArray(mealPlan) || mealPlan.length === 0) {
         setError("No meal plan available to extract ingredients.");

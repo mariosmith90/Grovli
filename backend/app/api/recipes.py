@@ -2,11 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pymongo import MongoClient
 from typing import List
 from pydantic import BaseModel
-import datetime, os
-import uuid
-
+import datetime, os, requests, uuid
+from jose import jwt, JWTError
 
 router = APIRouter(prefix="/user-recipes", tags=["User Recipes"])
+
+# Auth0 Configuration - Make sure these are set in your environment variables
+AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "dev-rw8ff6vxgb7t0i4c.us.auth0.com")
+AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "https://grovli.citigrove.com/audience")
+JWKS_URL = f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
+
+# Cache the JWKS to avoid fetching it for every request
+jwks_cache = None
+jwks_last_fetched = 0
 
 # Get the database and collections
 client = MongoClient(os.getenv("MONGO_URI"))
@@ -187,3 +195,82 @@ async def delete_saved_meal_plan(
         )
     
     return {"message": "Meal plan deleted successfully"}
+
+async def get_current_user_from_auth0(request: Request):
+    """Validate the Auth0 JWT token and return the user info"""
+    try:
+        # Extract token from Authorization header
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        
+        if not token:
+            print("Missing authorization token")
+            raise HTTPException(status_code=401, detail="Missing authorization token")
+
+        # Get token header to find kid (key ID)
+        try:
+            header = jwt.get_unverified_header(token)
+        except JWTError as e:
+            print(f"Invalid token header: {str(e)}")
+            raise HTTPException(status_code=401, detail="Invalid token format")
+        
+        if "kid" not in header:
+            print("Token missing kid")
+            raise HTTPException(status_code=401, detail="Token missing kid")
+
+        # Fetch JWKS (JSON Web Key Set) if not cached or cache is old
+        global jwks_cache, jwks_last_fetched
+        current_time = datetime.datetime.now().timestamp()
+        
+        if jwks_cache is None or current_time - jwks_last_fetched > 3600:  # Cache for 1 hour
+            try:
+                print(f"Fetching JWKS from {JWKS_URL}")
+                jwks_response = requests.get(JWKS_URL, timeout=10)
+                jwks_response.raise_for_status()
+                jwks_cache = jwks_response.json()
+                jwks_last_fetched = current_time
+                print("JWKS fetched successfully")
+            except Exception as e:
+                print(f"Error fetching JWKS: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to fetch JWKS")
+        
+        # Find the key matching the kid in the token header
+        rsa_key = None
+        for key in jwks_cache.get("keys", []):
+            if key["kid"] == header["kid"]:
+                rsa_key = key
+                break
+        
+        if not rsa_key:
+            print(f"No matching key found for kid: {header['kid']}")
+            raise HTTPException(status_code=401, detail="No matching key found")
+            
+        # Verify the token
+        try:
+            # Decode and verify the token
+            payload = jwt.decode(
+                token,
+                rsa_key,
+                algorithms=["RS256"],
+                audience=AUTH0_AUDIENCE,
+                issuer=f"https://{AUTH0_DOMAIN}/"
+            )
+            print(f"Token validated successfully for sub: {payload.get('sub', 'unknown')}")
+            return payload
+            
+        except jwt.ExpiredSignatureError:
+            print("Token expired")
+            raise HTTPException(status_code=401, detail="Token has expired")
+        except jwt.JWTClaimsError as e:
+            print(f"Invalid claims: {str(e)}")
+            raise HTTPException(status_code=401, detail=f"Invalid claims: {str(e)}")
+        except JWTError as e:
+            print(f"JWT validation error: {str(e)}")
+            raise HTTPException(status_code=401, detail=str(e))
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        print(f"Unexpected auth error: {str(e)}")
+        # Convert unexpected errors to 401 responses
+        raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")

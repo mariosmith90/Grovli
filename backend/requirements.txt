@@ -9,3 +9,4 @@ python-multipart==0.0.9
 requests
 pymongo
 stripe
+python-jose[cryptography]
