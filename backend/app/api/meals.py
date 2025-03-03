@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 import openai
 import os
@@ -215,17 +215,25 @@ async def generate_meal_plan(request: MealPlanRequest):
     
     if len(existing_meal_plan) >= total_meals_needed:
         print(f"✅ Found cached meal plan for request hash: {request_hash}")
-        formatted_meals = [
-            {
+        print(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals")
+        
+        formatted_meals = []
+        for meal in existing_meal_plan[:total_meals_needed]:
+            # Get image URL with fallback
+            image_url = meal.get("image_url", "/fallback-meal-image.jpg")
+            print(f"📋 DEBUG: Cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
+            
+            formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "meal_type": meal["meal_type"]  # Include meal type in response
+                "meal_type": meal["meal_type"],  # Include meal type in response
+                "imageUrl": image_url  # Include the image URL with the right property name
             }
-            for meal in existing_meal_plan[:total_meals_needed]
-        ]
+            formatted_meals.append(formatted_meal)
+            
         return {"meal_plan": formatted_meals, "cached": True}
 
     # Step 4: If no cached plan exists, generate a new one
@@ -428,6 +436,10 @@ async def generate_meal_plan(request: MealPlanRequest):
             unique_id
         )
         
+        # Generate the image URL - use await to ensure it completes before continuing
+        image_url = await generate_and_cache_meal_image(meal["title"], unique_id)
+        print(f"📋 DEBUG: Generated meal: {meal['title']} - Image URL: {image_url}")
+
         # Add to the formatted meals list
         formatted_meals.append({
             "id": unique_id,
@@ -435,7 +447,8 @@ async def generate_meal_plan(request: MealPlanRequest):
             "nutrition": meal["nutrition"],
             "ingredients": meal["ingredients"],
             "instructions": meal["instructions"],
-            "meal_type": meal["meal_type"]  # Include meal type in response
+            "meal_type": meal["meal_type"],  # Include meal type in response
+            "imageUrl": image_url  # Use consistent imageUrl property for frontend
         })
 
     return {"meal_plan": formatted_meals, "cached": False}
@@ -468,6 +481,7 @@ async def get_meal_by_id(meal_id: str):
         "nutrition": meal["macros"],
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
+        "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
     }
 
 def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
@@ -592,3 +606,108 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     # Save to database
     meals_collection.insert_one(meal_data)
     return meal_data
+
+async def generate_and_cache_meal_image(meal_name, meal_id):
+    """
+    Generates a realistic food image for a meal using DALL-E.
+    If an image exists in the database, return that instead of generating a new one.
+    """
+    # Define a fallback image path to use consistently
+    fallback_image = "/fallback-meal-image.jpg"
+    
+    print("\n" + "="*80)
+    print(f"🔍 DALL-E DEBUG: Starting image generation for meal '{meal_name}' with ID '{meal_id}'")
+    print("="*80)
+    
+    try:
+        # Check if image already exists in MongoDB
+        print(f"🔍 DALL-E DEBUG: Checking if image already exists for meal_id: {meal_id}")
+        existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
+        
+        print(f"🔍 DALL-E DEBUG: MongoDB lookup result: {existing_meal}")
+        
+        if existing_meal and "image_url" in existing_meal and existing_meal["image_url"]:
+            print(f"✅ DALL-E DEBUG: Cached image found. URL: {existing_meal['image_url']}")
+            return existing_meal["image_url"]  # Return cached image URL
+
+        # Configure OpenAI client
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            print(f"❌ DALL-E DEBUG: OpenAI API key not configured. Using fallback image.")
+            return fallback_image
+            
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Enhanced prompt for realistic food photography
+        prompt = f"""Highly photorealistic food photography of {meal_name} without any AI artifacts. 
+        Professional food styling with realistic textures, natural lighting from the side, 
+        and detailed texture. Shot on a Canon 5D Mark IV with 100mm macro lens, f/2.8, natural window light.
+        Include realistic imperfections, proper food shadows and reflections.
+        A photo that could be published in Bon Appetit magazine."""
+        
+        print(f"🔍 DALL-E DEBUG: Generated prompt: {prompt[:100]}...")
+        print(f"🔍 DALL-E DEBUG: Calling DALL-E API for image generation...")
+        
+        # Generate image with DALL-E
+        image_response = client.images.generate(
+            model="dall-e-2",
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+            quality="hd"
+        )
+        
+        # Log the raw response structure
+        print(f"🔍 DALL-E DEBUG: Raw API response type: {type(image_response)}")
+        print(f"🔍 DALL-E DEBUG: Raw API response attributes: {dir(image_response)}")
+        
+        # Get image URL from response
+        if hasattr(image_response, 'data') and image_response.data and len(image_response.data) > 0:
+            print(f"🔍 DALL-E DEBUG: Image data found in response")
+            
+            # Log the first data item
+            data_item = image_response.data[0]
+            print(f"🔍 DALL-E DEBUG: Data item type: {type(data_item)}")
+            print(f"🔍 DALL-E DEBUG: Data item attributes: {dir(data_item)}")
+            
+            image_url = data_item.url
+            print(f"✅ DALL-E DEBUG: Successfully generated image URL: {image_url}")
+        else:
+            print(f"❌ DALL-E DEBUG: No valid image data in response. Using fallback.")
+            image_url = fallback_image
+
+        # Cache the generated image URL in MongoDB
+        print(f"🔍 DALL-E DEBUG: Saving image URL to MongoDB for meal_id: {meal_id}")
+        update_result = meals_collection.update_one(
+            {"meal_id": meal_id},
+            {"$set": {"image_url": image_url}}
+        )
+        
+        # Log the update result
+        print(f"🔍 DALL-E DEBUG: MongoDB update result: {update_result.raw_result}")
+        print(f"🔍 DALL-E DEBUG: Matched count: {update_result.matched_count}")
+        print(f"🔍 DALL-E DEBUG: Modified count: {update_result.modified_count}")
+        print(f"🔍 DALL-E DEBUG: Upserted ID: {update_result.upserted_id}")
+        
+        if update_result.modified_count > 0:
+            print(f"✅ DALL-E DEBUG: Successfully saved image URL to database")
+        else:
+            # If no documents were modified, check if document exists
+            meal_exists = meals_collection.find_one({"meal_id": meal_id})
+            if meal_exists:
+                print(f"⚠️ DALL-E DEBUG: Document exists but was not modified. Maybe URL was already set?")
+                print(f"⚠️ DALL-E DEBUG: Existing image URL: {meal_exists.get('image_url')}")
+            else:
+                print(f"❌ DALL-E DEBUG: Failed to update image URL - Document with meal_id {meal_id} not found")
+
+        print(f"🔍 DALL-E DEBUG: Returning image URL: {image_url}")
+        print("="*80 + "\n")
+        return image_url
+
+    except Exception as e:
+        print(f"❌ DALL-E DEBUG: Error generating image: {str(e)}")
+        print(f"❌ DALL-E DEBUG: Exception type: {type(e)}")
+        import traceback
+        print(f"❌ DALL-E DEBUG: Traceback: {traceback.format_exc()}")
+        print("="*80 + "\n")
+        return fallback_image  # Return fallback image if generation fails

@@ -817,6 +817,7 @@ export default function Home() {
                         fiber: 0,
                         sugar: 0
                       }}
+                      imageUrl={meal.imageUrl}
                       ingredients={meal?.ingredients || []}
                       instructions={meal?.instructions || "No instructions provided."}
                       onSelect={handleMealSelection}

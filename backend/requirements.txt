@@ -10,3 +10,5 @@ requests
 pymongo
 stripe
 python-jose[cryptography]
+Pillow
+python-magic

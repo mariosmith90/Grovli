@@ -1,7 +1,7 @@
 import { useRouter } from "next/navigation";
-import { CheckIcon, Utensils, Clock, Flame, Activity } from "lucide-react";
+import { CheckIcon, Flame, Activity } from "lucide-react";
 
-function MealCard({ id, title, nutrition, ingredients, instructions, onSelect, isSelected }) {
+function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected }) {
   const router = useRouter();
   
   return (
@@ -18,6 +18,19 @@ function MealCard({ id, title, nutrition, ingredients, instructions, onSelect, i
       {/* Selection Indicator */}
       {isSelected && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-400 to-teal-600" />}
       
+      {/* Meal Image */}
+      <div className="w-full h-48 bg-gray-100">
+      <img 
+        src={imageUrl || "/fallback-meal-image.jpg"} 
+        alt={title}
+        onError={(e) => {
+          e.target.onerror = null; // Prevent infinite loop
+          e.target.src = "/fallback-meal-image.jpg";
+        }}
+        className="w-full h-full object-cover"
+      />
+      </div>
+
       <div className="p-6 relative z-10 flex flex-col flex-grow">
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
@@ -61,47 +74,12 @@ function MealCard({ id, title, nutrition, ingredients, instructions, onSelect, i
             </div>
           </div>
         )}
-        
-        {/* Ingredients */}
-        {ingredients && ingredients.length > 0 && (
-          <div className="mb-6 flex-grow">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
-              <Utensils className="w-4 h-4 mr-1 text-teal-600" />
-              Ingredients
-            </h4>
-            
-            <ul className="space-y-4">
-              {ingredients.map((ingredient, i) => (
-                <li key={i} className="pb-3 border-b border-gray-200 last:border-0">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-gray-800">
-                      {ingredient.name} <span className="text-teal-600">({ingredient.quantity})</span>
-                    </span>
-                  </div>
-
-                  {ingredient.macros && (
-                    <div className="text-lg text-gray-500 mt-1 flex flex-wrap gap-x-2">
-                      <MacroTag value={`${ingredient.macros.calories} kcal`} color="bg-orange-50 text-orange-700" />
-                      <MacroTag value={`${ingredient.macros.protein}g protein`} color="bg-blue-50 text-blue-700" />
-                      <MacroTag value={`${ingredient.macros.carbs}g carbs`} color="bg-green-50 text-green-700" />
-                      <MacroTag value={`${ingredient.macros.fat}g fat`} color="bg-yellow-50 text-yellow-700" />
-                      <MacroTag value={`${ingredient.macros.fiber}g fiber`} color="bg-purple-50 text-purple-700" />
-                      <MacroTag value={`${ingredient.macros.sugar}g sugar`} color="bg-red-50 text-red-700" />
-                    </div>
-                  )}
-
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* See Recipe Link - Pushed to Bottom */}
         <div className="mt-auto text-center">
           <button
             onClick={(e) => {
               e.stopPropagation(); // Prevent triggering selection
-              console.log("Navigating to recipe with ID:", id);
               router.push(`/recipes/${id}`);
             }}
             className="text-teal-600 hover:text-teal-800 font-semibold transition"
@@ -133,15 +111,6 @@ function NutrientMetric({ icon, value, unit, label, highlight = false }) {
         {label}
       </div>
     </div>
-  );
-}
-
-// **Macro Display Component**
-function MacroTag({ value, color }) {
-  return (
-    <span className={`inline-block rounded-md px-2 py-1 text-base font-medium ${color}`}>
-      {value}
-    </span>
   );
 }
 
