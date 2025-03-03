@@ -69,10 +69,10 @@ const HomePage = () => {
                   Plans
                 </button>
                 <button
-                  onClick={() => router.push("/account")}
+                  onClick={() => router.push("/profile")}
                   className="text-white text-lg font-semibold hover:text-gray-300 transition"
                 >
-                  Account
+                  Profile
                 </button>
                 <button
                   onClick={() => {

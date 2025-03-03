@@ -446,12 +446,12 @@ export default function Home() {
                         <li>
                           <button 
                             onClick={async() => { 
-                              router.push('/account'); 
+                              router.push('/profile'); 
                               setMenuOpen(false); 
                             }} 
                             className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
                           >
-                            Account
+                            Profile
                           </button>
                         </li>
                         <li>
