@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken  } from "@auth0/nextjs-auth0"; 
 import { Menu } from 'lucide-react';
-import MealCard from "../../components/MealCard";
+import MealCard from "../../components/mealcard";
 
 export default function Home() {
   const router = useRouter();
