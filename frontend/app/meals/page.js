@@ -169,7 +169,6 @@ export default function Home() {
     }
   };
 
-
   // 3. saveSelectedRecipes with updated Auth0 token retrieval
   const saveSelectedRecipes = async () => {
     if (!user) {
