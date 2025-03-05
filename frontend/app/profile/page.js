@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, Activity, Flame, CheckIcon } from 'lucide-react';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import Header from '../../components/header'
+import Footer from '../../components/footer'
 
 export default function ProfilePage() {
   const router = useRouter();

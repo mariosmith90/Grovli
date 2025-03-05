@@ -1,9 +1,0 @@
-// frontend/jsconfig.json or frontend/tsconfig.json
-{
-    "compilerOptions": {
-      "baseUrl": ".",
-      "paths": {
-        "@/*": ["./*"]
-      }
-    }
-  }
