@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken  } from "@auth0/nextjs-auth0";
-import MealCard from '../../components/mealcard';
-import Header from '../../components/header';
-import Footer from '../../components/footer';
+import MealCard from '../../components/mealcard.js';
+import Header from '../../components/header.js';
+import Footer from '../../components/footer.js';
 
 export default function Home() {
   const router = useRouter();
