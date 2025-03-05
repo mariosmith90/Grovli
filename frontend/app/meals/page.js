@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken  } from "@auth0/nextjs-auth0"; 
 import { Menu } from 'lucide-react';
-import MealCard from "../../components/mealcard";
+import MealCard from "../../components/MealCard";
+import Header from '../../components/Header';
+import Footer from '../../components/Footer';
 
 export default function Home() {
   const router = useRouter();
@@ -386,92 +388,7 @@ export default function Home() {
       
     return ( 
       <>
-        {/* Navigation Bar */}
-        <nav className="fixed top-0 left-0 w-full py-3 px-4 bg-gray-500 bg-opacity-90 shadow-md z-50">            
-          <div className="flex justify-between items-center max-w-6xl mx-auto">
-            {/* Title with Link (Smaller Text) */}
-            <div 
-              className="text-white text-2xl font-bold cursor-pointer" 
-              onClick={() => router.push('/')}
-            >
-              Grovli
-            </div>
-  
-            {/* Mobile Navigation - Always Visible */}
-            <div className="md:hidden relative mobile-menu">
-              <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
-                <Menu size={32} />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50">
-                  <ul className="py-2 text-gray-900">
-                    {!isAuthenticated ? (
-                      <>
-                        <li>
-                          <button 
-                            onClick={async() => { 
-                              router.push('/api/auth/login'); 
-                              setMenuOpen(false); 
-                            }} 
-                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                          >
-                            Login
-                          </button>
-                        </li>
-                        <li>
-                          <button 
-                            onClick={async() => { 
-                              router.push('/register'); 
-                              setMenuOpen(false); 
-                            }} 
-                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                          >
-                            Register
-                          </button>
-                        </li>
-                      </>
-                    ) : (
-                      <>
-                        <li>
-                          <button 
-                            onClick={async() => { 
-                              router.push('/subscriptions'); 
-                              setMenuOpen(false); 
-                            }} 
-                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                          >
-                            Plans
-                          </button>
-                        </li>
-                        <li>
-                          <button 
-                            onClick={async() => { 
-                              router.push('/profile'); 
-                              setMenuOpen(false); 
-                            }} 
-                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                          >
-                            Profile
-                          </button>
-                        </li>
-                        <li>
-                          <button 
-                            onClick={() => {
-                              router.push('/auth/logout');
-                            }} 
-                            className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                          >
-                            Logout
-                          </button>
-                        </li>
-                      </>
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        </nav>
+        <Header />
   
       {/* Full-screen white background */}
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
@@ -850,19 +767,7 @@ export default function Home() {
             )}
           </div>
         </main>
-  
-        {/* Footer - Sticks to bottom without pushing content behind */}
-        <footer className="fixed bottom-0 left-0 w-full bg-gray-500 text-white text-center py-3 text-sm">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center px-4">
-            <div className="font-semibold">© {new Date().getFullYear()} Grovli</div>
-            <div className="flex space-x-6 mt-4 md:mt-0">
-              <a href="/about" className="hover:text-gray-300 transition-colors">About</a>
-              <a href="https://form.typeform.com/to/r6ucQF6l" className="hover:text-gray-300 transition-colors">Contact</a>
-              <a href="/terms" className="hover:text-gray-300 transition-colors">Terms</a>
-              <a href="/privacy" className="hover:text-gray-300 transition-colors">Privacy</a>
-            </div>
-          </div>
-        </footer>
+        <Footer />
       </>
     );
   }
