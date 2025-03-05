@@ -21,7 +21,7 @@ COPY package.json /app/
 RUN npm install
  
 # Copy the rest of the application code
-COPY . /app
+COPY . .
 
 # Build the application using `next build`
 RUN npm run build
