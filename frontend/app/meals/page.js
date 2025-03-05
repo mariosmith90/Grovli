@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, getAccessToken  } from "@auth0/nextjs-auth0"; 
-import { Menu } from 'lucide-react';
-import MealCard from "../../components/MealCard";
+import { useUser, getAccessToken  } from "@auth0/nextjs-auth0";
+import MealCard from '../../components/MealCard';
 import Header from '../../components/Header';
 import Footer from '../../components/Footer';
 
