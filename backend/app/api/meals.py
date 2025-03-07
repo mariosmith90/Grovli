@@ -27,7 +27,7 @@ USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 
 # Connect to MongoDB
 client = MongoClient(os.getenv("MONGO_URI"))
-db = client["meal_plans_db"]
+db = client["grovli"]
 meals_collection = db["meals"]
 
 class MealPlanText(BaseModel):
@@ -494,6 +494,7 @@ async def get_meal_by_id(meal_id: str):
         "nutrition": meal["macros"],
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
+        "meal_type": meal.get("meal_type"),
         "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
     }
 

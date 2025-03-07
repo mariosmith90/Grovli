@@ -18,10 +18,10 @@ jwks_last_fetched = 0
 
 # Get the database and collections
 client = MongoClient(os.getenv("MONGO_URI"))
-db = client["meal_plans_db"]
+db = client["grovli"]
 meals_collection = db["meals"]
 user_collection = db["users"]
-saved_meal_plans_collection = db["saved_meal_plans"]
+saved_meal_plans_collection = db["saved_meals"]
 
 # --- Pydantic Models ---
 
@@ -35,6 +35,7 @@ class SavedRecipeResponse(BaseModel):
     nutrition: dict = None
     ingredients: List[dict] = None
     instructions: str = None
+    meal_type: str = None
 
 class SavedMealPlanResponse(BaseModel):
     id: str
@@ -105,6 +106,16 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
         if recipe_id:
             mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
         
+        # Get meal_type from sources with fallbacks
+        # First try to get it from the mongo_recipe, then from the request, then default to "Unknown"
+        meal_type = None
+        if mongo_recipe:
+            meal_type = mongo_recipe.get("meal_type")
+        if not meal_type and "meal_type" in recipe:
+            meal_type = recipe.get("meal_type")
+        if not meal_type:
+            meal_type = "Unknown"
+                
         # Create saved recipe document
         saved_recipe = {
             "id": str(uuid.uuid4()),
@@ -114,6 +125,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             "nutrition": mongo_recipe.get("macros") if mongo_recipe else recipe.get("nutrition", {}),
             "ingredients": mongo_recipe.get("ingredients") if mongo_recipe else recipe.get("ingredients", []),
             "instructions": mongo_recipe.get("meal_text") if mongo_recipe else recipe.get("instructions", ""),
+            "meal_type": meal_type  # Add the meal_type field
         }
         saved_recipes.append(saved_recipe)
     
