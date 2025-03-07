@@ -1,11 +1,24 @@
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 import openai
-import os
+import os, json, uuid
 import requests
 import re, random, json, datetime
 from typing import List, Set
 from pymongo import MongoClient
+from google.cloud import aiplatform, storage
+from google.oauth2 import service_account
+import vertexai
+from vertexai.preview.vision_models import ImageGenerationModel
+from io import BytesIO
+import base64, logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
 
@@ -437,7 +450,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         )
         
         # Generate the image URL - use await to ensure it completes before continuing
-        image_url = await generate_and_cache_meal_image(meal["title"], unique_id)
+        image_url = await generate_and_cache_meal_image(meal["title"], unique_id, meals_collection)        
         print(f"📋 DEBUG: Generated meal: {meal['title']} - Image URL: {image_url}")
 
         # Add to the formatted meals list
@@ -607,107 +620,145 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     meals_collection.insert_one(meal_data)
     return meal_data
 
-async def generate_and_cache_meal_image(meal_name, meal_id):
+# Ensure the GOOGLE_APPLICATION_CREDENTIALS environment variable is set
+credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if credentials_json:
+    creds_dict = json.loads(credentials_json)
+    credentials = service_account.Credentials.from_service_account_info(creds_dict)
+    project_id = creds_dict["project_id"]
+else:
+    raise EnvironmentError("GOOGLE_APPLICATION_CREDENTIALS environment variable not set or invalid.")
+
+# Initialize Vertex AI with the credentials
+region = "us-central1"
+vertexai.init(project=project_id, location=region, credentials=credentials)
+
+async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
     """
-    Generates a realistic food image for a meal using DALL-E.
+    Generates a realistic food image for a meal using Google Cloud's Vertex AI.
+    Uploads it to Google Cloud Storage, and returns a persistent URL.
     If an image exists in the database, return that instead of generating a new one.
     """
-    # Define a fallback image path to use consistently
     fallback_image = "/fallback-meal-image.jpg"
-    
-    print("\n" + "="*80)
-    print(f"🔍 DALL-E DEBUG: Starting image generation for meal '{meal_name}' with ID '{meal_id}'")
-    print("="*80)
+    # Check if image already exists in MongoDB
+    existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
+    if existing_meal and existing_meal.get("image_url"):
+        return existing_meal["image_url"]
     
     try:
-        # Check if image already exists in MongoDB
-        print(f"🔍 DALL-E DEBUG: Checking if image already exists for meal_id: {meal_id}")
-        existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
+        # Enhanced prompt for realistic food photography
+        prompt = (
+            f"Highly photorealistic food photography of {meal_name} without any AI artifacts. "
+            "Professional food styling with realistic textures, natural lighting from the side, "
+            "and detailed texture. Shot on a Canon 5D Mark IV with 100mm macro lens, f/2.8, natural window light. "
+            "Include realistic imperfections, proper food shadows and reflections. "
+            "A photo that could be published in Bon Appetit magazine."
+        )
         
-        print(f"🔍 DALL-E DEBUG: MongoDB lookup result: {existing_meal}")
+        # Load the pre-trained image generation model
+        model = ImageGenerationModel.from_pretrained("imagegeneration@002")
         
-        if existing_meal and "image_url" in existing_meal and existing_meal["image_url"]:
-            print(f"✅ DALL-E DEBUG: Cached image found. URL: {existing_meal['image_url']}")
-            return existing_meal["image_url"]  # Return cached image URL
-
-        # Configure OpenAI client
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            print(f"❌ DALL-E DEBUG: OpenAI API key not configured. Using fallback image.")
+        # Generate the image
+        images = model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            seed=1,  # Fixed seed for reproducibility
+            add_watermark=False,
+        )
+        
+        if images:
+            # Create a temporary directory to save the image
+            import tempfile
+            import os
+            import json
+            
+            # Create temp directory if it doesn't exist
+            temp_dir = tempfile.gettempdir()
+            image_path = os.path.join(temp_dir, f"{meal_id}.jpg")
+            
+            # Save the image to the temporary file path
+            images[0].save(image_path)     
+            
+            # Get credentials from environment
+            credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            storage_client = None
+            
+            # Check if the credentials are a JSON string rather than a file path
+            if credentials_json and (credentials_json.startswith('{') or credentials_json.startswith('{"')):
+                try:
+                    # It's a JSON string, create a temporary file
+                    creds_temp_file = os.path.join(temp_dir, f"google_creds_{uuid.uuid4()}.json")
+                    with open(creds_temp_file, 'w') as f:
+                        f.write(credentials_json)
+                    
+                    credentials = service_account.Credentials.from_service_account_file(creds_temp_file)
+                    storage_client = storage.Client(credentials=credentials)
+                    
+                    # Clean up temporary credentials file
+                    os.remove(creds_temp_file)
+                except Exception as json_error:
+                    print(f"Error with JSON credentials: {str(json_error)}")
+                    return fallback_image
+            elif credentials_json:
+                # It's a path to a file
+                try:
+                    credentials = service_account.Credentials.from_service_account_file(credentials_json)
+                    storage_client = storage.Client(credentials=credentials)
+                except Exception as file_error:
+                    print(f"Error with credentials file: {str(file_error)}")
+                    return fallback_image
+            else:
+                # Try default credentials
+                try:
+                    storage_client = storage.Client()
+                except Exception as default_error:
+                    print(f"Error with default credentials: {str(default_error)}")
+                    return fallback_image
+            
+            if not storage_client:
+                print("Failed to initialize storage client")
+                return fallback_image
+                
+            bucket_name = os.getenv("GCS_BUCKET_NAME")
+            if not bucket_name:
+                print("No bucket name specified")
+                return fallback_image
+                
+            try:
+                bucket = storage_client.bucket(bucket_name)
+                
+                # Generate a unique filename for the image in GCS
+                filename = f"meal_images/{meal_id}_{uuid.uuid4()}.jpg"
+                blob = bucket.blob(filename)
+                
+                # Upload the image to Google Cloud Storage
+                blob.upload_from_filename(image_path, content_type="image/jpeg")
+                
+                # Get the public URL
+                gcs_image_url = blob.public_url
+                
+                # Clean up the temporary file
+                os.remove(image_path)
+                
+                # Cache the generated image URL in MongoDB
+                meals_collection.update_one(
+                    {"meal_id": meal_id},
+                    {"$set": {
+                        "image_url": gcs_image_url,
+                        "image_updated_at": datetime.datetime.now(),
+                        "image_source": "vertex_ai"
+                    }},
+                    upsert=True
+                )
+                
+                return gcs_image_url
+            except Exception as storage_error:
+                print(f"Error in storage operations: {str(storage_error)}")
+                return fallback_image
+        else:
+            print("No images were generated")
             return fallback_image
             
-        client = openai.OpenAI(api_key=api_key)
-        
-        # Enhanced prompt for realistic food photography
-        prompt = f"""Highly photorealistic food photography of {meal_name} without any AI artifacts. 
-        Professional food styling with realistic textures, natural lighting from the side, 
-        and detailed texture. Shot on a Canon 5D Mark IV with 100mm macro lens, f/2.8, natural window light.
-        Include realistic imperfections, proper food shadows and reflections.
-        A photo that could be published in Bon Appetit magazine."""
-        
-        print(f"🔍 DALL-E DEBUG: Generated prompt: {prompt[:100]}...")
-        print(f"🔍 DALL-E DEBUG: Calling DALL-E API for image generation...")
-        
-        # Generate image with DALL-E
-        image_response = client.images.generate(
-            model="dall-e-2",
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
-            quality="hd"
-        )
-        
-        # Log the raw response structure
-        print(f"🔍 DALL-E DEBUG: Raw API response type: {type(image_response)}")
-        print(f"🔍 DALL-E DEBUG: Raw API response attributes: {dir(image_response)}")
-        
-        # Get image URL from response
-        if hasattr(image_response, 'data') and image_response.data and len(image_response.data) > 0:
-            print(f"🔍 DALL-E DEBUG: Image data found in response")
-            
-            # Log the first data item
-            data_item = image_response.data[0]
-            print(f"🔍 DALL-E DEBUG: Data item type: {type(data_item)}")
-            print(f"🔍 DALL-E DEBUG: Data item attributes: {dir(data_item)}")
-            
-            image_url = data_item.url
-            print(f"✅ DALL-E DEBUG: Successfully generated image URL: {image_url}")
-        else:
-            print(f"❌ DALL-E DEBUG: No valid image data in response. Using fallback.")
-            image_url = fallback_image
-
-        # Cache the generated image URL in MongoDB
-        print(f"🔍 DALL-E DEBUG: Saving image URL to MongoDB for meal_id: {meal_id}")
-        update_result = meals_collection.update_one(
-            {"meal_id": meal_id},
-            {"$set": {"image_url": image_url}}
-        )
-        
-        # Log the update result
-        print(f"🔍 DALL-E DEBUG: MongoDB update result: {update_result.raw_result}")
-        print(f"🔍 DALL-E DEBUG: Matched count: {update_result.matched_count}")
-        print(f"🔍 DALL-E DEBUG: Modified count: {update_result.modified_count}")
-        print(f"🔍 DALL-E DEBUG: Upserted ID: {update_result.upserted_id}")
-        
-        if update_result.modified_count > 0:
-            print(f"✅ DALL-E DEBUG: Successfully saved image URL to database")
-        else:
-            # If no documents were modified, check if document exists
-            meal_exists = meals_collection.find_one({"meal_id": meal_id})
-            if meal_exists:
-                print(f"⚠️ DALL-E DEBUG: Document exists but was not modified. Maybe URL was already set?")
-                print(f"⚠️ DALL-E DEBUG: Existing image URL: {meal_exists.get('image_url')}")
-            else:
-                print(f"❌ DALL-E DEBUG: Failed to update image URL - Document with meal_id {meal_id} not found")
-
-        print(f"🔍 DALL-E DEBUG: Returning image URL: {image_url}")
-        print("="*80 + "\n")
-        return image_url
-
     except Exception as e:
-        print(f"❌ DALL-E DEBUG: Error generating image: {str(e)}")
-        print(f"❌ DALL-E DEBUG: Exception type: {type(e)}")
-        import traceback
-        print(f"❌ DALL-E DEBUG: Traceback: {traceback.format_exc()}")
-        print("="*80 + "\n")
-        return fallback_image  # Return fallback image if generation fails
+        print(f"Error generating image: {str(e)}")
+        return fallback_image
