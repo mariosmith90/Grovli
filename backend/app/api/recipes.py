@@ -32,10 +32,10 @@ class SaveRecipeRequest(BaseModel):
 class SavedRecipeResponse(BaseModel):
     id: str
     title: str
+    meal_type: str = None
     nutrition: dict = None
     ingredients: List[dict] = None
-    instructions: str = None
-    meal_type: str = None
+    instructions: str = None 
 
 class SavedMealPlanResponse(BaseModel):
     id: str
@@ -121,11 +121,11 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             "id": str(uuid.uuid4()),
             "recipe_id": recipe_id,
             "title": recipe.get("title") or (mongo_recipe.get("meal_name") if mongo_recipe else "Untitled Recipe"),
+            "meal_type": meal_type, # Add the meal_type field
             # Use MongoDB data with fallback to request data
             "nutrition": mongo_recipe.get("macros") if mongo_recipe else recipe.get("nutrition", {}),
             "ingredients": mongo_recipe.get("ingredients") if mongo_recipe else recipe.get("ingredients", []),
             "instructions": mongo_recipe.get("meal_text") if mongo_recipe else recipe.get("instructions", ""),
-            "meal_type": meal_type  # Add the meal_type field
         }
         saved_recipes.append(saved_recipe)
     

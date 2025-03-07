@@ -239,10 +239,10 @@ async def generate_meal_plan(request: MealPlanRequest):
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
+                "meal_type": meal["meal_type"],
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "meal_type": meal["meal_type"],  # Include meal type in response
                 "imageUrl": image_url  # Include the image URL with the right property name
             }
             formatted_meals.append(formatted_meal)
@@ -359,8 +359,8 @@ async def generate_meal_plan(request: MealPlanRequest):
         [
             {{
                 "title": "Herb-Roasted Chicken with Vegetables",
-                "meal_plan_id": "{meal_plan_id}",
                 "meal_type": "{meal_type}",
+                "meal_plan_id": "{meal_plan_id}",
                 "nutrition": {{
                     "calories": 625,
                     "protein": 42,
@@ -457,10 +457,10 @@ async def generate_meal_plan(request: MealPlanRequest):
         formatted_meals.append({
             "id": unique_id,
             "title": meal["title"],
+            "meal_type": meal["meal_type"],
             "nutrition": meal["nutrition"],
             "ingredients": meal["ingredients"],
             "instructions": meal["instructions"],
-            "meal_type": meal["meal_type"],  # Include meal type in response
             "imageUrl": image_url  # Use consistent imageUrl property for frontend
         })
 
