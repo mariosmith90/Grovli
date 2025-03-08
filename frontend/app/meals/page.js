@@ -486,13 +486,12 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Pro Feature Message - same spacing for all pro messages */}
           {!isPro && (
             <p className="text-sm text-gray-600">
               Manual mode is a <strong>Pro feature</strong>.{" "}
               <span
                 className="text-blue-600 cursor-pointer hover:underline"
-                onClick={() => router.push('/subscriptions')}
+                onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
               >
                 Upgrade Now
               </span>
@@ -552,8 +551,8 @@ export default function Home() {
                   Days over 1 is a <strong>Pro feature</strong>.{" "}
                   <span
                     className="text-blue-600 cursor-pointer hover:underline"
-                    onClick={() => router.push('/subscriptions')}
-                  >
+                    onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
+                    >
                     Upgrade Now
                   </span>
                 </p>
@@ -689,7 +688,7 @@ export default function Home() {
   
             {/* Upgrade Now Button */}
             <button
-              onClick={() => router.push('/subscriptions')}  // Redirect to subscriptions page
+              onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
               className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
             >
               Upgrade Now

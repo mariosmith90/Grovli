@@ -78,17 +78,6 @@ export default function Header() {
                     <li>
                       <button 
                         onClick={async() => { 
-                          router.push('/subscriptions'); 
-                          setMenuOpen(false); 
-                        }} 
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Plans
-                      </button>
-                    </li>
-                    <li>
-                      <button 
-                        onClick={async() => { 
                           router.push('/profile'); 
                           setMenuOpen(false); 
                         }} 
