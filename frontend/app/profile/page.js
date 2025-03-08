@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, Activity, Flame, CheckIcon } from 'lucide-react';
+import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, Activity, Flame, CheckIcon, TrashIcon} from 'lucide-react';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
 
@@ -16,9 +16,11 @@ export default function ProfilePage() {
   const [activeSection, setActiveSection] = useState('timeline');
   const [selectedMealType, setSelectedMealType] = useState(null);
   const [calorieData, setCalorieData] = useState({
-    consumed: 1200,
+    consumed: 350,
     target: 2000
   });
+  const [savedMealPlans, setSavedMealPlans] = useState([]);
+  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(true);
 
   // Function for meal plan creation
   const handleCreateNewMeals = () => {
@@ -28,79 +30,226 @@ export default function ProfilePage() {
   // Track which meal is current
   const [currentMealIndex, setCurrentMealIndex] = useState(1); // Starting with lunch as current
   
-  // Placeholder data (will be replaced with API data)
+  // Initialize next meal with empty values - will be populated from API
   const [nextMeal, setNextMeal] = useState({
-    name: "Grilled Chicken Salad",
+    name: "",
     time: "12:30 PM",
-    calories: 350,
-    protein: 35,
-    carbs: 15,
-    fat: 12,
-    image: "/images/chicken-salad.jpg",
-    type: "lunch" // Added type to track which meal it is
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+    image: "",
+    type: "lunch"
   });
   
+  // Initialize meal plan with empty timeline - will be populated with user data
   const [mealPlan, setMealPlan] = useState([
-    { type: 'breakfast', name: 'Oatmeal with Berries', calories: 350, time: '8:00 AM', completed: true },
-    { type: 'lunch', name: 'Grilled Chicken Salad', calories: 450, time: '12:30 PM', completed: false },
-    { type: 'snack', name: '', calories: 0, time: '3:30 PM', completed: false },
-    { type: 'dinner', name: 'Salmon with Vegetables', calories: 550, time: '7:00 PM', completed: false }
+    { type: 'breakfast', name: '', calories: 0, time: '8:00 AM', completed: false, image: '' },
+    { type: 'lunch', name: '', calories: 0, time: '12:30 PM', completed: false, image: '' },
+    { type: 'snack', name: '', calories: 0, time: '3:30 PM', completed: false, image: '' },
+    { type: 'dinner', name: '', calories: 0, time: '7:00 PM', completed: false, image: '' }
   ]);
 
-  // Placeholder saved meals data (will be replaced with API data)
-  const savedMeals = {
-    breakfast: [
-      { id: 1, name: 'Oatmeal with Berries', calories: 350, image: '/images/oatmeal.jpg' },
-      { id: 2, name: 'Avocado Toast', calories: 420, image: '/images/avocado-toast.jpg' },
-      { id: 3, name: 'Greek Yogurt with Granola', calories: 300, image: '/images/yogurt.jpg' }
-    ],
-    lunch: [
-      { id: 4, name: 'Grilled Chicken Salad', calories: 450, image: '/images/chicken-salad.jpg' },
-      { id: 5, name: 'Quinoa Bowl', calories: 520, image: '/images/quinoa-bowl.jpg' },
-      { id: 6, name: 'Turkey Sandwich', calories: 480, image: '/images/turkey-sandwich.jpg' }
-    ],
-    snack: [
-      { id: 7, name: 'Apple with Almond Butter', calories: 200, image: '/images/apple.jpg' },
-      { id: 8, name: 'Protein Shake', calories: 180, image: '/images/protein-shake.jpg' },
-      { id: 9, name: 'Mixed Nuts', calories: 170, image: '/images/nuts.jpg' }
-    ],
-    dinner: [
-      { id: 10, name: 'Salmon with Vegetables', calories: 550, image: '/images/salmon.jpg' },
-      { id: 11, name: 'Chicken Stir Fry', calories: 520, image: '/images/stir-fry.jpg' },
-      { id: 12, name: 'Vegetable Pasta', calories: 480, image: '/images/pasta.jpg' }
-    ]
-  };
+  // Initialize saved meals categories
+  const [savedMeals, setSavedMeals] = useState({
+    breakfast: [],
+    lunch: [],
+    snack: [],
+    dinner: []
+  });
 
-  // Initialize the app with some values based on meal plan
-  useEffect(() => {
-    // Find the current meal index (first non-completed meal)
-    const currentIndex = mealPlan.findIndex(meal => !meal.completed);
+  // Fetch saved meal plans from API
+  // Fetch saved meal plans from API with proper Auth0 authentication
+  const fetchSavedMealPlans = async () => {
+    try {
+      setIsLoadingSavedMeals(true);
+      
+      // Reset state
+      setSavedMealPlans([]);
+      setSavedMeals({
+        breakfast: [],
+        lunch: [],
+        snack: [],
+        dinner: []
+      });
+      
+      // Get access token for the authenticated user with the correct audience
+      let accessToken;
+      if (user) {
+        try {
+          // Updated Auth0 v4 token retrieval with audience parameter
+          const token = await getAccessToken({
+            authorizationParams: {
+              audience: "https://grovli.citigrove.com/audience"
+            }
+          });
+          accessToken = token;
+          console.log("✅ Access token retrieved successfully");
+        } catch (tokenError) {
+          console.error("❌ Error retrieving access token:", tokenError);
+          setIsLoadingSavedMeals(false);
+          return;
+        }
+      } else {
+        console.error("No authenticated user");
+        setIsLoadingSavedMeals(false);
+        return;
+      }
+      
+      // Prepare headers
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      };
+      
+      // Fetch saved meal plans from backend API
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const response = await fetch(`${apiUrl}/api/user-recipes/saved-recipes/`, {
+        method: 'GET',
+        headers
+      });
+      
+      // Handle response statuses
+      if (response.status === 401) {
+        console.error("🚨 Unauthorized: Token may be expired");
+        setIsLoadingSavedMeals(false);
+        // Optionally redirect to login
+        // router.push("/auth/login?returnTo=/profile");
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch saved meal plans: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Fetched saved meal plans:', data);
+      setSavedMealPlans(data);
+      
+      // Process the meal plans into the savedMeals format
+      const categorizedMeals = {
+        breakfast: [],
+        lunch: [],
+        snack: [],
+        dinner: []
+      };
+      
+      // Flatten all recipes from all meal plans and categorize by meal_type
+      data.forEach(plan => {
+        if (plan.recipes && Array.isArray(plan.recipes)) {
+          plan.recipes.forEach(recipe => {
+            // Convert meal_type to lowercase and handle possible null values
+            const mealType = (recipe.meal_type || '').toLowerCase();
+            
+            // Make sure the type is one of our known categories
+            const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
+              ? mealType 
+              : 'snack';
+            
+            // Format the meal for our UI - Handle multiple image URL field names
+            const formattedMeal = {
+              id: recipe.id,
+              name: recipe.title,
+              calories: recipe.nutrition?.calories || 0,
+              protein: recipe.nutrition?.protein || 0,
+              carbs: recipe.nutrition?.carbs || 0,
+              fat: recipe.nutrition?.fat || 0,
+              // Get image URL - check multiple possible field names from the backend
+              image: recipe.imageUrl || recipe.image_url || "",
+              ingredients: recipe.ingredients || [],
+              instructions: recipe.instructions || ''
+            };
+            
+            console.log(`Processing meal: ${formattedMeal.name}, Image: ${formattedMeal.image}`);
+            
+            // Add to appropriate category if not already there
+            const isDuplicate = categorizedMeals[category].some(meal => meal.name === formattedMeal.name);
+            if (!isDuplicate) {
+              categorizedMeals[category].push(formattedMeal);
+            }
+          });
+        }
+      });
+      
+      console.log('✅ Categorized meals:', categorizedMeals);
+      setSavedMeals(categorizedMeals);
+      
+      // If we have saved meals, populate the meal plan with them
+      populateMealPlanFromSavedMeals(categorizedMeals);
+      
+    } catch (error) {
+      console.error('❌ Error fetching saved meal plans:', error);
+      // Show an error state if needed
+    } finally {
+      setIsLoadingSavedMeals(false);
+    }
+  };
+  
+  // Helper function to populate meal plan with saved meals
+  const populateMealPlanFromSavedMeals = (categorizedMeals) => {
+    // Only populate empty slots with saved meals
+    const updatedMealPlan = [...mealPlan];
+    
+    // For each meal type in the meal plan
+    updatedMealPlan.forEach((meal, index) => {
+      // If this meal slot doesn't have a name yet and we have saved meals of this type
+      if (!meal.name && categorizedMeals[meal.type] && categorizedMeals[meal.type].length > 0) {
+        // Get a random meal from the saved meals of this type
+        const randomIndex = Math.floor(Math.random() * categorizedMeals[meal.type].length);
+        const savedMeal = categorizedMeals[meal.type][randomIndex];
+        
+        // Update the meal plan slot with this saved meal
+        updatedMealPlan[index] = {
+          ...meal,
+          name: savedMeal.name,
+          calories: savedMeal.calories,
+          protein: savedMeal.protein,
+          carbs: savedMeal.carbs,
+          fat: savedMeal.fat,
+          image: savedMeal.image
+        };
+      }
+    });
+    
+    setMealPlan(updatedMealPlan);
+    
+    // Update next meal card with the current meal
+    const currentIndex = updatedMealPlan.findIndex(meal => !meal.completed);
     if (currentIndex !== -1) {
       setCurrentMealIndex(currentIndex);
-      
-      // Update next meal data
-      const currentMeal = mealPlan[currentIndex];
-      setNextMeal({
-        name: currentMeal.name,
-        time: currentMeal.time,
-        calories: currentMeal.calories,
-        protein: currentMeal.type === 'snack' ? 10 : 30,
-        carbs: currentMeal.type === 'snack' ? 15 : 25,
-        fat: currentMeal.type === 'snack' ? 5 : 15,
-        image: currentMeal.type === 'snack' ? "/images/apple.jpg" : 
-              currentMeal.type === 'dinner' ? "/images/salmon.jpg" : 
-              currentMeal.type === 'breakfast' ? "/images/oatmeal.jpg" : "/images/chicken-salad.jpg",
-        type: currentMeal.type
-      });
+      updateNextMealCard(updatedMealPlan[currentIndex]);
+    }
+  };
+  
+  // Helper function to update the next meal card
+  const updateNextMealCard = (meal) => {
+    if (!meal) return;
+    
+    setNextMeal({
+      name: meal.name || "No meal planned",
+      time: meal.time,
+      calories: meal.calories || 0,
+      protein: meal.protein || 0,
+      carbs: meal.carbs || 0,
+      fat: meal.fat || 0,
+      image: meal.image || "",
+      type: meal.type
+    });
+  };
+
+  // Initialize the app with data 
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchSavedMealPlans();
     }
     
     // Calculate consumed calories from completed meals
     const completedCalories = mealPlan
       .filter(meal => meal.completed)
-      .reduce((sum, meal) => sum + meal.calories, 0);
+      .reduce((sum, meal) => sum + (meal.calories || 0), 0);
     
     setCalorieData(prev => ({ ...prev, consumed: completedCalories }));
-  }, []);
+  }, [isAuthenticated]);
 
   // Handle meal selection
   const handleAddMeal = (mealType) => {
@@ -110,16 +259,39 @@ export default function ProfilePage() {
 
   // Handle selecting a saved meal
   const handleSelectSavedMeal = (meal) => {
-    const updatedMealPlan = mealPlan.map(item => 
-      item.type === selectedMealType ? { ...item, name: meal.name, calories: meal.calories } : item
-    );
+    // Find the meal type index in the meal plan
+    const mealTypeIndex = mealPlan.findIndex(item => item.type === selectedMealType);
     
-    setMealPlan(updatedMealPlan);
+    if (mealTypeIndex !== -1) {
+      // Create updated meal plan with the selected meal's data
+      const updatedMealPlan = [...mealPlan];
+      updatedMealPlan[mealTypeIndex] = {
+        ...updatedMealPlan[mealTypeIndex],
+        name: meal.name,
+        calories: meal.calories,
+        protein: meal.protein,
+        carbs: meal.carbs,
+        fat: meal.fat,
+        image: meal.image
+      };
+      
+      setMealPlan(updatedMealPlan);
+      
+      // Update next meal if we're updating the current meal
+      if (mealTypeIndex === currentMealIndex) {
+        updateNextMealCard(updatedMealPlan[mealTypeIndex]);
+      }
+      
+      // Recalculate consumed calories from completed meals
+      const completedCalories = updatedMealPlan
+        .filter(meal => meal.completed)
+        .reduce((sum, meal) => sum + (meal.calories || 0), 0);
+      
+      setCalorieData(prev => ({ ...prev, consumed: completedCalories }));
+    }
+    
+    // Return to timeline view
     setActiveSection('timeline');
-    
-    // Recalculate consumed calories
-    const totalCalories = updatedMealPlan.reduce((sum, meal) => sum + meal.calories, 0);
-    setCalorieData({...calorieData, consumed: totalCalories});
   };
   
   // Handle "Just Ate" button click
@@ -143,29 +315,65 @@ export default function ProfilePage() {
     
     // Update next meal card
     if (nextIndex < mealPlan.length) {
-      const nextMealData = updatedMealPlan[nextIndex];
-      setNextMeal({
-        name: nextMealData.name || "No meal planned",
-        time: nextMealData.time,
-        calories: nextMealData.calories,
-        protein: nextMealData.type === 'snack' ? 10 : 30, // Placeholder values
-        carbs: nextMealData.type === 'snack' ? 15 : 25,
-        fat: nextMealData.type === 'snack' ? 5 : 15,
-        image: nextMealData.type === 'snack' ? "/images/apple.jpg" : 
-               nextMealData.type === 'dinner' ? "/images/salmon.jpg" : "/images/chicken-salad.jpg",
-        type: nextMealData.type // Add the meal type to the next meal
-      });
+      updateNextMealCard(updatedMealPlan[nextIndex]);
     }
     
     // Update calorie count
     const completedCalories = updatedMealPlan
       .filter(meal => meal.completed)
-      .reduce((sum, meal) => sum + meal.calories, 0);
+      .reduce((sum, meal) => sum + (meal.calories || 0), 0);
     
     setCalorieData({
       ...calorieData,
       consumed: completedCalories
     });
+  };
+
+  // Handle removing a meal
+  const handleRemoveMeal = (mealType) => {
+    // Create a copy of the meal plan
+    const updatedMealPlan = [...mealPlan];
+    
+    // Find the index of the meal to remove
+    const mealIndex = updatedMealPlan.findIndex(meal => meal.type === mealType);
+    
+    if (mealIndex !== -1) {
+      // Reset the meal data but keep the meal slot
+      updatedMealPlan[mealIndex] = {
+        ...updatedMealPlan[mealIndex],
+        name: '',
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        image: ''
+      };
+      
+      // Update the meal plan
+      setMealPlan(updatedMealPlan);
+      
+      // If removing the current meal, update the current meal index and next meal card
+      if (mealIndex === currentMealIndex) {
+        // Find the next non-empty meal
+        let nextIndex = currentMealIndex;
+        for (let i = 0; i < updatedMealPlan.length; i++) {
+          if (updatedMealPlan[i].name) {
+            nextIndex = i;
+            break;
+          }
+        }
+        
+        setCurrentMealIndex(nextIndex);
+        updateNextMealCard(updatedMealPlan[nextIndex]);
+      }
+      
+      // Recalculate consumed calories
+      const completedCalories = updatedMealPlan
+        .filter(meal => meal.completed)
+        .reduce((sum, meal) => sum + (meal.calories || 0), 0);
+      
+      setCalorieData(prev => ({ ...prev, consumed: completedCalories }));
+    }
   };
 
   return (
@@ -205,7 +413,8 @@ export default function ProfilePage() {
               <h2 className="text-lg font-semibold mb-3">Your Meal Timeline</h2>
               <MealTimeline 
                 meals={mealPlan} 
-                onAddMeal={handleAddMeal} 
+                onAddMeal={handleAddMeal}
+                onRemoveMeal={handleRemoveMeal}
               />
             </section>
           ) : (
@@ -223,6 +432,8 @@ export default function ProfilePage() {
                 mealType={selectedMealType} 
                 onSelectMeal={handleSelectSavedMeal}
                 savedMeals={savedMeals}
+                isLoading={isLoadingSavedMeals}
+                handleCreateNewMeals={handleCreateNewMeals}
               />
             </section>
           )}
@@ -255,7 +466,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
         >
           <img
             src={meal.image}
-            alt={meal.name}
+            alt={meal.name || "No meal selected"}
             className="w-full h-full object-cover"
           />
 
@@ -287,7 +498,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
         {/* Meal Information */}
         <div className="p-3 flex-1">
           <div className="flex justify-between items-start">
-            <h3 className="text-lg font-bold">{meal.name}</h3>
+            <h3 className="text-lg font-bold">{meal.name || "No meal selected"}</h3>
             <span className="text-sm text-gray-500">{meal.time}</span>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
@@ -306,7 +517,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
           </div>
           
           {/* Conditionally show "Mark as Completed" button when selected */}
-          {isSelected && (
+          {isSelected && meal.name && (
             <button
               onClick={() => {
                 onJustAte(); // This will mark the meal as completed and update to next meal
@@ -359,7 +570,8 @@ function CalorieProgressBar({ consumed, target }) {
 }
 
 // Component: MealTimeline
-function MealTimeline({ meals, onAddMeal }) {
+// Update the MealTimeline component
+function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
   // Icons for each meal type
   const mealIcons = {
     breakfast: Coffee,
@@ -425,8 +637,33 @@ function MealTimeline({ meals, onAddMeal }) {
                   
                   {meal.name ? (
                     <div className="mt-2">
-                      <p className={isCompleted ? "line-through text-gray-500" : ""}>{meal.name}</p>
-                      <p className="text-sm text-gray-600">{meal.calories} calories</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                        {meal.image && (
+                          <img 
+                            src={meal.image} 
+                            alt={meal.name} 
+                            className="w-12 h-12 rounded-md object-cover mr-3"
+                          />
+                        )}
+                          <div>
+                            <p className={isCompleted ? "line-through text-gray-500" : ""}>{meal.name}</p>
+                            <p className="text-sm text-gray-600">{meal.calories} calories</p>
+                          </div>
+                        </div>
+                        
+                        {/* Add trash icon for removing meals */}
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveMeal(meal.type);
+                          }}
+                          className="text-gray-400 hover:text-red-500 transition-colors"
+                          title="Remove meal"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <button 
@@ -448,32 +685,50 @@ function MealTimeline({ meals, onAddMeal }) {
 }
 
 // Component: SavedMeals
-function SavedMeals({ mealType, onSelectMeal, savedMeals }) {
+function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreateNewMeals }) {
   const meals = savedMeals[mealType] || [];
   
   return (
     <div>
       <h3 className="text-lg font-medium mb-4 capitalize">Saved {mealType} Options</h3>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {meals.map((meal) => (
-          <div 
-            key={meal.id}
-            onClick={() => onSelectMeal(meal)}
-            className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
-          >
-            <img 
-              src={meal.image} 
-              alt={meal.name} 
-              className="w-16 h-16 rounded-md object-cover"
-            />
-            <div className="ml-3">
-              <h4 className="font-medium">{meal.name}</h4>
-              <p className="text-sm text-gray-600">{meal.calories} calories</p>
-            </div>
+      {isLoading ? (
+        <div className="py-8 text-center text-gray-500">
+          Loading saved meals...
+        </div>
+      ) : meals.length === 0 ? (
+        <div className="py-8 text-center text-gray-500">
+          <p>You don't have any saved {mealType} meals yet.</p>
+          <div className="mt-4">
+            <button 
+              onClick={handleCreateNewMeals}
+              className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-lg transition-all"
+            >
+              Create new meals
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {meals.map((meal) => (
+            <div 
+              key={meal.id}
+              onClick={() => onSelectMeal(meal)}
+              className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+            >
+              <img 
+                src={meal.image} 
+                alt={meal.name} 
+                className="w-16 h-16 rounded-md object-cover"
+              />
+              <div className="ml-3">
+                <h4 className="font-medium">{meal.name}</h4>
+                <p className="text-sm text-gray-600">{meal.calories} calories</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

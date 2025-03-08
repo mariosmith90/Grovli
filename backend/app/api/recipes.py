@@ -107,7 +107,6 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
         
         # Get meal_type from sources with fallbacks
-        # First try to get it from the mongo_recipe, then from the request, then default to "Unknown"
         meal_type = None
         if mongo_recipe:
             meal_type = mongo_recipe.get("meal_type")
@@ -121,11 +120,11 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             "id": str(uuid.uuid4()),
             "recipe_id": recipe_id,
             "title": recipe.get("title") or (mongo_recipe.get("meal_name") if mongo_recipe else "Untitled Recipe"),
-            "meal_type": meal_type, # Add the meal_type field
-            # Use MongoDB data with fallback to request data
+            "meal_type": meal_type,
             "nutrition": mongo_recipe.get("macros") if mongo_recipe else recipe.get("nutrition", {}),
             "ingredients": mongo_recipe.get("ingredients") if mongo_recipe else recipe.get("ingredients", []),
             "instructions": mongo_recipe.get("meal_text") if mongo_recipe else recipe.get("instructions", ""),
+            "imageUrl": mongo_recipe.get("image_url") if mongo_recipe else recipe.get("imageUrl", "")
         }
         saved_recipes.append(saved_recipe)
     
@@ -147,7 +146,18 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
         "user_id": meal_plan["user_id"],
         "name": meal_plan["name"],
         "created_at": meal_plan["created_at"].isoformat(),
-        "recipes": saved_recipes
+        "recipes": [
+            {
+                "id": recipe["id"],
+                "title": recipe["title"],
+                "meal_type": recipe["meal_type"],
+                "nutrition": recipe["nutrition"],
+                "ingredients": recipe["ingredients"],
+                "instructions": recipe["instructions"],
+                "imageUrl": recipe.get("imageUrl", "")  
+            }
+            for recipe in saved_recipes
+        ]
     }
 
 @router.get("/saved-recipes/")
@@ -164,6 +174,10 @@ async def get_saved_recipes(
     
     meal_plans = []
     for doc in cursor:
+        # Convert ObjectId to string to make it JSON serializable
+        if "_id" in doc:
+            doc["_id"] = str(doc["_id"])
+        
         doc["created_at"] = doc["created_at"].isoformat()
         meal_plans.append(doc)
     
