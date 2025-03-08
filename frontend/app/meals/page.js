@@ -438,34 +438,41 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Second subsection */}
-          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all subsection titles */}
-            Your Eating Philosophy
-          </p>
-          <div className="flex flex-wrap gap-2"> {/* No bottom margin on last element */}
-            {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
-              <button
-                key={option}
-                onClick={() => {
-                  setPreferences((prev) => {
-                    const preferencesArray = prev.split(" ").filter(Boolean);
+        {/* Second subsection */}
+        <p className="text-base font-semibold text-gray-700 mb-3">
+          Your Eating Philosophy
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
+            <button
+              key={option}
+              onClick={() => {
+                setPreferences((prev) => {
+                  const preferencesArray = prev.split(" ").filter(Boolean);
+                  
+                  // Check if this option is already selected
+                  if (preferencesArray.includes(option)) {
+                    // If selected, remove it (toggle off)
+                    return preferencesArray.filter(item => item !== option).join(" ");
+                  } else {
+                    // If not selected, add it (but first remove any other philosophy options)
                     const updatedPreferences = preferencesArray.filter((item) =>
                       !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
                     );
-
-                    return [...updatedPreferences, option].join(" "); 
-                  });
-                }}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  preferences.includes(option)
-                    ? "bg-teal-500 text-white border-white" 
-                    : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
-                } transition-all`}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
+                    return [...updatedPreferences, option].join(" ");
+                  }
+                });
+              }}
+              className={`px-4 py-2 rounded-full border-2 ${
+                preferences.includes(option)
+                  ? "bg-teal-500 text-white border-white" 
+                  : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+              } transition-all`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
         </div>
 
         {/* Macro Calculation Mode */}

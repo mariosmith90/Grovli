@@ -304,7 +304,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         num_meals = meal_counts.get(meal_type, 1)
         
         prompt = f"""
-        Generate {num_meals} complete, **single-serving** {meal_type.lower()} meals for a {request.dietary_preferences} diet.
+        Generate EXACTLY {num_meals} {'meal' if num_meals == 1 else 'meals'} - no more, no less. Each must be a complete, **single-serving** {meal_type.lower()} meal for a {request.dietary_preferences} diet.
         The total combined calories of these {meal_type} meals **must equal exactly** {macros['calories']} kcal.
 
         Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes 
