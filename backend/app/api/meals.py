@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
-import openai
 import os, json, uuid
 import requests
 import re, random, json, datetime
@@ -12,6 +11,7 @@ import vertexai
 from vertexai.preview.vision_models import ImageGenerationModel
 from io import BytesIO
 import base64, logging
+import google.generativeai as genai
 
 # Configure logging
 logging.basicConfig(
@@ -172,7 +172,7 @@ def find_meal_by_macros(meal_type: str, dietary_type: str, macros: dict, session
         return matching_meals
 
     print(f"⚠️ Only found {len(matching_meals)} meals. Generating {num_meals - len(matching_meals)} more.")
-    return matching_meals  # Return what exists, let OpenAI generate the rest
+    return matching_meals  
 
 def find_meal_by_meal_plan_id(meal_plan_id: str):
     """
@@ -200,11 +200,21 @@ def find_meal_by_meal_plan_id(meal_plan_id: str):
 async def generate_meal_plan(request: MealPlanRequest):
     """
     Generates a meal plan by retrieving stored meals from MongoDB first.
-    If enough meals do not exist, it generates new meals with OpenAI.
+    If enough meals do not exist, it generates new meals with Google Gemini.
     """
+    # Get API key from environment variables
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY environment variable is not set"
+        )
+    
+    # Initialize Gemini API with the key
+    genai.configure(api_key=gemini_api_key)
+    
     # Step 1: Determine the correct number and types of meals needed
     if request.meal_type == "Full Day":
-        # For "Full Day", we need multiple meal types
         meal_counts = {
             "Breakfast": 1,
             "Lunch": 1, 
@@ -213,7 +223,6 @@ async def generate_meal_plan(request: MealPlanRequest):
         }
         total_meals_needed = sum(meal_counts.values())
     else:
-        # For specific meal types, we need the count from the mapping
         meal_counts = {request.meal_type: MEAL_TYPE_COUNTS.get(request.meal_type, 1)}
         total_meals_needed = meal_counts[request.meal_type]
 
@@ -232,7 +241,6 @@ async def generate_meal_plan(request: MealPlanRequest):
         
         formatted_meals = []
         for meal in existing_meal_plan[:total_meals_needed]:
-            # Get image URL with fallback
             image_url = meal.get("image_url", "/fallback-meal-image.jpg")
             print(f"📋 DEBUG: Cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
             
@@ -243,7 +251,7 @@ async def generate_meal_plan(request: MealPlanRequest):
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "imageUrl": image_url  # Include the image URL with the right property name
+                "imageUrl": image_url
             }
             formatted_meals.append(formatted_meal)
             
@@ -254,10 +262,6 @@ async def generate_meal_plan(request: MealPlanRequest):
     meal_plan_id = f"{request_hash}_{random.randint(10000, 99999)}"
     
     # Calculate the macronutrient distribution per meal type
-    # This is a simplified approach - in a real app, you'd want to distribute macros intelligently
-    # based on meal types (breakfast vs dinner vs snack)
-    
-    # For simplicity, we'll allocate macros proportionally based on typical calorie distribution
     meal_type_calorie_ratio = {
         "Breakfast": 0.25,  # 25% of daily calories
         "Lunch": 0.30,      # 30% of daily calories
@@ -281,7 +285,6 @@ async def generate_meal_plan(request: MealPlanRequest):
         # For "Full Day" meal type, distribute macros proportionally
         meal_macros = {}
         for meal_type, ratio in meal_type_calorie_ratio.items():
-            # Multiply by meal count for that type (e.g., 1 snacks)
             count = meal_counts.get(meal_type, 0)
             if count > 0:
                 type_ratio = ratio * count
@@ -294,14 +297,7 @@ async def generate_meal_plan(request: MealPlanRequest):
                     "sugar": int(request.sugar * type_ratio)
                 }
 
-    # OpenAI API setup
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-
-    client = openai.OpenAI(api_key=api_key)
-    
-    # Generate meals for each meal type
+    # Generate meals for each meal type using Google Gemini
     all_generated_meals = []
     
     for meal_type, macros in meal_macros.items():
@@ -335,7 +331,7 @@ async def generate_meal_plan(request: MealPlanRequest):
         6. **Validate meal totals against individual ingredient macros**  
         7. **All meals must share** meal_plan_id: `{meal_plan_id}` 
         8. **Each recipe must feel like an authentic recipe from Food & Wine, Bon Appétit, or Serious Eats**
- 
+
         ---
 
         ### **Instructions Formatting Requirements**:
@@ -391,13 +387,10 @@ async def generate_meal_plan(request: MealPlanRequest):
         """
 
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-
-            response_text = response.choices[0].message.content.strip()
+            # Use Google Gemini to generate the meal plan
+            model = genai.GenerativeModel("gemini-1.5-flash")  # Updated model name
+            response = model.generate_content(prompt)
+            response_text = response.text.strip()
 
             # Improved JSON extraction with robust regex
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
@@ -433,7 +426,6 @@ async def generate_meal_plan(request: MealPlanRequest):
     formatted_meals = []
     
     for meal in all_generated_meals:
-        # Generate a unique ID for this meal
         unique_id = f"{random.randint(10000, 99999)}"
         
         # Save the meal to the database with the unique ID
@@ -444,12 +436,12 @@ async def generate_meal_plan(request: MealPlanRequest):
             request.dietary_preferences,
             meal["nutrition"],
             meal_plan_id,
-            meal["meal_type"],  # Use the specific meal type
+            meal["meal_type"],
             request_hash,
             unique_id
         )
         
-        # Generate the image URL - use await to ensure it completes before continuing
+        # Generate the image URL
         image_url = await generate_and_cache_meal_image(meal["title"], unique_id, meals_collection)        
         print(f"📋 DEBUG: Generated meal: {meal['title']} - Image URL: {image_url}")
 
@@ -461,7 +453,7 @@ async def generate_meal_plan(request: MealPlanRequest):
             "nutrition": meal["nutrition"],
             "ingredients": meal["ingredients"],
             "instructions": meal["instructions"],
-            "imageUrl": image_url  # Use consistent imageUrl property for frontend
+            "imageUrl": image_url
         })
 
     return {"meal_plan": formatted_meals, "cached": False}
