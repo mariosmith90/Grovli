@@ -389,11 +389,26 @@ export default function ProfilePage() {
           
           {/* Next Meal Section */}
           <section className="mb-6 bg-white rounded-lg shadow-md p-4">
-            <h2 className="text-2xl font-semibold mb-3">
-                   {nextMeal.type === 'breakfast' ? 'Breakfast' :
-                    nextMeal.type === 'lunch' ? 'Lunch' :
-                    nextMeal.type === 'dinner' ? 'Dinner' : 'Snack'} 
-            </h2>
+          <h2 className="text-2xl font-semibold mb-3 flex items-center">
+            {(() => {
+              // Use the same icons defined in MealTimeline
+              const Icon = {
+                breakfast: Coffee,
+                lunch: Utensils,
+                snack: Apple,
+                dinner: Moon
+              }[nextMeal.type];
+              
+              return (
+                <>
+                  <Icon className="w-6 h-6 mr-2 text-teal-600" />
+                  {nextMeal.type === 'breakfast' ? 'Breakfast' :
+                  nextMeal.type === 'lunch' ? 'Lunch' :
+                  nextMeal.type === 'dinner' ? 'Dinner' : 'Snack'}
+                </>
+              );
+            })()}
+          </h2>
             <NextMealCard meal={nextMeal} onJustAte={handleJustAte} handleCreateNewMeals={handleCreateNewMeals} />
             <div className="mt-4">
               <CalorieProgressBar 
@@ -495,7 +510,6 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
         <div className="p-3 flex-1">
           <div className="flex justify-between items-start">
             <h3 className="text-lg font-bold">{meal.name || "No meal selected"}</h3>
-            <span className="text-sm text-gray-500">{meal.time}</span>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="text-center p-1.5 bg-blue-50 rounded-lg">
