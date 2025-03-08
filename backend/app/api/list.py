@@ -1,5 +1,5 @@
 from typing import List, Dict
-import requests, os, json, openai
+import requests, os, json
 from collections import Counter
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -16,11 +16,6 @@ class ShoppingListResponse(BaseModel):
     url: str
     items: List[Dict]
 
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OpenAI API key not configured")
-
-client = openai.OpenAI(api_key=api_key)
 
 class ShoppingListRequest(BaseModel):
     meal_plan: str
