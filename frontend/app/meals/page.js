@@ -43,6 +43,23 @@ export default function Home() {
     });
   };
 
+    // Get calorie slider ranges based on meal type
+    const getCalorieRange = () => {
+      switch(mealType) {
+        case 'Breakfast':
+        case 'Lunch':
+        case 'Dinner':
+          return { min: 0, max: 1000, step: 25 };
+        case 'Snack':
+          return { min: 0, max: 500, step: 25 };
+        default: // 'Full Day'
+          return { min: 1000, max: 4000, step: 50 };
+      }
+    };
+
+    // Get current calorie range
+    const calorieRange = getCalorieRange();
+
     // 1. fetchMealPlan with updated Auth0 token retrieval
     const fetchMealPlan = async () => {
       try {
@@ -499,28 +516,52 @@ export default function Home() {
           )}
         </div>
 
-        {/* Meal Type Selection */}
-        <div className="mb-8"> {/* Consistent mb-8 for all major sections */}
-          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all section titles */}
-            Meal Type
-          </p>
+          {/* Meal Type Selection */}
+          <div className="mb-8">
+            <p className="text-base font-semibold text-gray-700 mb-3">
+              Meal Type
+            </p>
 
-          <div className="flex flex-wrap gap-2"> {/* No bottom margin on last element */}
-            {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
-              <button
-                key={option}
-                onClick={() => setMealType(option)}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  mealType === option 
-                    ? "bg-teal-500 text-white border-white" 
-                    : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                } transition-all`}
-              >
-                {option}
-              </button>
-            ))}
+            <div className="flex flex-wrap gap-2">
+              {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+                <button
+                  key={option}
+                  onClick={() => {
+                    // Get range for the new meal type option
+                    const newRange = (() => {
+                      switch(option) {
+                        case 'Breakfast':
+                        case 'Lunch':
+                        case 'Dinner':
+                          return { min: 0, max: 1000, step: 25 };
+                        case 'Snack':
+                          return { min: 0, max: 500, step: 25 };
+                        default: // 'Full Day'
+                          return { min: 1000, max: 4000, step: 50 };
+                      }
+                    })();
+                    
+                    // Adjust calories if needed
+                    if (calories > newRange.max) {
+                      setCalories(newRange.max);
+                    } else if (calories < newRange.min && newRange.min > 0) {
+                      setCalories(newRange.min);
+                    }
+                    
+                    // Update meal type
+                    setMealType(option);
+                  }}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    mealType === option 
+                      ? "bg-teal-500 text-white border-white" 
+                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                  } transition-all`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
             {/* Number of Days Selection */}
             <div className="mb-8"> {/* Keep consistent mb-8 spacing */}
@@ -566,15 +607,15 @@ export default function Home() {
               </p>
 
               <div className="flex items-center space-x-4">
-                <input 
-                  type="range" 
-                  min="1000" 
-                  max="4000" 
-                  step="50" 
-                  value={calories} 
-                  onChange={(e) => setCalories(Number(e.target.value))}
-                  className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                />
+              <input 
+                type="range" 
+                min={calorieRange.min} 
+                max={calorieRange.max} 
+                step={calorieRange.step} 
+                value={calories} 
+                onChange={(e) => setCalories(Number(e.target.value))}
+                className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+              />
                 <span className="text-lg font-semibold text-gray-800 min-w-16 text-right">
                   {calories} kcal
                 </span>
