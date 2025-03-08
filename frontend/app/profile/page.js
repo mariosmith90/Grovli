@@ -6,6 +6,7 @@ import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, Activity, Flame, CheckIcon, TrashIcon} from 'lucide-react';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
+import DynamicGreeting from '../../components/greeting';
 
 export default function ProfilePage() {
   const router = useRouter();
