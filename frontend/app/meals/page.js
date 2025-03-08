@@ -30,16 +30,6 @@ export default function Home() {
   const [isPro, setIsPro] = useState(false);
   const [manualInput, setManualInput] = useState(false);
   const [selectedRecipes, setSelectedRecipes] = useState([]);
-  const dietOptions = [
-    "Asian",
-    "Caribbean",
-    "Clean", 
-    "Keto", 
-    "Mediterranean",
-    "Paleo",
-    "Vegan", 
-    "Vegetarian",
-  ];
 
   // Handle recipe selection/deselection
   const handleMealSelection = (id) => {
@@ -407,14 +397,14 @@ export default function Home() {
             A Taste of…
           </p>
           <div className="flex flex-wrap gap-2 mb-6"> {/* All button groups have the same mb-6 */}
-            {["Asian", "American", "Caribbean", "Mediterranean"].map((option) => (
+            {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((option) => (
               <button
                 key={option}
                 onClick={() => {
                   setPreferences((prev) => {
                     const preferencesArray = prev.split(" ").filter(Boolean);
                     const updatedPreferences = preferencesArray.filter((item) =>
-                      !["Asian", "American", "Caribbean", "Mediterranean"].includes(item)
+                      !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
                     );
 
                     return [...updatedPreferences, option].join(" "); 
