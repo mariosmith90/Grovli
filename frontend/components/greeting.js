@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from 'react';
 
 export default function DynamicGreeting({ user }) {
@@ -19,6 +18,9 @@ export default function DynamicGreeting({ user }) {
     }
   }, []);
   
+  // Extract first name from user.name if user exists
+  const firstName = user?.name ? user.name.split(' ')[0] : '';
+  
   if (!user) {
     return (
       <h2 className="text-2xl font-semibold text-gray-800 mb-6">
@@ -29,7 +31,7 @@ export default function DynamicGreeting({ user }) {
   
   return (
     <h2 className="text-xl font-semibold text-gray-800 mb-6">
-      {greeting}, {user.name}
+      {greeting}, {firstName}
     </h2>
   );
 }

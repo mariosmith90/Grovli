@@ -392,10 +392,9 @@ export default function ProfilePage() {
           {/* Next Meal Section */}
           <section className="mb-6 bg-white rounded-lg shadow-md p-4">
             <h2 className="text-lg font-semibold mb-3">
-              Your {nextMeal.type === 'breakfast' ? 'Breakfast' :
+                   {nextMeal.type === 'breakfast' ? 'Breakfast' :
                     nextMeal.type === 'lunch' ? 'Lunch' :
                     nextMeal.type === 'dinner' ? 'Dinner' : 'Snack'} 
-              {' '}({nextMeal.time})
             </h2>
             <NextMealCard meal={nextMeal} onJustAte={handleJustAte} handleCreateNewMeals={handleCreateNewMeals} />
             <div className="mt-4">
