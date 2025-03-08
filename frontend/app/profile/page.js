@@ -6,7 +6,6 @@ import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, Activity, Flame, CheckIcon, TrashIcon} from 'lucide-react';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
-import DynamicGreeting from '../../components/greeting';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -387,7 +386,6 @@ export default function ProfilePage() {
       {/* Main Content Container - Ensures content starts below navbar */}
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
-          {/* <DynamicGreeting user={user} /> */}
           
           {/* Next Meal Section */}
           <section className="mb-6 bg-white rounded-lg shadow-md p-4">
