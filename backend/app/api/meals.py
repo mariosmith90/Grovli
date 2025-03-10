@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Request
 from pydantic import BaseModel, Field
 import os, json, uuid
 import requests
@@ -29,6 +29,7 @@ USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client["grovli"]
 meals_collection = db["meals"]
+chat_collection = db["chat_sessions"]
 
 class MealPlanText(BaseModel):
     meal_plan: str
@@ -196,8 +197,56 @@ def find_meal_by_meal_plan_id(meal_plan_id: str):
         for meal in matching_meals
     ]
 
+async def try_notify_meal_plan_ready(session_id, user_id, meal_plan_id):
+    """
+    Attempts to send a notification to the chat service that the meal plan is ready.
+    This is a non-blocking function that won't raise exceptions to the main flow.
+    """
+    try:
+        # Look up existing chat session
+        chat_session = chat_collection.find_one({"session_id": session_id})
+        if not chat_session:
+            logger.warning(f"⚠️ Chat session not found: {session_id}")
+            return False
+        
+        # Get existing messages
+        existing_messages = chat_session.get("messages", [])
+        
+        # Create notification message
+        current_time = datetime.datetime.now()
+        notification_message = {
+            "role": "assistant",
+            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button. Let me know if you have any questions about your recipes or meal options!",
+            "timestamp": current_time,
+            "meal_plan_id": meal_plan_id,
+            "is_notification": True
+        }
+        
+        # Add to conversation history
+        existing_messages.append(notification_message)
+        
+        # Update the chat session in MongoDB
+        chat_collection.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "messages": existing_messages,
+                    "updated_at": current_time,
+                    "meal_plan_ready": True,
+                    "meal_plan_id": meal_plan_id
+                }
+            }
+        )
+        
+        logger.info(f"✅ Successfully sent meal plan ready notification to chat session {session_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending meal plan ready notification: {str(e)}")
+        return False
+    
 @router.post("/")
-async def generate_meal_plan(request: MealPlanRequest):
+async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     """
     Generates a meal plan by retrieving stored meals from MongoDB first.
     If enough meals do not exist, it generates new meals with Google Gemini.
@@ -213,11 +262,15 @@ async def generate_meal_plan(request: MealPlanRequest):
     # Initialize Gemini API with the key
     genai.configure(api_key=gemini_api_key)
     
+    # Extract user_id from headers
+    user_id = request_obj.headers.get("user-id") or request_obj.headers.get("x-user-id")
+    logger.info(f"Processing meal plan request for user_id: {user_id}")
+    
     # Step 1: Determine the correct number and types of meals needed
     if request.meal_type == "Full Day":
         meal_counts = {
             "Breakfast": 1,
-            "Lunch": 1, 
+            "Lunch": 1,
             "Dinner": 1,
             "Snack": 1
         }
@@ -225,25 +278,22 @@ async def generate_meal_plan(request: MealPlanRequest):
     else:
         meal_counts = {request.meal_type: MEAL_TYPE_COUNTS.get(request.meal_type, 1)}
         total_meals_needed = meal_counts[request.meal_type]
-
+    
     print(f"🍽️ Generating meal plan with {total_meals_needed} total meals: {meal_counts}")
-
+    
     # Step 2: Create a deterministic hash key that identifies this exact request
     request_hash = f"{request.meal_type}_{request.dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
     print(f"🔑 Request hash: {request_hash}")
     
     # Step 3: Check if we already have a meal plan for this exact request
     existing_meal_plan = list(meals_collection.find({"request_hash": request_hash}).limit(total_meals_needed))
-    
     if len(existing_meal_plan) >= total_meals_needed:
         print(f"✅ Found cached meal plan for request hash: {request_hash}")
         print(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals")
-        
         formatted_meals = []
         for meal in existing_meal_plan[:total_meals_needed]:
             image_url = meal.get("image_url", "/fallback-meal-image.jpg")
             print(f"📋 DEBUG: Cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
-            
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
@@ -255,18 +305,49 @@ async def generate_meal_plan(request: MealPlanRequest):
             }
             formatted_meals.append(formatted_meal)
             
+        # Try to send notification if possible
+        try:
+            # Look for active chat session based on user_id
+            if user_id:
+                logger.info(f"Looking for chat sessions for user_id: {user_id}")
+                # Find the most recent chat session for this user
+                recent_chat = chat_collection.find_one(
+                    {"user_id": user_id},
+                    sort=[("created_at", -1)]
+                )
+                
+                if recent_chat:
+                    session_id = recent_chat.get("session_id")
+                    logger.info(f"Found session_id: {session_id} for user_id: {user_id}")
+                    
+                    # Get the meal plan ID from the first meal
+                    meal_plan_id = existing_meal_plan[0].get("meal_plan_id", request_hash)
+                    
+                    # Only try to notify if we have session_id
+                    if session_id:
+                        notification_result = await try_notify_meal_plan_ready(session_id, user_id, meal_plan_id)
+                        logger.info(f"Notification result: {notification_result}")
+                else:
+                    logger.warning(f"No chat session found for user_id: {user_id}")
+            else:
+                logger.warning("No user_id available to find chat session")
+        except Exception as e:
+            # Log but don't fail if notification fails
+            logger.error(f"⚠️ Non-critical error sending notification: {str(e)}")
+            # Continue with returning the meal plan
+            
         return {"meal_plan": formatted_meals, "cached": True}
-
+    
     # Step 4: If no cached plan exists, generate a new one
     print(f"⚠️ No cached meal plan found. Generating new meals.")
     meal_plan_id = f"{request_hash}_{random.randint(10000, 99999)}"
     
     # Calculate the macronutrient distribution per meal type
     meal_type_calorie_ratio = {
-        "Breakfast": 0.25,  # 25% of daily calories
-        "Lunch": 0.30,      # 30% of daily calories
-        "Dinner": 0.35,     # 35% of daily calories
-        "Snack": 0.10       # 10% of daily calories per snack (10% total for 1 snacks)
+        "Breakfast": 0.25, # 25% of daily calories
+        "Lunch": 0.30, # 30% of daily calories
+        "Dinner": 0.35, # 35% of daily calories
+        "Snack": 0.10 # 10% of daily calories per snack (10% total for 1 snacks)
     }
     
     # For single meal type requests, use all macros
@@ -296,135 +377,120 @@ async def generate_meal_plan(request: MealPlanRequest):
                     "fiber": int(request.fiber * type_ratio),
                     "sugar": int(request.sugar * type_ratio)
                 }
-
+    
     # Generate meals for each meal type using Google Gemini
     all_generated_meals = []
-    
     for meal_type, macros in meal_macros.items():
         num_meals = meal_counts.get(meal_type, 1)
-        
         prompt = f"""
         Generate EXACTLY {num_meals} {'meal' if num_meals == 1 else 'meals'} - no more, no less. Each must be a complete, **single-serving** {meal_type.lower()} meal for a {request.dietary_preferences} diet.
         The total combined calories of these {meal_type} meals **must equal exactly** {macros['calories']} kcal.
-
-        Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes 
+        Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes
         that could appear in these publications, with proper culinary techniques and flavor combinations.
-
         Each meal must be individually balanced and the sum of all {meal_type} meals should meet these targets:
-
-        - Be **a single-serving portion**, accurately scaled  
-        - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)  
-        - Match **combined meal macros** (±1% of target values):  
-            • Calories: {macros['calories']} kcal  
-            • Protein: {macros['protein']} g  
-            • Carbs: {macros['carbs']} g  
-            • Fat: {macros['fat']} g  
-            • Fiber: {macros['fiber']} g  
-            • Sugar: {macros['sugar']} g  
-
+        - Be **a single-serving portion**, accurately scaled
+        - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)
+        - Match **combined meal macros** (±1% of target values):
+        • Calories: {macros['calories']} kcal
+        • Protein: {macros['protein']} g
+        • Carbs: {macros['carbs']} g
+        • Fat: {macros['fat']} g
+        • Fiber: {macros['fiber']} g
+        • Sugar: {macros['sugar']} g
         ### **Mandatory Requirements**:
         1. **All {num_meals} meals must be {meal_type} meals**
-        2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")  
-        3. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")  
-        4. **Calculate macros per ingredient and ensure total macros match per serving**  
-        5. **List all essential ingredients** (cooking fats, seasonings, and garnishes)  
-        6. **Validate meal totals against individual ingredient macros**  
-        7. **All meals must share** meal_plan_id: `{meal_plan_id}` 
+        2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")
+        3. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")
+        4. **Calculate macros per ingredient and ensure total macros match per serving**
+        5. **List all essential ingredients** (cooking fats, seasonings, and garnishes)
+        6. **Validate meal totals against individual ingredient macros**
+        7. **All meals must share** meal_plan_id: `{meal_plan_id}`
         8. **Each recipe must feel like an authentic recipe from Food & Wine, Bon Appétit, or Serious Eats**
-
         ---
-
         ### **Instructions Formatting Requirements**:
-        - **Each instruction step must be detailed, clear, and structured for ease of use**  
-        - **Use precise cooking techniques** (e.g., "sear over medium-high heat for 3 minutes per side until golden brown")  
-        - **Include prep instructions** (e.g., "Finely mince garlic," "Dice bell peppers into ½-inch cubes")  
-        - **Specify temperatures, times, and sensory indicators** (e.g., "Roast at 400°F for 20 minutes until caramelized")  
-        - **Use line breaks for readability**  
-        - **Include plating instructions** (e.g., "Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs")  
-
+        - **Each instruction step must be detailed, clear, and structured for ease of use**
+        - **Use precise cooking techniques** (e.g., "sear over medium-high heat for 3 minutes per side until golden brown")
+        - **Include prep instructions** (e.g., "Finely mince garlic," "Dice bell peppers into ½-inch cubes")
+        - **Specify temperatures, times, and sensory indicators** (e.g., "Roast at 400°F for 20 minutes until caramelized")
+        - **Use line breaks for readability**
+        - **Include plating instructions** (e.g., "Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs")
         ---
-
         ### **Strict JSON Formatting Requirements**:
         - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
         - Represent newlines in instructions as \\n
         - Ensure all strings use double quotes
         - No trailing commas in JSON arrays/objects
-
         ### **Example Response Format**:
         ```json
         [
-            {{
-                "title": "Herb-Roasted Chicken with Vegetables",
-                "meal_type": "{meal_type}",
-                "meal_plan_id": "{meal_plan_id}",
-                "nutrition": {{
-                    "calories": 625,
-                    "protein": 42,
-                    "carbs": 38,
-                    "fat": 22,
-                    "fiber": 8,
-                    "sugar": 9
-                }},
-                "ingredients": [
-                    {{
-                        "name": "Boneless chicken breast",
-                        "quantity": "6 oz",
-                        "macros": {{
-                            "calories": 280,
-                            "protein": 38,
-                            "carbs": 0,
-                            "fat": 12,
-                            "fiber": 0,
-                            "sugar": 0
-                        }}
-                    }}
-                ],
-                "instructions": "### **Step 1: Prepare Ingredients**\\n..."
-            }}
+        {{
+        "title": "Herb-Roasted Chicken with Vegetables",
+        "meal_type": "{meal_type}",
+        "meal_plan_id": "{meal_plan_id}",
+        "nutrition": {{
+        "calories": 625,
+        "protein": 42,
+        "carbs": 38,
+        "fat": 22,
+        "fiber": 8,
+        "sugar": 9
+        }},
+        "ingredients": [
+        {{
+        "name": "Boneless chicken breast",
+        "quantity": "6 oz",
+        "macros": {{
+        "calories": 280,
+        "protein": 38,
+        "carbs": 0,
+        "fat": 12,
+        "fiber": 0,
+        "sugar": 0
+        }}
+        }}
+        ],
+        "instructions": "### **Step 1: Prepare Ingredients**\\n..."
+        }}
         ]
         ```
         **Strictly return only JSON with no extra text.**
         """
-
         try:
             # Use Google Gemini to generate the meal plan
-            model = genai.GenerativeModel("gemini-1.5-flash")  # Updated model name
+            model = genai.GenerativeModel("gemini-1.5-flash") # Updated model name
             response = model.generate_content(prompt)
             response_text = response.text.strip()
-
+            
             # Improved JSON extraction with robust regex
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
             if json_match:
                 cleaned_response_text = json_match.group(1).strip()
             else:
-                cleaned_response_text = response_text.strip() 
-
+                cleaned_response_text = response_text.strip()
+            
             meals_for_type = json.loads(cleaned_response_text)
-
             if not isinstance(meals_for_type, list):
                 raise ValueError(f"AI response for {meal_type} is not a valid list of meals.")
-
+            
             # Ensure each meal has the correct meal_type
             for meal in meals_for_type:
                 meal["meal_type"] = meal_type
-                
+            
             # Add these meals to our collection
             all_generated_meals.extend(meals_for_type)
-
         except Exception as e:
             print(f"⚠️ Error generating {meal_type} meals: {str(e)}")
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail=f"Failed to generate {meal_type} meals: {str(e)}"
             )
-
+    
     # Verify we have the correct number of meals
     if len(all_generated_meals) != total_meals_needed:
         print(f"⚠️ Warning: Generated {len(all_generated_meals)} meals but needed {total_meals_needed}")
-        
+    
     # Format generated meals and save to DB
     formatted_meals = []
-    
     for meal in all_generated_meals:
         unique_id = f"{random.randint(10000, 99999)}"
         
@@ -442,9 +508,9 @@ async def generate_meal_plan(request: MealPlanRequest):
         )
         
         # Generate the image URL
-        image_url = await generate_and_cache_meal_image(meal["title"], unique_id, meals_collection)        
+        image_url = await generate_and_cache_meal_image(meal["title"], unique_id, meals_collection)
         print(f"📋 DEBUG: Generated meal: {meal['title']} - Image URL: {image_url}")
-
+        
         # Add to the formatted meals list
         formatted_meals.append({
             "id": unique_id,
@@ -455,7 +521,37 @@ async def generate_meal_plan(request: MealPlanRequest):
             "instructions": meal["instructions"],
             "imageUrl": image_url
         })
-
+    
+    # Try to send notification if possible
+    try:
+        # Look for active chat session based on user_id
+        if user_id:
+            logger.info(f"Looking for chat sessions for user_id: {user_id}")
+            # Find the most recent chat session for this user
+            recent_chat = chat_collection.find_one(
+                {"user_id": user_id},
+                sort=[("created_at", -1)]
+            )
+            
+            if recent_chat:
+                session_id = recent_chat.get("session_id")
+                logger.info(f"Found session_id: {session_id} for user_id: {user_id}")
+                
+                # Only try to notify if we have session_id
+                if session_id:
+                    notification_result = await try_notify_meal_plan_ready(session_id, user_id, meal_plan_id)
+                    logger.info(f"Notification result: {notification_result}")
+                else:
+                    logger.warning(f"Found chat session but no session_id for user_id: {user_id}")
+            else:
+                logger.warning(f"No chat session found for user_id: {user_id}")
+        else:
+            logger.warning("No user_id available to find chat session")
+    except Exception as e:
+        # Log but don't fail if notification fails
+        logger.error(f"⚠️ Non-critical error sending notification: {str(e)}")
+        # Continue with returning the meal plan
+    
     return {"meal_plan": formatted_meals, "cached": False}
 
 @router.get("/{meal_id}")

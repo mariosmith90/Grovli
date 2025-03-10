@@ -8,13 +8,19 @@ const ChatbotWindow = ({
   mealType, 
   isVisible, 
   onClose, 
-  onChatComplete 
+  onChatComplete,
+  mealPlanReady // Add this prop to know when meal plan is ready
 }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const chatEndRef = useRef(null);
+  const [hasMealPlanNotification, setHasMealPlanNotification] = useState(false);
+  const [lastFetchTime, setLastFetchTime] = useState(0);
+  const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
+  const [seenNotificationIds, setSeenNotificationIds] = useState(new Set());
+  const latestNotificationRef = useRef(null);
   
   // States for typing animation
   const [typingMessage, setTypingMessage] = useState(null);
@@ -34,6 +40,98 @@ const ChatbotWindow = ({
       }
     };
   }, [isVisible, sessionId]);
+
+  // When mealPlanReady becomes true, fetch the latest chat session once
+  useEffect(() => {
+    // Only fetch once when the meal plan becomes ready and we don't already have a notification
+    if (mealPlanReady && sessionId && !hasMealPlanNotification && !isProcessingUpdate) {
+      console.log("Meal plan is ready, fetching latest chat session once");
+      fetchChatSession();
+    }
+  }, [mealPlanReady, sessionId, hasMealPlanNotification, isProcessingUpdate]);
+
+  // Set up polling for chat updates
+  useEffect(() => {
+    if (!sessionId || !isVisible || hasMealPlanNotification) return;
+
+    // Only poll if we don't already have a notification
+    const interval = setInterval(() => {
+      if (!isProcessingUpdate) {
+        fetchChatSession();
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [sessionId, isVisible, hasMealPlanNotification, isProcessingUpdate]);
+
+  // Fetch the current chat session with all messages
+  const fetchChatSession = async () => {
+    // Prevent concurrent fetches
+    if (isProcessingUpdate) {
+      return;
+    }
+    
+    try {
+      setIsProcessingUpdate(true);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // First handle normal messages (non-notifications)
+      const regularMessages = data.messages.filter(m => !m.is_notification);
+      const existingMsgTimestamps = new Set(messages.map(m => m.timestamp?.toString()));
+      
+      // Add only new regular messages
+      const newRegularMessages = regularMessages.filter(m => 
+        !m.timestamp || !existingMsgTimestamps.has(m.timestamp?.toString())
+      );
+      
+      if (newRegularMessages.length > 0) {
+        setMessages(prev => [...prev, ...newRegularMessages]);
+      }
+      
+      // Now handle notifications separately
+      const notifications = data.messages.filter(m => 
+        m.is_notification === true && 
+        !seenNotificationIds.has(m.timestamp?.toString())
+      );
+      
+      if (notifications.length > 0) {
+        // Get the latest notification
+        const latestNotification = notifications[notifications.length - 1];
+        
+        // Store it in the ref to prevent race conditions
+        latestNotificationRef.current = latestNotification;
+        
+        // Mark all of these notifications as seen so we don't process them again
+        const updatedSeen = new Set(seenNotificationIds);
+        notifications.forEach(n => updatedSeen.add(n.timestamp?.toString()));
+        setSeenNotificationIds(updatedSeen);
+        
+        // Only show the notification if we haven't already shown one
+        if (!hasMealPlanNotification) {
+          setHasMealPlanNotification(true);
+          
+          // Add the notification with animation
+          if (latestNotification.content) {
+            startTypingAnimation(latestNotification.content, true);
+          }
+        }
+      }
+      
+      // Update last fetch time
+      setLastFetchTime(Date.now());
+    } catch (error) {
+      console.error('Error fetching chat session:', error);
+    } finally {
+      setIsProcessingUpdate(false);
+    }
+  };
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -66,6 +164,7 @@ const ChatbotWindow = ({
       
       const data = await response.json();
       setSessionId(data.session_id);
+      setLastFetchTime(Date.now());
       
       // Use typing animation for the first message
       if (data.messages && data.messages.length > 0) {
@@ -124,6 +223,9 @@ const ChatbotWindow = ({
       
       const data = await response.json();
       
+      // Update last fetch time
+      setLastFetchTime(Date.now());
+      
       // Add assistant's response with typing animation
       if (data.messages && data.messages.length >= 2) {
         startTypingAnimation(data.messages[1].content);
@@ -144,7 +246,7 @@ const ChatbotWindow = ({
   };
 
   // Typing animation effect
-  const startTypingAnimation = (content) => {
+  const startTypingAnimation = (content, isNotification = false) => {
     // Clear any existing typing animation
     if (typingInterval) {
       clearInterval(typingInterval);
@@ -152,7 +254,8 @@ const ChatbotWindow = ({
     
     setTypingMessage({
       role: 'assistant',
-      content: ''
+      content: '',
+      is_notification: isNotification
     });
     
     setTypingIndex(0);
@@ -165,13 +268,19 @@ const ChatbotWindow = ({
         if (nextIndex > content.length) {
           clearInterval(intervalId);
           setTypingMessage(null);
-          setMessages(prev => [...prev, { role: 'assistant', content }]);
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content,
+            is_notification: isNotification,
+            timestamp: Date.now().toString() // Add a timestamp to help with deduplication
+          }]);
           return 0;
         }
         
         setTypingMessage({
           role: 'assistant',
-          content: content.substring(0, nextIndex)
+          content: content.substring(0, nextIndex),
+          is_notification: isNotification
         });
         
         return nextIndex;
@@ -240,10 +349,31 @@ const ChatbotWindow = ({
                 className={`rounded-2xl px-4 py-3 max-w-[80%] ${
                   message.role === 'user' 
                     ? 'bg-teal-600 text-white rounded-tr-none' 
-                    : 'bg-white text-gray-800 shadow-md rounded-tl-none'
+                    : message.is_notification
+                      ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none'
+                      : 'bg-white text-gray-800 shadow-md rounded-tl-none'
                 }`}
               >
+                {message.is_notification && (
+                  <div className="flex items-center mb-2 text-orange-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <span className="font-semibold">Notification</span>
+                  </div>
+                )}
                 {formatMessage(message.content)}
+                {message.is_notification && (
+                  <div className="mt-3">
+                    <button
+                      onClick={onChatComplete}
+                      className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      View Meal Plan
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -251,7 +381,20 @@ const ChatbotWindow = ({
           {/* Typing animation */}
           {typingMessage && (
             <div className="mb-4 flex justify-start">
-              <div className="rounded-2xl px-4 py-3 max-w-[80%] bg-white text-gray-800 shadow-md rounded-tl-none">
+              <div className={`rounded-2xl px-4 py-3 max-w-[80%] ${
+                typingMessage.is_notification 
+                ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none' 
+                : 'bg-white text-gray-800 shadow-md rounded-tl-none'
+              }`}>
+                {typingMessage.is_notification && (
+                  <div className="flex items-center mb-2 text-orange-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    <span className="font-semibold">Notification</span>
+                  </div>
+                )}
                 {formatMessage(typingMessage.content)}
                 <span className="inline-block w-2 h-4 bg-gray-500 ml-1 animate-pulse"></span>
               </div>
@@ -303,15 +446,18 @@ const ChatbotWindow = ({
             </button>
           </form>
           
-          <div className="text-center mt-2">
-            <button
-              type="button"
-              onClick={onChatComplete}
-              className="text-teal-600 text-sm font-medium hover:text-teal-800"
-            >
-              View Your Meal Plan →
-            </button>
-          </div>
+          {/* Only show view meal plan button if meal plan is ready */}
+          {(hasMealPlanNotification || mealPlanReady) && (
+            <div className="text-center mt-2">
+              <button
+                type="button"
+                onClick={onChatComplete}
+                className="text-teal-600 text-sm font-medium hover:text-teal-800"
+              >
+                View Your Meal Plan →
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

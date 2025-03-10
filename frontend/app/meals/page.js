@@ -112,6 +112,12 @@ export default function Home() {
           headers['Authorization'] = `Bearer ${accessToken}`;
         }
         
+        // Add user-id header if user exists
+        if (user && user.sub) {
+          headers['user-id'] = user.sub;
+          console.log("✅ Added user-id to headers:", user.sub);
+        }
+        
         // Make request
         const response = await fetch(`${apiUrl}/mealplan/`, {
           method: 'POST',
