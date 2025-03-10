@@ -33,6 +33,7 @@ export default function Home() {
   const [selectedRecipes, setSelectedRecipes] = useState([]);
   const [showChatbot, setShowChatbot] = useState(false);
   const [mealPlanReady, setMealPlanReady] = useState(false);
+  const [currentMealPlanId, setCurrentMealPlanId] = useState(null);
 
   // Handle recipe selection/deselection
   const handleMealSelection = (id) => {
@@ -63,7 +64,7 @@ export default function Home() {
     // Get current calorie range
     const calorieRange = getCalorieRange();
 
-    // 1. fetchMealPlan with updated Auth0 token retrieval
+    // 1. fetchMealPlan with updated handling for background processing
     const fetchMealPlan = async () => {
       if (!isPro && mealType === 'Full Day') {
         setMealType('Breakfast');
@@ -153,11 +154,25 @@ export default function Home() {
         // Parse response
         const data = await response.json();
         
-        // Update state with meal plan data
+        // Check if the response indicates processing status
+        if (data && data.status === "processing") {
+          console.log("🔄 Meal plan is being generated in the background:", data);
+          // Set a flag in state to track the meal plan ID being processed
+          setCurrentMealPlanId(data.meal_plan_id);
+          // Don't set any error - the chatbot will handle the waiting experience
+          return;
+        }
+        
+        // If we received actual meal plan data immediately (from cache)
         if (data && data.meal_plan) {
           setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
           // Mark meal plan as ready to display
           setMealPlanReady(true);
+          
+          // If we got cached results, we can close the chatbot
+          if (data.cached) {
+            setShowChatbot(false);
+          }
         } else {
           setMealPlan([]);
           throw new Error("Invalid API response format");
@@ -169,10 +184,6 @@ export default function Home() {
       } finally {
         setLoading(false);
       }
-    };
-
-    const handleChatComplete = () => {
-      setShowChatbot(false);
     };
 
   // 2. fetchSubscriptionStatus with updated Auth0 token retrieval
@@ -207,6 +218,37 @@ export default function Home() {
     }
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
+    }
+  };
+
+  const handleChatComplete = async () => {
+    setShowChatbot(false);
+    
+    // If meal plan is ready but we don't have the data, fetch it now
+    if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
+      try {
+        setLoading(true);
+        
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data && data.meal_plan) {
+          setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+        } else {
+          throw new Error("No meal plan data found");
+        }
+      } catch (error) {
+        console.error("Error fetching ready meal plan:", error);
+        setError("Could not retrieve your meal plan. Please try again.");
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -866,7 +908,8 @@ export default function Home() {
           isVisible={showChatbot}
           onClose={() => setShowChatbot(false)}
           onChatComplete={handleChatComplete}
-          mealPlanReady={mealPlanReady} // Pass the meal plan ready state
+          onMealPlanReady={() => setMealPlanReady(true)} // Add this prop
+          mealPlanReady={mealPlanReady}
         />
       )}
     </main>

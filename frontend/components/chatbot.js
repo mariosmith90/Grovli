@@ -9,6 +9,7 @@ const ChatbotWindow = ({
   isVisible, 
   onClose, 
   onChatComplete,
+  onMealPlanReady,
   mealPlanReady
 }) => {
   // Core state
@@ -46,6 +47,16 @@ const ChatbotWindow = ({
       fetchChatSession();
     }
   }, [mealPlanReady, sessionId, hasMealPlanNotification, isProcessingUpdate]);
+
+  useEffect(() => {
+    // When we detect a meal plan ready notification, tell the parent
+    if (hasMealPlanNotification) {
+      // Call the parent's onMealPlanReady function if it exists
+      if (onMealPlanReady) {
+        onMealPlanReady();
+      }
+    }
+  }, [hasMealPlanNotification, onMealPlanReady]);
 
   // Set up polling for chat updates
   useEffect(() => {

@@ -73,7 +73,7 @@ async def start_chat_session(request: ChatRequest):
         initial_context = f"""
         Hey {first_name}!
 
-        While your {request.dietary_preferences or 'customized'} {request.meal_type.lower() or 'meal'} plan generates, I'm here to chat. Is this eating style new for you?
+        While your {request.dietary_preferences or 'customized'} {request.meal_type.lower() or 'meal'} plan generates, I'm here to chat. Is this eating style new for you? Feel free to ask me any nutrition questions while your plan is being prepared.
         """
         
         # Store the conversation in MongoDB
@@ -86,6 +86,7 @@ async def start_chat_session(request: ChatRequest):
             "dietary_preferences": request.dietary_preferences,
             "meal_type": request.meal_type,
             "meal_plan_ready": False,
+            "meal_plan_processing": True,  # Flag to indicate plan is processing
             "messages": [
                 {
                     "role": "assistant", 
@@ -110,7 +111,8 @@ async def start_chat_session(request: ChatRequest):
                     "is_notification": False
                 }
             ],
-            "meal_plan_ready": False
+            "meal_plan_ready": False,
+            "meal_plan_processing": True
         }
         
     except Exception as e:
@@ -124,6 +126,7 @@ async def start_chat_session(request: ChatRequest):
 async def send_message(request: ChatRequest):
     """
     Send a message to the ongoing chat session and get a response from Gemini.
+    This function is designed to work concurrently with meal plan generation.
     """
     if not request.session_id:
         raise HTTPException(
@@ -175,9 +178,22 @@ async def send_message(request: ChatRequest):
             conversation_history.append({"role": role, "parts": [msg["content"]]})
             
         # Prepare nutrition context to guide Gemini responses
+        meal_plan_processing = chat_session.get("meal_plan_processing", False)
+        meal_plan_ready = chat_session.get("meal_plan_ready", False)
+        
+        # Adjust context based on meal plan status
+        if meal_plan_ready:
+            status_context = "The user's meal plan is ready! You can reference this in your response."
+        elif meal_plan_processing:
+            status_context = "The user's meal plan is currently being generated. Let them know they can continue chatting while they wait."
+        else:
+            status_context = "The user is looking for nutrition advice."
+            
         nutrition_context = f"""
-        You are a nutrition assistant chatting with a user while they wait for their meal plan to generate.
+        You are a nutrition assistant chatting with a user.
         The user has requested a {request.dietary_preferences or 'customized'} meal plan focusing on {request.meal_type or 'various meals'}.
+        {status_context}
+        
         Keep your responses friendly, conversational, and focused on nutrition, cooking, and healthy eating habits.
         Provide personalized advice and engage the user in a helpful discussion about their food preferences and goals.
         
@@ -185,16 +201,9 @@ async def send_message(request: ChatRequest):
         - Be encouraging and supportive
         - Share practical tips they can immediately use
         - Ask follow-up questions to keep the conversation flowing
-        - Keep responses concise (2-3 sentence maximum)
+        - Keep responses concise (2-3 sentences maximum)
+        - If the user asks about the status of their meal plan and it's still processing, tell them it's still being prepared and suggest topics they might want to discuss while waiting
         """
-        
-        # Check if meal plan is ready and adjust context
-        meal_plan_ready = chat_session.get("meal_plan_ready", False)
-        if meal_plan_ready:
-            nutrition_context += """
-            The user's meal plan is now ready! You can reference this in your response and offer to discuss
-            any aspects of their meal plan they might want to talk about.
-            """
         
         # Set up the Gemini model with specific parameters for chat
         model = genai.GenerativeModel(
@@ -246,7 +255,8 @@ async def send_message(request: ChatRequest):
             "session_id": request.session_id,
             "messages": [user_message, assistant_message],
             "meal_plan_ready": meal_plan_ready,
-            "meal_plan_id": meal_plan_id
+            "meal_plan_id": meal_plan_id,
+            "meal_plan_processing": meal_plan_processing and not meal_plan_ready
         }
         
     except Exception as e:
@@ -280,6 +290,21 @@ async def notify_meal_plan_ready(request: NotificationRequest):
         # Get existing messages
         existing_messages = chat_session.get("messages", [])
         
+        # Check if notification has already been sent
+        for msg in existing_messages:
+            if (msg.get("is_notification") and 
+                msg.get("meal_plan_id") == request.meal_plan_id and
+                "meal plan is now ready" in msg.get("content", "")):
+                
+                # Return existing notification
+                return {
+                    "session_id": request.session_id,
+                    "message": msg,
+                    "meal_plan_ready": True,
+                    "meal_plan_id": request.meal_plan_id,
+                    "status": "already_notified"
+                }
+        
         # Create notification message
         current_time = datetime.datetime.now()
         notification_message = {
@@ -301,7 +326,8 @@ async def notify_meal_plan_ready(request: NotificationRequest):
                     "messages": existing_messages,
                     "updated_at": current_time,
                     "meal_plan_ready": True,
-                    "meal_plan_id": request.meal_plan_id
+                    "meal_plan_id": request.meal_plan_id,
+                    "meal_plan_processing": False
                 }
             }
         )
@@ -311,7 +337,8 @@ async def notify_meal_plan_ready(request: NotificationRequest):
             "session_id": request.session_id,
             "message": notification_message,
             "meal_plan_ready": True,
-            "meal_plan_id": request.meal_plan_id
+            "meal_plan_id": request.meal_plan_id,
+            "status": "success"
         }
         
     except Exception as e:
@@ -324,19 +351,21 @@ async def notify_meal_plan_ready(request: NotificationRequest):
 @router.get("/get_session/{session_id}")
 async def get_chat_session(session_id: str):
     """
-    Retrieve an existing chat session by ID.
+    Retrieve a specific chat session by its ID.
     """
     try:
+        # Look up the chat session in MongoDB
         chat_session = chat_collection.find_one({"session_id": session_id})
+        
         if not chat_session:
             raise HTTPException(
                 status_code=404,
                 detail=f"Chat session not found: {session_id}"
             )
         
-        # Return the chat history with meal plan status
+        # Convert MongoDB document to a format suitable for API response
         return {
-            "session_id": session_id,
+            "session_id": chat_session["session_id"],
             "messages": chat_session.get("messages", []),
             "meal_plan_ready": chat_session.get("meal_plan_ready", False),
             "meal_plan_id": chat_session.get("meal_plan_id")
