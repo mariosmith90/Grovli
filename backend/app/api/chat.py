@@ -284,7 +284,7 @@ async def notify_meal_plan_ready(request: NotificationRequest):
         current_time = datetime.datetime.now()
         notification_message = {
             "role": "assistant",
-            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button. Let me know if you have any questions about your recipes or meal options!",
+            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
             "timestamp": current_time,
             "meal_plan_id": request.meal_plan_id,
             "is_notification": True
