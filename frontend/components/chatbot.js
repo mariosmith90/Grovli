@@ -9,44 +9,49 @@ const ChatbotWindow = ({
   isVisible, 
   onClose, 
   onChatComplete,
-  mealPlanReady // Add this prop to know when meal plan is ready
+  mealPlanReady
 }) => {
+  // Core state
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
-  const chatEndRef = useRef(null);
-  const [hasMealPlanNotification, setHasMealPlanNotification] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState(0);
-  const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
-  const [seenNotificationIds, setSeenNotificationIds] = useState(new Set());
-  const latestNotificationRef = useRef(null);
-  const processedMessages = useRef(new Set()); // Track messages we've already processed
   
-  // States for typing animation
+  // Status flags
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
+  const [hasMealPlanNotification, setHasMealPlanNotification] = useState(false);
+  
+  // Message tracking
+  const processedMessages = useRef(new Set());
+  const [seenNotificationIds, setSeenNotificationIds] = useState(new Set());
+  
+  // UI state
+  const [suggestedResponses, setSuggestedResponses] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const chatEndRef = useRef(null);
+  
+  // Typing animation state
   const [typingMessage, setTypingMessage] = useState(null);
   const [typingIndex, setTypingIndex] = useState(0);
   const [typingInterval, setTypingIntervalId] = useState(null);
 
+  // ===== Setup & Lifecycle =====
+  
   // Start chat session when component mounts
   useEffect(() => {
     if (isVisible && !sessionId) {
       startChatSession();
     }
     
-    // Cleanup typing animation interval on unmount
     return () => {
-      if (typingInterval) {
-        clearInterval(typingInterval);
-      }
+      if (typingInterval) clearInterval(typingInterval);
     };
   }, [isVisible, sessionId]);
 
   // When mealPlanReady becomes true, fetch the latest chat session once
   useEffect(() => {
-    // Only fetch once when the meal plan becomes ready and we don't already have a notification
     if (mealPlanReady && sessionId && !hasMealPlanNotification && !isProcessingUpdate) {
-      console.log("Meal plan is ready, fetching latest chat session once");
       fetchChatSession();
     }
   }, [mealPlanReady, sessionId, hasMealPlanNotification, isProcessingUpdate]);
@@ -55,7 +60,6 @@ const ChatbotWindow = ({
   useEffect(() => {
     if (!sessionId || !isVisible || hasMealPlanNotification) return;
 
-    // Only poll if we don't already have a notification
     const interval = setInterval(() => {
       if (!isProcessingUpdate) {
         fetchChatSession();
@@ -65,81 +69,27 @@ const ChatbotWindow = ({
     return () => clearInterval(interval);
   }, [sessionId, isVisible, hasMealPlanNotification, isProcessingUpdate]);
 
-  // Fetch the current chat session with all messages
-  const fetchChatSession = async () => {
-    // Prevent concurrent fetches
-    if (isProcessingUpdate) {
-      return;
-    }
-    
-    try {
-      setIsProcessingUpdate(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      // Create a Map of messages we already have, keyed by content+role to handle cases
-      // where timestamps might be missing or identical
-      const existingMessagesMap = new Map();
-      messages.forEach(m => {
-        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
-        existingMessagesMap.set(key, true);
-      });
-      
-      // Process all messages from the API response, filtering out duplicates
-      const uniqueMessages = data.messages.filter(m => {
-        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
-        if (existingMessagesMap.has(key) || processedMessages.current.has(key)) {
-          return false; // Skip this message as we already have it
-        }
-        existingMessagesMap.set(key, true); // Mark this message as seen
-        processedMessages.current.add(key); // Store in ref to persist between renders
-        return true; // Include this unique message
-      });
-      
-      // Add unique regular messages
-      const regularMessages = uniqueMessages.filter(m => !m.is_notification);
-      if (regularMessages.length > 0) {
-        setMessages(prev => [...prev, ...regularMessages]);
-      }
-      
-      // Handle notifications
-      const notifications = uniqueMessages.filter(m => m.is_notification === true);
-      if (notifications.length > 0 && !hasMealPlanNotification) {
-        const latestNotification = notifications[notifications.length - 1];
-        setHasMealPlanNotification(true);
-        
-        if (latestNotification.content) {
-          startTypingAnimation(latestNotification.content, true);
-        }
-      }
-      
-      setLastFetchTime(Date.now());
-    } catch (error) {
-      console.error('Error fetching chat session:', error);
-    } finally {
-      setIsProcessingUpdate(false);
-    }
-  };
-
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages, typingMessage]);
+  }, [messages, typingMessage, suggestedResponses, showSuggestions]);
+
+  // ===== Core Functionality =====
 
   // Start a new chat session
   const startChatSession = async () => {
     try {
       setIsLoading(true);
+      setShowSuggestions(false);
       
-      // Clear all message tracking
+      // Reset state
       setMessages([]);
       processedMessages.current = new Set();
+      setSuggestedResponses([
+        "I'm excited to start", 
+        "Looking forward to my plan", 
+        "How long will this take?"
+      ]);
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/chatbot/start_session`, {
@@ -162,7 +112,7 @@ const ChatbotWindow = ({
       
       const data = await response.json();
       
-      // IMPORTANT: Store the session ID first, before attempting to show any messages
+      // Store the session ID first
       setSessionId(data.session_id);
       setLastFetchTime(Date.now());
       
@@ -171,10 +121,18 @@ const ChatbotWindow = ({
         const message = data.messages[0];
         const key = `${message.role}:${message.content}:${message.is_notification ? 'notif' : 'msg'}`;
         
-        // Track this message to prevent duplicates
         processedMessages.current.add(key);
-        
         startTypingAnimation(message.content, message.is_notification || false);
+        
+        // Set initial suggested responses based on welcome message
+        setTimeout(() => {
+          setSuggestedResponses([
+            "Yes, I'm just starting out",
+            "No, I've been eating this way for a while",
+            "I'm trying to be more consistent"
+          ]);
+          setShowSuggestions(true);
+        }, 1000);
       }
     } catch (error) {
       console.error('Error starting chat session:', error);
@@ -182,20 +140,92 @@ const ChatbotWindow = ({
         role: 'assistant',
         content: "I'm getting your meal plan ready. This should only take a minute!"
       }]);
+      setSuggestedResponses(["Thanks for the update", "How long will it take?"]);
+      setShowSuggestions(true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle sending a message
-  const handleSendMessage = async (e) => {
-    e?.preventDefault();
+  // Fetch the current chat session with all messages
+  const fetchChatSession = async () => {
+    if (isProcessingUpdate) return;
     
-    if (!input.trim() || !sessionId || isLoading) return;
+    try {
+      setIsProcessingUpdate(true);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Create a map of messages we already have
+      const existingMessagesMap = new Map();
+      messages.forEach(m => {
+        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        existingMessagesMap.set(key, true);
+      });
+      
+      // Filter out duplicates
+      const uniqueMessages = data.messages.filter(m => {
+        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        return !existingMessagesMap.has(key) && !processedMessages.current.has(key);
+      });
+      
+      // Track these messages
+      uniqueMessages.forEach(m => {
+        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        processedMessages.current.add(key);
+      });
+      
+      // Process regular messages
+      const regularMessages = uniqueMessages.filter(m => !m.is_notification);
+      if (regularMessages.length > 0) {
+        setMessages(prev => [...prev, ...regularMessages]);
+        
+        // Generate suggested responses after assistant message
+        const lastMessage = regularMessages[regularMessages.length - 1];
+        if (lastMessage.role === 'assistant') {
+          generateSuggestedResponses(lastMessage.content);
+          setShowSuggestions(true);
+        }
+      }
+      
+      // Handle notifications
+      const notifications = uniqueMessages.filter(m => m.is_notification === true);
+      if (notifications.length > 0 && !hasMealPlanNotification) {
+        const latestNotification = notifications[notifications.length - 1];
+        setHasMealPlanNotification(true);
+        
+        if (latestNotification.content) {
+          startTypingAnimation(latestNotification.content, true);
+        }
+      }
+      
+      setLastFetchTime(Date.now());
+    } catch (error) {
+      console.error('Error fetching chat session:', error);
+    } finally {
+      setIsProcessingUpdate(false);
+    }
+  };
+
+  // Send a message to the chatbot
+  const handleSendMessage = async (e, predefinedMessage = null) => {
+    if (e) e.preventDefault();
     
-    const messageText = input.trim();
+    const messageText = predefinedMessage || input.trim();
     
-    // Add user message to the chat with a unique ID
+    if ((!messageText || !sessionId || isLoading) && !predefinedMessage) return;
+    
+    // Hide suggestions immediately when sending a message
+    setShowSuggestions(false);
+    setSuggestedResponses([]);
+    
+    // Add user message to the chat
     const userMessage = {
       role: 'user',
       content: messageText,
@@ -204,8 +234,7 @@ const ChatbotWindow = ({
     };
     
     // Track this message
-    const userKey = `${userMessage.role}:${userMessage.content}:false`;
-    processedMessages.current.add(userKey);
+    processedMessages.current.add(`${userMessage.role}:${userMessage.content}:false`);
     
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -232,15 +261,11 @@ const ChatbotWindow = ({
       }
       
       const data = await response.json();
-      
-      // Update last fetch time
       setLastFetchTime(Date.now());
       
       // Add assistant's response with typing animation
       if (data.messages && data.messages.length >= 2) {
         const assistantMessage = data.messages[1];
-        
-        // Check if this exact message already exists
         const assistantKey = `${assistantMessage.role}:${assistantMessage.content}:${assistantMessage.is_notification ? 'notif' : 'msg'}`;
         
         if (!processedMessages.current.has(assistantKey)) {
@@ -250,7 +275,6 @@ const ChatbotWindow = ({
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      // Add a fallback message if API call fails
       const fallbackMessage = { 
         role: 'assistant', 
         content: "I'm having trouble connecting to the server. Let's focus on your meal plan that's being prepared.",
@@ -259,9 +283,58 @@ const ChatbotWindow = ({
       };
       
       setMessages(prev => [...prev, fallbackMessage]);
+      setSuggestedResponses(["OK", "When will it be ready?"]);
+      setShowSuggestions(true);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // ===== Helper Functions =====
+
+  // Generate contextual suggested responses
+  const generateSuggestedResponses = (assistantMessage) => {
+    const lowerCaseMessage = assistantMessage.toLowerCase();
+    let responses = [];
+    
+    if (lowerCaseMessage.includes("new for you")) {
+      responses = [
+        "Yes, I'm just starting out",
+        "No, I've been eating this way for a while",
+        "I'm trying to be more consistent"
+      ];
+    } else if (lowerCaseMessage.includes("cooking")) {
+      responses = [
+        "I love cooking!",
+        "I'm a beginner cook",
+        "I prefer simple recipes",
+        "I enjoy meal prepping"
+      ];
+    } else if (lowerCaseMessage.includes("goal") || lowerCaseMessage.includes("reason")) {
+      responses = [
+        "I want to lose weight",
+        "I'm focusing on my health",
+        "I have specific dietary needs",
+        "I want more energy"
+      ];
+    } else if (lowerCaseMessage.includes("challenge") || lowerCaseMessage.includes("difficult")) {
+      responses = [
+        "Finding time to cook",
+        "Meal planning is hard",
+        "Staying consistent",
+        "Managing cravings"
+      ];
+    } else {
+      // Default responses
+      responses = [
+        "Tell me more",
+        "That sounds interesting",
+        "What should I know about nutrition?",
+        "Any quick meal prep tips?"
+      ];
+    }
+    
+    setSuggestedResponses(responses);
   };
 
   // Typing animation effect
@@ -283,7 +356,7 @@ const ChatbotWindow = ({
     
     setTypingIndex(0);
     
-    // Check if we already have this exact message in our messages array
+    // Check if message already exists
     const isDuplicate = messages.some(m => 
       m.role === 'assistant' && 
       m.content === content && 
@@ -291,12 +364,11 @@ const ChatbotWindow = ({
     );
     
     if (isDuplicate) {
-      // Skip adding this message since it's a duplicate
-      console.log('Skipping duplicate message:', content.substring(0, 30) + '...');
       setTypingMessage(null);
       return;
     }
     
+    // Start typing animation
     const intervalId = setInterval(() => {
       setTypingIndex(prevIndex => {
         const nextIndex = prevIndex + 1;
@@ -305,7 +377,7 @@ const ChatbotWindow = ({
           clearInterval(intervalId);
           setTypingMessage(null);
           
-          // Add the message to the chat with a unique timestamp
+          // Add the message to the chat
           const newMessage = { 
             role: 'assistant', 
             content,
@@ -315,6 +387,16 @@ const ChatbotWindow = ({
           };
           
           setMessages(prev => [...prev, newMessage]);
+          
+          // Generate appropriate responses
+          if (!isNotification) {
+            generateSuggestedResponses(content);
+            setShowSuggestions(true);
+          } else {
+            setSuggestedResponses(["Great!", "View my meal plan now"]);
+            setShowSuggestions(true);
+          }
+          
           return 0;
         }
         
@@ -337,17 +419,16 @@ const ChatbotWindow = ({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
   
-  // Format message with paragraphs and links
+  // Format message with paragraphs
   const formatMessage = (text) => {
-    // Split by newlines and create paragraphs
     const paragraphs = text.split('\n').filter(p => p.trim() !== '');
     
     return paragraphs.map((paragraph, index) => (
-      <p key={index} className="mb-2">
-        {paragraph}
-      </p>
+      <p key={index} className="mb-2">{paragraph}</p>
     ));
   };
+  
+  // ===== Render =====
   
   if (!isVisible) return null;
 
@@ -440,6 +521,21 @@ const ChatbotWindow = ({
                 {formatMessage(typingMessage.content)}
                 <span className="inline-block w-2 h-4 bg-gray-500 ml-1 animate-pulse"></span>
               </div>
+            </div>
+          )}
+          
+          {/* User-side suggested responses (quick reply bubbles) */}
+          {suggestedResponses.length > 0 && !isLoading && !typingMessage && showSuggestions && (
+            <div className="flex justify-end flex-wrap gap-2 mb-4">
+              {suggestedResponses.map((response, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSendMessage(null, response)}
+                  className="bg-teal-50 border border-teal-300 text-teal-700 px-3 py-2 rounded-full text-sm hover:bg-teal-100 transition-colors"
+                >
+                  {response}
+                </button>
+              ))}
             </div>
           )}
           
