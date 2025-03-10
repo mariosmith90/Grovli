@@ -21,6 +21,7 @@ const ChatbotWindow = ({
   const [isProcessingUpdate, setIsProcessingUpdate] = useState(false);
   const [seenNotificationIds, setSeenNotificationIds] = useState(new Set());
   const latestNotificationRef = useRef(null);
+  const processedMessages = useRef(new Set()); // Track messages we've already processed
   
   // States for typing animation
   const [typingMessage, setTypingMessage] = useState(null);
@@ -82,49 +83,42 @@ const ChatbotWindow = ({
       
       const data = await response.json();
       
-      // First handle normal messages (non-notifications)
-      const regularMessages = data.messages.filter(m => !m.is_notification);
-      const existingMsgTimestamps = new Set(messages.map(m => m.timestamp?.toString()));
+      // Create a Map of messages we already have, keyed by content+role to handle cases
+      // where timestamps might be missing or identical
+      const existingMessagesMap = new Map();
+      messages.forEach(m => {
+        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        existingMessagesMap.set(key, true);
+      });
       
-      // Add only new regular messages
-      const newRegularMessages = regularMessages.filter(m => 
-        !m.timestamp || !existingMsgTimestamps.has(m.timestamp?.toString())
-      );
+      // Process all messages from the API response, filtering out duplicates
+      const uniqueMessages = data.messages.filter(m => {
+        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        if (existingMessagesMap.has(key) || processedMessages.current.has(key)) {
+          return false; // Skip this message as we already have it
+        }
+        existingMessagesMap.set(key, true); // Mark this message as seen
+        processedMessages.current.add(key); // Store in ref to persist between renders
+        return true; // Include this unique message
+      });
       
-      if (newRegularMessages.length > 0) {
-        setMessages(prev => [...prev, ...newRegularMessages]);
+      // Add unique regular messages
+      const regularMessages = uniqueMessages.filter(m => !m.is_notification);
+      if (regularMessages.length > 0) {
+        setMessages(prev => [...prev, ...regularMessages]);
       }
       
-      // Now handle notifications separately
-      const notifications = data.messages.filter(m => 
-        m.is_notification === true && 
-        !seenNotificationIds.has(m.timestamp?.toString())
-      );
-      
-      if (notifications.length > 0) {
-        // Get the latest notification
+      // Handle notifications
+      const notifications = uniqueMessages.filter(m => m.is_notification === true);
+      if (notifications.length > 0 && !hasMealPlanNotification) {
         const latestNotification = notifications[notifications.length - 1];
+        setHasMealPlanNotification(true);
         
-        // Store it in the ref to prevent race conditions
-        latestNotificationRef.current = latestNotification;
-        
-        // Mark all of these notifications as seen so we don't process them again
-        const updatedSeen = new Set(seenNotificationIds);
-        notifications.forEach(n => updatedSeen.add(n.timestamp?.toString()));
-        setSeenNotificationIds(updatedSeen);
-        
-        // Only show the notification if we haven't already shown one
-        if (!hasMealPlanNotification) {
-          setHasMealPlanNotification(true);
-          
-          // Add the notification with animation
-          if (latestNotification.content) {
-            startTypingAnimation(latestNotification.content, true);
-          }
+        if (latestNotification.content) {
+          startTypingAnimation(latestNotification.content, true);
         }
       }
       
-      // Update last fetch time
       setLastFetchTime(Date.now());
     } catch (error) {
       console.error('Error fetching chat session:', error);
@@ -142,6 +136,10 @@ const ChatbotWindow = ({
   const startChatSession = async () => {
     try {
       setIsLoading(true);
+      
+      // Clear all message tracking
+      setMessages([]);
+      processedMessages.current = new Set();
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/chatbot/start_session`, {
@@ -163,16 +161,23 @@ const ChatbotWindow = ({
       }
       
       const data = await response.json();
+      
+      // IMPORTANT: Store the session ID first, before attempting to show any messages
       setSessionId(data.session_id);
       setLastFetchTime(Date.now());
       
-      // Use typing animation for the first message
+      // Use the first message for typing animation
       if (data.messages && data.messages.length > 0) {
-        startTypingAnimation(data.messages[0].content);
+        const message = data.messages[0];
+        const key = `${message.role}:${message.content}:${message.is_notification ? 'notif' : 'msg'}`;
+        
+        // Track this message to prevent duplicates
+        processedMessages.current.add(key);
+        
+        startTypingAnimation(message.content, message.is_notification || false);
       }
     } catch (error) {
       console.error('Error starting chat session:', error);
-      // Add a fallback message if API call fails
       setMessages([{
         role: 'assistant',
         content: "I'm getting your meal plan ready. This should only take a minute!"
@@ -188,16 +193,21 @@ const ChatbotWindow = ({
     
     if (!input.trim() || !sessionId || isLoading) return;
     
-    // Add user message to the chat
+    const messageText = input.trim();
+    
+    // Add user message to the chat with a unique ID
     const userMessage = {
       role: 'user',
-      content: input.trim()
+      content: messageText,
+      timestamp: Date.now().toString(),
+      messageId: `user-${Date.now()}`
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    // Track this message
+    const userKey = `${userMessage.role}:${userMessage.content}:false`;
+    processedMessages.current.add(userKey);
     
-    // Store input and clear the field
-    const messageText = input.trim();
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
     
@@ -228,18 +238,27 @@ const ChatbotWindow = ({
       
       // Add assistant's response with typing animation
       if (data.messages && data.messages.length >= 2) {
-        startTypingAnimation(data.messages[1].content);
+        const assistantMessage = data.messages[1];
+        
+        // Check if this exact message already exists
+        const assistantKey = `${assistantMessage.role}:${assistantMessage.content}:${assistantMessage.is_notification ? 'notif' : 'msg'}`;
+        
+        if (!processedMessages.current.has(assistantKey)) {
+          processedMessages.current.add(assistantKey);
+          startTypingAnimation(assistantMessage.content, assistantMessage.is_notification || false);
+        }
       }
     } catch (error) {
       console.error('Error sending message:', error);
       // Add a fallback message if API call fails
-      setMessages(prev => [
-        ...prev, 
-        { 
-          role: 'assistant', 
-          content: "I'm having trouble connecting to the server. Let's focus on your meal plan that's being prepared."
-        }
-      ]);
+      const fallbackMessage = { 
+        role: 'assistant', 
+        content: "I'm having trouble connecting to the server. Let's focus on your meal plan that's being prepared.",
+        timestamp: Date.now().toString(),
+        messageId: `fallback-${Date.now()}`
+      };
+      
+      setMessages(prev => [...prev, fallbackMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -252,15 +271,32 @@ const ChatbotWindow = ({
       clearInterval(typingInterval);
     }
     
+    // Generate a unique ID for this typing sequence
+    const typingId = `typing-${Date.now()}`;
+    
     setTypingMessage({
       role: 'assistant',
       content: '',
-      is_notification: isNotification
+      is_notification: isNotification,
+      typingId
     });
     
     setTypingIndex(0);
     
-    // Set up typing animation interval
+    // Check if we already have this exact message in our messages array
+    const isDuplicate = messages.some(m => 
+      m.role === 'assistant' && 
+      m.content === content && 
+      m.is_notification === isNotification
+    );
+    
+    if (isDuplicate) {
+      // Skip adding this message since it's a duplicate
+      console.log('Skipping duplicate message:', content.substring(0, 30) + '...');
+      setTypingMessage(null);
+      return;
+    }
+    
     const intervalId = setInterval(() => {
       setTypingIndex(prevIndex => {
         const nextIndex = prevIndex + 1;
@@ -268,24 +304,30 @@ const ChatbotWindow = ({
         if (nextIndex > content.length) {
           clearInterval(intervalId);
           setTypingMessage(null);
-          setMessages(prev => [...prev, { 
+          
+          // Add the message to the chat with a unique timestamp
+          const newMessage = { 
             role: 'assistant', 
             content,
             is_notification: isNotification,
-            timestamp: Date.now().toString() // Add a timestamp to help with deduplication
-          }]);
+            timestamp: Date.now().toString(), 
+            messageId: typingId
+          };
+          
+          setMessages(prev => [...prev, newMessage]);
           return 0;
         }
         
         setTypingMessage({
           role: 'assistant',
           content: content.substring(0, nextIndex),
-          is_notification: isNotification
+          is_notification: isNotification,
+          typingId
         });
         
         return nextIndex;
       });
-    }, 15); // Speed of typing
+    }, 15);
     
     setTypingIntervalId(intervalId);
   };
@@ -342,7 +384,7 @@ const ChatbotWindow = ({
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
           {messages.map((message, index) => (
             <div 
-              key={index} 
+              key={message.messageId || index} 
               className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div 
