@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 import os
 import logging
 import google.generativeai as genai
-import datetime
+import datetime, asyncio
 from typing import List, Optional, Dict, Any
 from pymongo import MongoClient
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
 # Connect to MongoDB for chat history
-client = MongoClient(os.getenv("MONGO_URI"))
+client = AsyncIOMotorClient(os.getenv("MONGO_URI"))
 db = client["grovli"]
 chat_collection = db["chat_sessions"]
 
@@ -98,7 +99,7 @@ async def start_chat_session(request: ChatRequest):
         }
         
         # Save to database
-        chat_collection.insert_one(chat_session)
+        await chat_collection.insert_one(chat_session)
         
         # Return the initial response
         return {
@@ -123,39 +124,21 @@ async def start_chat_session(request: ChatRequest):
         )
 
 @router.post("/send_message")
-async def send_message(request: ChatRequest):
-    """
-    Send a message to the ongoing chat session and get a response from Gemini.
-    This function is designed to work concurrently with meal plan generation.
-    """
+async def send_message(request: ChatRequest, background_tasks: BackgroundTasks):
     if not request.session_id:
         raise HTTPException(
             status_code=400,
             detail="session_id is required"
         )
     
-    # Get API key from environment variables
-    gemini_api_key = os.environ.get("GEMINI_API_KEY")
-    if not gemini_api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY environment variable is not set"
-        )
-    
-    # Initialize Gemini API with the key
-    genai.configure(api_key=gemini_api_key)
-    
     try:
         # Look up existing chat session
-        chat_session = chat_collection.find_one({"session_id": request.session_id})
+        chat_session = await _get_chat_session(request.session_id)
         if not chat_session:
             raise HTTPException(
                 status_code=404,
                 detail=f"Chat session not found: {request.session_id}"
             )
-        
-        # Get existing messages
-        existing_messages = chat_session.get("messages", [])
         
         # Add user message to history
         current_time = datetime.datetime.now()
@@ -165,106 +148,151 @@ async def send_message(request: ChatRequest):
             "timestamp": current_time,
             "is_notification": False
         }
-        existing_messages.append(user_message)
         
+        # Update chat session with user message
+        await update_chat_messages(request.session_id, user_message)
+        
+        # Trigger background task for Gemini response
+        background_tasks.add_task(
+            async_generate_response,
+            request.session_id, 
+            request.dietary_preferences, 
+            request.meal_type,
+            chat_session.get("messages", []) + [user_message]
+        )
+        
+        return {
+            "session_id": request.session_id,
+            "messages": [user_message],
+            "status": "processing"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in chat session {request.session_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process message: {str(e)}"
+        )
+
+async def _get_chat_session(session_id: str):
+    return await chat_collection.find_one({"session_id": session_id})
+
+async def async_generate_response(
+    session_id: str, 
+    dietary_preferences: str, 
+    meal_type: str,
+    existing_messages: List[dict]
+):
+    try:
+        # Get API key from environment variables
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            logger.error("GEMINI_API_KEY environment variable not set")
+            return
+
+        genai.configure(api_key=gemini_api_key)
+        
+        # Prepare context based on latest message
+        latest_message = next((msg for msg in reversed(existing_messages) 
+                             if msg["role"] == "user"), None)
+        
+        if not latest_message:
+            logger.error("No user message found in conversation history")
+            return
+
         # Create conversation history for Gemini
         conversation_history = []
         for msg in existing_messages:
-            # Skip notification messages for Gemini conversation context
             if msg.get("is_notification", False):
                 continue
                 
             role = "user" if msg["role"] == "user" else "model"
             conversation_history.append({"role": role, "parts": [msg["content"]]})
-            
-        # Prepare nutrition context to guide Gemini responses
-        meal_plan_processing = chat_session.get("meal_plan_processing", False)
-        meal_plan_ready = chat_session.get("meal_plan_ready", False)
-        
-        # Adjust context based on meal plan status
-        if meal_plan_ready:
-            status_context = "The user's meal plan is ready! You can reference this in your response."
-        elif meal_plan_processing:
-            status_context = "The user's meal plan is currently being generated. Let them know they can continue chatting while they wait."
-        else:
-            status_context = "The user is looking for nutrition advice."
-            
-        nutrition_context = f"""
-        You are a nutrition assistant chatting with a user.
-        The user has requested a {request.dietary_preferences or 'customized'} meal plan focusing on {request.meal_type or 'various meals'}.
-        {status_context}
-        
-        Keep your responses friendly, conversational, and focused on nutrition, cooking, and healthy eating habits.
-        Provide personalized advice and engage the user in a helpful discussion about their food preferences and goals.
-        
-        When responding:
-        - Be encouraging and supportive
-        - Share practical tips they can immediately use
-        - Ask follow-up questions to keep the conversation flowing
-        - Keep responses concise (2-3 sentences maximum)
-        - If the user asks about the status of their meal plan and it's still processing, tell them it's still being prepared and suggest topics they might want to discuss while waiting
-        """
-        
-        # Set up the Gemini model with specific parameters for chat
-        model = genai.GenerativeModel(
-            "gemini-1.5-flash",
-            generation_config={
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 512,
-            }
-        )
-        
-        # Create a chat session
+
+        # Create fresh model instance
+        model = genai.GenerativeModel("gemini-1.5-flash")
         chat = model.start_chat(history=conversation_history)
         
-        # Generate response with context
-        response = chat.send_message(
-            nutrition_context + "\n\nRespond to the user's most recent message."
-        )
+        # Create nutrition context
+        nutrition_context = f"""
+        You are a nutrition assistant chatting with a user while their {meal_type} meal plan generates.
+        Keep responses friendly, conversational, and focused on nutrition/healthy eating.
+        Current dietary focus: {dietary_preferences or 'balanced nutrition'}
         
-        # Extract the assistant's response
+        Guidelines:
+        - Be encouraging and supportive
+        - Share practical tips (1-2 sentences)
+        - Ask follow-up questions to continue dialog
+        - Acknowledge meal plan is processing if asked
+        - Never discuss technical processes
+        - Respond to: '{latest_message['content']}'
+        """
+
+        # Generate response with timeout
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                chat.send_message,
+                nutrition_context
+            ),
+            timeout=20
+        )
+
         assistant_message = {
             "role": "assistant",
             "content": response.text,
             "timestamp": datetime.datetime.now(),
             "is_notification": False
         }
-        
-        # Add to conversation history
-        existing_messages.append(assistant_message)
-        
-        # Update the chat session in MongoDB
-        chat_collection.update_one(
-            {"session_id": request.session_id},
+
+        # Update MongoDB asynchronously
+        await update_chat_messages(session_id, assistant_message)
+
+    except asyncio.TimeoutError:
+        logger.error("Response generation timed out")
+        await store_error_message(session_id, "I'm having trouble responding right now. Please try again.")
+    except Exception as e:
+        logger.error(f"Background response error: {str(e)}")
+        await store_error_message(session_id, "Something went wrong with my response. Could you rephrase that?")
+
+async def update_chat_messages(session_id: str, message: dict, is_error: bool = False):
+    """
+    Update chat session with a new message or error message.
+    """
+    try:
+        await chat_collection.update_one(
+            {"session_id": session_id},
             {
-                "$set": {
-                    "messages": existing_messages,
-                    "updated_at": datetime.datetime.now()
-                }
+                "$push": {"messages": message},
+                "$set": {"updated_at": datetime.datetime.now()}
             }
         )
-        
-        # Get meal plan status for the response
-        meal_plan_ready = chat_session.get("meal_plan_ready", False)
-        meal_plan_id = chat_session.get("meal_plan_id", None)
-        
-        # Return the updated messages
-        return {
-            "session_id": request.session_id,
-            "messages": [user_message, assistant_message],
-            "meal_plan_ready": meal_plan_ready,
-            "meal_plan_id": meal_plan_id,
-            "meal_plan_processing": meal_plan_processing and not meal_plan_ready
-        }
-        
     except Exception as e:
-        logger.error(f"Error in chat session: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process message: {str(e)}"
+        logger.error(f"MongoDB update error for session {session_id}: {str(e)}")
+        if is_error:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to store error message"
+            )
+
+async def store_error_message(session_id: str, error_text: str):
+    error_message = {
+        "role": "assistant",
+        "content": error_text,
+        "timestamp": datetime.datetime.now(),
+        "is_notification": False,
+        "error": True
+    }
+    
+    try:
+        await chat_collection.update_one(
+            {"session_id": session_id},
+            {
+                "$push": {"messages": error_message},
+                "$set": {"updated_at": datetime.datetime.now()}
+            }
         )
+    except Exception as e:
+        logger.error(f"Error storing error message: {str(e)}")
 
 @router.post("/notify_meal_plan_ready")
 async def notify_meal_plan_ready(request: NotificationRequest):
@@ -280,7 +308,7 @@ async def notify_meal_plan_ready(request: NotificationRequest):
     
     try:
         # Look up existing chat session
-        chat_session = chat_collection.find_one({"session_id": request.session_id})
+        chat_session = await _get_chat_session(request.session_id)
         if not chat_session:
             raise HTTPException(
                 status_code=404,
@@ -319,7 +347,7 @@ async def notify_meal_plan_ready(request: NotificationRequest):
         existing_messages.append(notification_message)
         
         # Update the chat session in MongoDB
-        chat_collection.update_one(
+        await chat_collection.update_one(
             {"session_id": request.session_id},
             {
                 "$set": {
@@ -348,6 +376,8 @@ async def notify_meal_plan_ready(request: NotificationRequest):
             detail=f"Failed to send meal plan notification: {str(e)}"
         )
 
+
+
 @router.get("/get_session/{session_id}")
 async def get_chat_session(session_id: str):
     """
@@ -355,7 +385,7 @@ async def get_chat_session(session_id: str):
     """
     try:
         # Look up the chat session in MongoDB
-        chat_session = chat_collection.find_one({"session_id": session_id})
+        chat_session = await chat_collection.find_one({"session_id": session_id})
         
         if not chat_session:
             raise HTTPException(

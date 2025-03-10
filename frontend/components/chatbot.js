@@ -239,6 +239,7 @@ const ChatbotWindow = ({
 
   // Send a message to the chatbot
   const handleSendMessage = async (e, predefinedMessage = null) => {
+    // Prevent default form submission
     if (e) e.preventDefault();
     
     const messageText = predefinedMessage || input.trim();
@@ -251,10 +252,10 @@ const ChatbotWindow = ({
     
     // Add user message to the chat
     const userMessage = {
-      role: 'user',
-      content: messageText,
-      timestamp: Date.now().toString(),
-      messageId: `user-${Date.now()}`
+        role: 'user',
+        content: messageText,
+        timestamp: Date.now().toString(),
+        messageId: `user-${Date.now()}`
     };
     
     // Track this message
@@ -265,71 +266,114 @@ const ChatbotWindow = ({
     setIsLoading(true);
     
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/chatbot/send_message`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: user?.sub || 'anonymous',
-          session_id: sessionId,
-          message: messageText,
-          dietary_preferences: preferences,
-          meal_type: mealType
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setLastFetchTime(Date.now());
-      
-      // Add assistant's response directly without typing animation
-      if (data.messages && data.messages.length >= 2) {
-        const assistantMessage = data.messages[1];
-        const assistantKey = `${assistantMessage.role}:${assistantMessage.content}:${assistantMessage.is_notification ? 'notif' : 'msg'}`;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/chatbot/send_message`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: user?.sub || 'anonymous',
+                session_id: sessionId,
+                message: messageText,
+                dietary_preferences: preferences,
+                meal_type: mealType
+            }),
+        });
         
-        if (!processedMessages.current.has(assistantKey)) {
-          processedMessages.current.add(assistantKey);
-          
-          // Add message directly instead of typing animation
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: assistantMessage.content,
-            is_notification: assistantMessage.is_notification || false,
-            timestamp: Date.now().toString(),
-            messageId: `assistant-${Date.now()}`
-          }]);
-          
-          // Generate appropriate responses
-          if (!assistantMessage.is_notification) {
-            generateSuggestedResponses(assistantMessage.content);
-            setShowSuggestions(true);
-          } else {
-            setSuggestedResponses(["Great!", "View my meal plan now"]);
-            setShowSuggestions(true);
-          }
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
         }
-      }
+        
+        const data = await response.json();
+        
+        // If status is processing, start polling
+        if (data.status === 'processing') {
+            startPollingForResponse();
+        }
     } catch (error) {
-      console.error('Error sending message:', error);
-      const fallbackMessage = { 
-        role: 'assistant', 
-        content: "I'm having trouble connecting to the server. Let's focus on your meal plan that's being prepared.",
-        timestamp: Date.now().toString(),
-        messageId: `fallback-${Date.now()}`
-      };
-      
-      setMessages(prev => [...prev, fallbackMessage]);
-      setSuggestedResponses(["OK", "When will it be ready?"]);
-      setShowSuggestions(true);
+        console.error('Error sending message:', error);
+        
+        // Handle error - add a fallback message
+        const fallbackMessage = { 
+            role: 'assistant', 
+            content: "I'm having trouble connecting right now. Please try again.",
+            timestamp: Date.now().toString(),
+            messageId: `fallback-${Date.now()}`
+        };
+        
+        setMessages(prev => [...prev, fallbackMessage]);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
+
+// Add a new polling method
+const startPollingForResponse = () => {
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    const pollForResponse = async () => {
+        try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Find the most recent assistant message that hasn't been processed
+            const newMessages = data.messages.filter(msg => 
+                msg.role === 'assistant' && 
+                !processedMessages.current.has(`${msg.role}:${msg.content}:${msg.is_notification}`)
+            );
+            
+            if (newMessages.length > 0) {
+                // Add new messages
+                newMessages.forEach(msg => {
+                    const key = `${msg.role}:${msg.content}:${msg.is_notification}`;
+                    processedMessages.current.add(key);
+                    
+                    setMessages(prev => [...prev, {
+                        ...msg,
+                        messageId: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+                    }]);
+                    
+                    // Generate suggested responses if it's a non-notification message
+                    if (!msg.is_notification) {
+                        generateSuggestedResponses(msg.content);
+                        setShowSuggestions(true);
+                    }
+                });
+                
+                // Stop polling once messages are found
+                clearInterval(pollInterval);
+            }
+            
+            attempts++;
+            if (attempts >= maxAttempts) {
+                clearInterval(pollInterval);
+                // Handle timeout scenario
+                const timeoutMessage = { 
+                    role: 'assistant', 
+                    content: "I apologize, but I'm taking longer than expected to respond. Please try again.",
+                    timestamp: Date.now().toString(),
+                    messageId: `timeout-${Date.now()}`
+                };
+                
+                setMessages(prev => [...prev, timeoutMessage]);
+            }
+        } catch (error) {
+            console.error('Error polling for response:', error);
+            clearInterval(pollInterval);
+        }
+    };
+    
+    // Poll every 2 seconds
+    const pollInterval = setInterval(pollForResponse, 2000);
+};
 
   // Handle View Meal Plan button click
   const handleViewMealPlan = () => {
