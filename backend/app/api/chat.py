@@ -185,7 +185,7 @@ async def send_message(request: ChatRequest):
         - Be encouraging and supportive
         - Share practical tips they can immediately use
         - Ask follow-up questions to keep the conversation flowing
-        - Keep responses concise (2-3 paragraphs maximum)
+        - Keep responses concise (2-3 sentence maximum)
         """
         
         # Check if meal plan is ready and adjust context

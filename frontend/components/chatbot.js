@@ -445,19 +445,6 @@ const ChatbotWindow = ({
               </svg>
             </button>
           </form>
-          
-          {/* Only show view meal plan button if meal plan is ready */}
-          {(hasMealPlanNotification || mealPlanReady) && (
-            <div className="text-center mt-2">
-              <button
-                type="button"
-                onClick={onChatComplete}
-                className="text-teal-600 text-sm font-medium hover:text-teal-800"
-              >
-                View Your Meal Plan →
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
