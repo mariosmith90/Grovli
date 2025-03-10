@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken  } from "@auth0/nextjs-auth0";
-import MealCard from '../../components/mealcard';
+import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
 import ChatbotWindow from '../../components/chatbot';
@@ -23,7 +23,7 @@ export default function Home() {
   const [mealPlan, setMealPlan] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [calculationMode ] = useState('auto');
+  const [calculationMode, setCalculationMode] = useState('auto');
   const [ingredients, setIngredients] = useState([]);  
   const [orderingPlanIngredients, setOrderingPlanIngredients] = useState(false);
   const { user, isLoading } = useUser();
@@ -65,6 +65,9 @@ export default function Home() {
 
     // 1. fetchMealPlan with updated Auth0 token retrieval
     const fetchMealPlan = async () => {
+      if (!isPro && mealType === 'Full Day') {
+        setMealType('Breakfast');
+      }
       try {
         setError('');
         setLoading(true);
@@ -175,8 +178,15 @@ export default function Home() {
   // 2. fetchSubscriptionStatus with updated Auth0 token retrieval
   const fetchSubscriptionStatus = async () => {
     if (!user) return;
-
+  
     try {
+      // Check for specific user ID with special access
+      if (user.sub === "auth0|67b82eb657e61f81cdfdd503") {
+        setIsPro(true);
+        console.log("✅ Special user detected - Pro features enabled");
+        return;
+      }
+  
       // Updated Auth0 v4 token retrieval
       const token = await getAccessToken({
         authorizationParams: {
@@ -187,13 +197,16 @@ export default function Home() {
       if (!token) {
         throw new Error("Failed to retrieve access token.");
       }
-
+  
       // Decode JWT and check subscription
       const tokenPayload = JSON.parse(atob(token.split(".")[1]));
       const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
       setIsPro(userSubscription === "pro");
     } catch (err) {
       console.error("Error fetching subscription status:", err);
+    }
+    if (!isPro && mealType === 'Full Day') {
+      setMealType('Breakfast');
     }
   };
 
@@ -293,10 +306,17 @@ export default function Home() {
 
   useEffect(() => {
     const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
-
+  
     if (savedData) {
       setPreferences(savedData.preferences || '');
-      setMealType(savedData.mealType || 'All');
+      
+      // If user isn't Pro and has Full Day saved, reset to Breakfast
+      if (!isPro && savedData.mealType === 'Full Day') {
+        setMealType('Breakfast');
+      } else {
+        setMealType(savedData.mealType || 'Breakfast');
+      }
+      
       setNumDays(savedData.numDays || 1);
       setCarbs(savedData.carbs || 0);
       setCalories(savedData.calories || 0);
@@ -305,8 +325,11 @@ export default function Home() {
       setFat(savedData.fat || 0);
       setFiber(savedData.fiber || 0);
       setMealPlan(savedData.mealPlan || []);
+    } else {
+      // Set default meal type for new users
+      setMealType('Breakfast');
     }
-  }, []);
+  }, [isPro]);
 
   // 🔹 Save inputs to localStorage whenever they change
   useEffect(() => {
@@ -522,8 +545,8 @@ export default function Home() {
                 isPro
                   ? calculationMode === "manual"
                     ? "bg-teal-500 text-white border-teal-500"
-                    : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
-                  : "bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed"
+                    : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300"
+                  : "bg-gray-200 text-gray-500 border-white cursor-not-allowed"
               } transition-all`}
             >
               Manual
@@ -543,14 +566,14 @@ export default function Home() {
           )}
         </div>
 
-          {/* Meal Type Selection */}
-          <div className="mb-8">
-            <p className="text-base font-semibold text-gray-700 mb-3">
-              Meal Type
-            </p>
+            {/* Meal Type Selection */}
+            <div className="mb-8">
+              <p className="text-base font-semibold text-gray-700 mb-3">
+                Meal Type
+              </p>
 
-            <div className="flex flex-wrap gap-2">
-              {["Full Day", "Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+              <div className="flex flex-wrap items-center gap-2">
+              {["Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
                 <button
                   key={option}
                   onClick={() => {
@@ -587,8 +610,52 @@ export default function Home() {
                   {option}
                 </button>
               ))}
+                
+                {/* Divider Line */}
+                <div className="h-6 w-px bg-gray-300 mx-1 self-center"></div>
+                
+                {/* Full Day Option - Now a Pro feature */}
+                <button
+                  onClick={() => {
+                    if (isPro) {
+                      // Get range for Full Day
+                      const newRange = { min: 1000, max: 4000, step: 50 };
+                      
+                      // Adjust calories if needed
+                      if (calories > newRange.max) {
+                        setCalories(newRange.max);
+                      } else if (calories < newRange.min && newRange.min > 0) {
+                        setCalories(newRange.min);
+                      }
+                      
+                      // Update meal type
+                      setMealType("Full Day");
+                    }
+                  }}
+                  disabled={!isPro}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    mealType === "Full Day" 
+                      ? "bg-teal-500 text-white border-white"
+                      : isPro
+                        ? "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                        : "bg-gray-200 text-gray-500 border-white cursor-not-allowed"
+                  } transition-all`}
+                >
+                  Full Day
+                </button>
+              </div>
+              {!isPro && (
+                <p className="text-sm text-gray-600 mt-3">
+                  Full Day is a <strong>Pro feature</strong>.{" "}
+                  <span
+                    className="text-blue-600 cursor-pointer hover:underline"
+                    onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
+                  >
+                    Upgrade Now
+                  </span>
+                </p>
+              )}
             </div>
-          </div>
 
             {/* Number of Days Selection */}
             <div className="mb-8"> {/* Keep consistent mb-8 spacing */}
@@ -603,9 +670,11 @@ export default function Home() {
                     onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
                     className={`px-4 py-2 rounded-full border-2 transition-all ${
                       numDays === option
-                        ? "bg-teal-500 text-white border-white" 
-                        : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                    } ${!isPro && option !== 1 ? "opacity-50 cursor-not-allowed" : ""}`}
+                        ? "bg-teal-500 text-white border-white"
+                        : option === 1 || isPro
+                          ? "bg-gray-200 text-gray-700 border-white hover:bg-gray-300"
+                          : "bg-gray-200 text-gray-500 border-white cursor-not-allowed"
+                    }`}
                     disabled={!isPro && option !== 1}
                   >
                     {option} {option === 1 ? "Day" : "Days"}
@@ -664,10 +733,10 @@ export default function Home() {
                       max="600" 
                       step="1" 
                       value={carbs} 
-                      onChange={(e) => isPro && setCarbs(Number(e.target.value))}
-                      disabled={!isPro}
+                      disabled={!isPro || calculationMode !== 'manual'}
+                      onChange={(e) => (isPro && calculationMode === 'manual') && setCarbs(Number(e.target.value))}
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                        ${(isPro && calculationMode === 'manual') ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
                     <span className="text-gray-800 font-medium min-w-12 text-right">{carbs} g</span>
                   </div>
@@ -683,10 +752,10 @@ export default function Home() {
                       max="300" 
                       step="1" 
                       value={protein} 
-                      onChange={(e) => isPro && setProtein(Number(e.target.value))}
-                      disabled={!isPro}
+                      disabled={!isPro || calculationMode !== 'manual'}
+                      onChange={(e) => (isPro && calculationMode === 'manual') && setProtein(Number(e.target.value))}
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                        ${(isPro && calculationMode === 'manual') ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
                     <span className="text-gray-800 font-medium">{protein} g</span>
                   </div>
@@ -702,10 +771,10 @@ export default function Home() {
                       max="200" 
                       step="1" 
                       value={fat} 
-                      onChange={(e) => isPro && setFat(Number(e.target.value))}
-                      disabled={!isPro}
+                      disabled={!isPro || calculationMode !== 'manual'}
+                      onChange={(e) => (isPro && calculationMode === 'manual') && setFat(Number(e.target.value))}
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                        ${(isPro && calculationMode === 'manual') ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
                     <span className="text-gray-800 font-medium">{fat} g</span>
                   </div>
@@ -721,10 +790,10 @@ export default function Home() {
                       max="100" 
                       step="1" 
                       value={fiber} 
-                      onChange={(e) => isPro && setFiber(Number(e.target.value))}
-                      disabled={!isPro}
+                      disabled={!isPro || calculationMode !== 'manual'}
+                      onChange={(e) => (isPro && calculationMode === 'manual') && setFiber(Number(e.target.value))}
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                        ${(isPro && calculationMode === 'manual') ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
                     <span className="text-gray-800 font-medium">{fiber} g</span>
                   </div>
@@ -740,10 +809,10 @@ export default function Home() {
                       max="200" 
                       step="1" 
                       value={sugar} 
-                      onChange={(e) => isPro && setSugar(Number(e.target.value))}
-                      disabled={!isPro}
+                      disabled={!isPro || calculationMode !== 'manual'}
+                      onChange={(e) => (isPro && calculationMode === 'manual') && setSugar(Number(e.target.value))}
                       className={`w-full h-2 rounded-lg appearance-none cursor-pointer 
-                        ${isPro ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
+                        ${(isPro && calculationMode === 'manual') ? "bg-gray-300" : "bg-gray-200 cursor-not-allowed"}`}
                     />
                     <span className="text-gray-800 font-medium">{sugar} g</span>
                   </div>
@@ -755,72 +824,38 @@ export default function Home() {
             {error && <p style={{ color: 'red' }}>{error}</p>}
   
             {/* Upgrade Now Button */}
-            <button
-              onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
-              className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
-            >
-              Upgrade Now
-            </button>
-  
+            {!isPro && (
+              <button
+                onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
+                className="w-full py-2 px-4 mb-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
+              >
+                Upgrade Now
+              </button>
+            )}
+              
             {/* Generate Free Plan - Now a Text Button */}
             <div className="flex justify-center mt-2">
               <p
                 onClick={fetchMealPlan}
                 className="text-teal-600 text-lg cursor-pointer font-bold"
               >
-                {loading ? "Loading..." : "Generate Free Plan"}
+                {loading ? "Loading..." : isPro ? "Generate Plan" : "Generate Free Plan"}
               </p>
             </div>
 
-            {/* Display Meal Plan */}
-            {Array.isArray(mealPlan) && mealPlan.length > 0 && !showChatbot && (
-              <div className="mt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {mealPlan.map((meal, index) => (
-                    <MealCard
-                      key={index}
-                      id={meal.id}
-                      title={meal?.title || "Untitled Meal"}
-                      nutrition={meal?.nutrition || {
-                        calories: 0,
-                        protein: 0,
-                        carbs: 0,
-                        fat: 0,
-                        fiber: 0,
-                        sugar: 0
-                      }}
-                      imageUrl={meal.imageUrl}
-                      ingredients={meal?.ingredients || []}
-                      instructions={meal?.instructions || "No instructions provided."}
-                      onSelect={handleMealSelection}
-                      isSelected={selectedRecipes.includes(meal.id)}
-                    />
-                  ))}
-                </div>
-
-                {/* This div adds consistent spacing */}
-                <div className="mt-6"> 
-                  {/* Save Selected Recipes Button - appears only when recipes are selected */}
-                  {selectedRecipes.length > 0 && (
-                    <button
-                      onClick={saveSelectedRecipes}
-                      className="w-full py-2 px-4 mb-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
-                    >
-                      Save Meals ({selectedRecipes.length})
-                    </button>
-                  )}
-
-              {/* Order Plan Ingredients Button */}
-              <button
-                onClick={handleOrderPlanIngredients}
-                disabled={loading || orderingPlanIngredients}
-                className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
-              >
-                {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
-              </button>
-            </div>
-          </div>
-        )}
+          {/* Display Meal Plan */}
+          <MealPlanDisplay
+            mealPlan={mealPlan}
+            mealType={mealType}
+            numDays={numDays}
+            handleMealSelection={handleMealSelection}
+            selectedRecipes={selectedRecipes}
+            saveSelectedRecipes={saveSelectedRecipes}
+            handleOrderPlanIngredients={handleOrderPlanIngredients}
+            loading={loading}
+            orderingPlanIngredients={orderingPlanIngredients}
+            showChatbot={showChatbot}
+          />
       </div>
       
       {showChatbot && (

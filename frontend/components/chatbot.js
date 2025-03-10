@@ -30,11 +30,6 @@ const ChatbotWindow = ({
   const [suggestedResponses, setSuggestedResponses] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const chatEndRef = useRef(null);
-  
-  // Typing animation state
-  const [typingMessage, setTypingMessage] = useState(null);
-  const [typingIndex, setTypingIndex] = useState(0);
-  const [typingInterval, setTypingIntervalId] = useState(null);
 
   // ===== Setup & Lifecycle =====
   
@@ -43,10 +38,6 @@ const ChatbotWindow = ({
     if (isVisible && !sessionId) {
       startChatSession();
     }
-    
-    return () => {
-      if (typingInterval) clearInterval(typingInterval);
-    };
   }, [isVisible, sessionId]);
 
   // When mealPlanReady becomes true, fetch the latest chat session once
@@ -72,7 +63,7 @@ const ChatbotWindow = ({
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages, typingMessage, suggestedResponses, showSuggestions]);
+  }, [messages, suggestedResponses, showSuggestions]);
 
   // ===== Core Functionality =====
 
@@ -116,13 +107,21 @@ const ChatbotWindow = ({
       setSessionId(data.session_id);
       setLastFetchTime(Date.now());
       
-      // Use the first message for typing animation
+      // Add first message directly
       if (data.messages && data.messages.length > 0) {
         const message = data.messages[0];
         const key = `${message.role}:${message.content}:${message.is_notification ? 'notif' : 'msg'}`;
         
         processedMessages.current.add(key);
-        startTypingAnimation(message.content, message.is_notification || false);
+        
+        // Add message directly instead of typing animation
+        setMessages([{
+          role: 'assistant',
+          content: message.content,
+          is_notification: message.is_notification || false,
+          timestamp: Date.now().toString(),
+          messageId: `initial-${Date.now()}`
+        }]);
         
         // Set initial suggested responses based on welcome message
         setTimeout(() => {
@@ -132,7 +131,7 @@ const ChatbotWindow = ({
             "I'm trying to be more consistent"
           ]);
           setShowSuggestions(true);
-        }, 1000);
+        }, 500);
       }
     } catch (error) {
       console.error('Error starting chat session:', error);
@@ -184,7 +183,11 @@ const ChatbotWindow = ({
       // Process regular messages
       const regularMessages = uniqueMessages.filter(m => !m.is_notification);
       if (regularMessages.length > 0) {
-        setMessages(prev => [...prev, ...regularMessages]);
+        setMessages(prev => [...prev, ...regularMessages.map(m => ({
+          ...m,
+          timestamp: Date.now().toString(),
+          messageId: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+        }))]);
         
         // Generate suggested responses after assistant message
         const lastMessage = regularMessages[regularMessages.length - 1];
@@ -201,7 +204,17 @@ const ChatbotWindow = ({
         setHasMealPlanNotification(true);
         
         if (latestNotification.content) {
-          startTypingAnimation(latestNotification.content, true);
+          // Add notification message directly
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: latestNotification.content,
+            is_notification: true,
+            timestamp: Date.now().toString(),
+            messageId: `notif-${Date.now()}`
+          }]);
+          
+          setSuggestedResponses(["Great!", "View my meal plan now"]);
+          setShowSuggestions(true);
         }
       }
       
@@ -263,14 +276,31 @@ const ChatbotWindow = ({
       const data = await response.json();
       setLastFetchTime(Date.now());
       
-      // Add assistant's response with typing animation
+      // Add assistant's response directly without typing animation
       if (data.messages && data.messages.length >= 2) {
         const assistantMessage = data.messages[1];
         const assistantKey = `${assistantMessage.role}:${assistantMessage.content}:${assistantMessage.is_notification ? 'notif' : 'msg'}`;
         
         if (!processedMessages.current.has(assistantKey)) {
           processedMessages.current.add(assistantKey);
-          startTypingAnimation(assistantMessage.content, assistantMessage.is_notification || false);
+          
+          // Add message directly instead of typing animation
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: assistantMessage.content,
+            is_notification: assistantMessage.is_notification || false,
+            timestamp: Date.now().toString(),
+            messageId: `assistant-${Date.now()}`
+          }]);
+          
+          // Generate appropriate responses
+          if (!assistantMessage.is_notification) {
+            generateSuggestedResponses(assistantMessage.content);
+            setShowSuggestions(true);
+          } else {
+            setSuggestedResponses(["Great!", "View my meal plan now"]);
+            setShowSuggestions(true);
+          }
         }
       }
     } catch (error) {
@@ -287,6 +317,13 @@ const ChatbotWindow = ({
       setShowSuggestions(true);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Handle View Meal Plan button click
+  const handleViewMealPlan = () => {
+    if (onChatComplete) {
+      onChatComplete();
     }
   };
 
@@ -337,83 +374,6 @@ const ChatbotWindow = ({
     setSuggestedResponses(responses);
   };
 
-  // Typing animation effect
-  const startTypingAnimation = (content, isNotification = false) => {
-    // Clear any existing typing animation
-    if (typingInterval) {
-      clearInterval(typingInterval);
-    }
-    
-    // Generate a unique ID for this typing sequence
-    const typingId = `typing-${Date.now()}`;
-    
-    setTypingMessage({
-      role: 'assistant',
-      content: '',
-      is_notification: isNotification,
-      typingId
-    });
-    
-    setTypingIndex(0);
-    
-    // Check if message already exists
-    const isDuplicate = messages.some(m => 
-      m.role === 'assistant' && 
-      m.content === content && 
-      m.is_notification === isNotification
-    );
-    
-    if (isDuplicate) {
-      setTypingMessage(null);
-      return;
-    }
-    
-    // Start typing animation
-    const intervalId = setInterval(() => {
-      setTypingIndex(prevIndex => {
-        const nextIndex = prevIndex + 1;
-        
-        if (nextIndex > content.length) {
-          clearInterval(intervalId);
-          setTypingMessage(null);
-          
-          // Add the message to the chat
-          const newMessage = { 
-            role: 'assistant', 
-            content,
-            is_notification: isNotification,
-            timestamp: Date.now().toString(), 
-            messageId: typingId
-          };
-          
-          setMessages(prev => [...prev, newMessage]);
-          
-          // Generate appropriate responses
-          if (!isNotification) {
-            generateSuggestedResponses(content);
-            setShowSuggestions(true);
-          } else {
-            setSuggestedResponses(["Great!", "View my meal plan now"]);
-            setShowSuggestions(true);
-          }
-          
-          return 0;
-        }
-        
-        setTypingMessage({
-          role: 'assistant',
-          content: content.substring(0, nextIndex),
-          is_notification: isNotification,
-          typingId
-        });
-        
-        return nextIndex;
-      });
-    }, 15);
-    
-    setTypingIntervalId(intervalId);
-  };
-
   // Scroll to bottom of chat
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -434,19 +394,19 @@ const ChatbotWindow = ({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-4xl px-4">
-      <div className="bg-white rounded-t-xl shadow-2xl w-full h-[400px] flex flex-col">
+      <div className="bg-white rounded-xl shadow-xl w-full h-[500px] flex flex-col border border-gray-200 overflow-hidden">
         {/* Chat header */}
         <div className="bg-teal-600 text-white p-3 rounded-t-xl flex justify-between items-center">
           <div className="flex items-center">
-            <div className="w-8 h-8 rounded-full bg-teal-700 flex items-center justify-center mr-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center mr-3">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2a10 10 0 0 1 10 10c0 5.5-4.5 10-10 10S2 17.5 2 12a10 10 0 0 1 10-10Z"/>
                 <path d="M8 9h8"/>
                 <path d="M8 15h5"/>
                 <path d="M16 15h.01"/>
               </svg>
             </div>
-            <h2 className="text-lg font-semibold">Grovli Assistant</h2>
+            <h2 className="text-xl font-semibold">Grovli Assistant</h2>
           </div>
           <div className="flex items-center">
             <button 
@@ -490,7 +450,7 @@ const ChatbotWindow = ({
                 {message.is_notification && (
                   <div className="mt-3">
                     <button
-                      onClick={onChatComplete}
+                      onClick={handleViewMealPlan}
                       className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
                     >
                       View Meal Plan
@@ -501,31 +461,8 @@ const ChatbotWindow = ({
             </div>
           ))}
           
-          {/* Typing animation */}
-          {typingMessage && (
-            <div className="mb-4 flex justify-start">
-              <div className={`rounded-2xl px-4 py-3 max-w-[80%] ${
-                typingMessage.is_notification 
-                ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none' 
-                : 'bg-white text-gray-800 shadow-md rounded-tl-none'
-              }`}>
-                {typingMessage.is_notification && (
-                  <div className="flex items-center mb-2 text-orange-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                    </svg>
-                    <span className="font-semibold">Notification</span>
-                  </div>
-                )}
-                {formatMessage(typingMessage.content)}
-                <span className="inline-block w-2 h-4 bg-gray-500 ml-1 animate-pulse"></span>
-              </div>
-            </div>
-          )}
-          
           {/* User-side suggested responses (quick reply bubbles) */}
-          {suggestedResponses.length > 0 && !isLoading && !typingMessage && showSuggestions && (
+          {suggestedResponses.length > 0 && !isLoading && showSuggestions && (
             <div className="flex justify-end flex-wrap gap-2 mb-4">
               {suggestedResponses.map((response, index) => (
                 <button
@@ -540,13 +477,25 @@ const ChatbotWindow = ({
           )}
           
           {/* Loading indicator */}
-          {isLoading && !typingMessage && (
+          {isLoading && (
             <div className="flex justify-center my-2">
               <div className="flex space-x-2">
                 <div className="w-2 h-2 rounded-full bg-teal-600 animate-bounce" style={{ animationDelay: '0s' }}></div>
                 <div className="w-2 h-2 rounded-full bg-teal-600 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                 <div className="w-2 h-2 rounded-full bg-teal-600 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
               </div>
+            </div>
+          )}
+          
+          {/* If meal plan is ready, add a prompt but NO auto-redirect */}
+          {mealPlanReady && !hasMealPlanNotification && (
+            <div className="flex justify-center">
+              <button
+                onClick={handleViewMealPlan}
+                className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                View Meal Plan
+              </button>
             </div>
           )}
           

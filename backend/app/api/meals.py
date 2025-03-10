@@ -269,14 +269,14 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     # Step 1: Determine the correct number and types of meals needed
     if request.meal_type == "Full Day":
         meal_counts = {
-            "Breakfast": 1,
-            "Lunch": 1,
-            "Dinner": 1,
-            "Snack": 1
+            "Breakfast": request.num_days,  
+            "Lunch": request.num_days,      
+            "Dinner": request.num_days,     
+            "Snack": request.num_days      
         }
         total_meals_needed = sum(meal_counts.values())
     else:
-        meal_counts = {request.meal_type: MEAL_TYPE_COUNTS.get(request.meal_type, 1)}
+        meal_counts = {request.meal_type: MEAL_TYPE_COUNTS.get(request.meal_type, 1) * request.num_days} 
         total_meals_needed = meal_counts[request.meal_type]
     
     print(f"🍽️ Generating meal plan with {total_meals_needed} total meals: {meal_counts}")
