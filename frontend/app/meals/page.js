@@ -6,6 +6,7 @@ import { useUser, getAccessToken  } from "@auth0/nextjs-auth0";
 import MealCard from '../../components/mealcard';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
+import ChatbotWindow from '../../components/chatbot';
 
 export default function Home() {
   const router = useRouter();
@@ -30,6 +31,8 @@ export default function Home() {
   const [isPro, setIsPro] = useState(false);
   const [manualInput, setManualInput] = useState(false);
   const [selectedRecipes, setSelectedRecipes] = useState([]);
+  const [showChatbot, setShowChatbot] = useState(false);
+  const [mealPlanReady, setMealPlanReady] = useState(false);
 
   // Handle recipe selection/deselection
   const handleMealSelection = (id) => {
@@ -66,6 +69,10 @@ export default function Home() {
         setError('');
         setLoading(true);
         setSelectedRecipes([]);
+        
+        // Show chatbot window while meal plan is generating
+        setShowChatbot(true);
+        setMealPlanReady(false);
         
         // Reset UI state
         setMealPlan([]); 
@@ -140,6 +147,8 @@ export default function Home() {
         // Update state with meal plan data
         if (data && data.meal_plan) {
           setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+          // Mark meal plan as ready to display
+          setMealPlanReady(true);
         } else {
           setMealPlan([]);
           throw new Error("Invalid API response format");
@@ -147,9 +156,14 @@ export default function Home() {
       } catch (error) {
         console.error('Error fetching meal plan:', error);
         setError(`Error: ${error.message}`);
+        setShowChatbot(false); // Hide chatbot on error
       } finally {
         setLoading(false);
       }
+    };
+
+    const handleChatComplete = () => {
+      setShowChatbot(false);
     };
 
   // 2. fetchSubscriptionStatus with updated Auth0 token retrieval
@@ -395,84 +409,84 @@ export default function Home() {
     return ( 
       <>
         <Header />
-  
-      {/* Full-screen white background */}
-      <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
-  
-      {/* Main Content Container - Ensures content starts below navbar */}
-      <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-      <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
-        {/* Plan Your Meals - main title */}
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6">
-          Plan Your Meals
-        </h2>
-
-        {/* Dietary Preferences Section */}
-        <div className="mb-8"> {/* Consistent mb-8 for all major sections */}
-          {/* First subsection */}
-          <p className="text-base font-semibold text-gray-700 mb-3"> {/* Same mb-3 for all subsection titles */}
-            A Taste of…
-          </p>
-          <div className="flex flex-wrap gap-2 mb-6"> {/* All button groups have the same mb-6 */}
-            {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((option) => (
-              <button
-                key={option}
-                onClick={() => {
-                  setPreferences((prev) => {
-                    const preferencesArray = prev.split(" ").filter(Boolean);
-                    const updatedPreferences = preferencesArray.filter((item) =>
-                      !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
-                    );
-
-                    return [...updatedPreferences, option].join(" "); 
-                  });
-                }}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  preferences.includes(option)
-                    ? "bg-orange-500 text-white border-white" 
-                    : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
-                } transition-all`}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-
-        {/* Second subsection */}
-        <p className="text-base font-semibold text-gray-700 mb-3">
-          Your Eating Philosophy
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
-            <button
-              key={option}
-              onClick={() => {
-                setPreferences((prev) => {
-                  const preferencesArray = prev.split(" ").filter(Boolean);
-                  
-                  // Check if this option is already selected
-                  if (preferencesArray.includes(option)) {
-                    // If selected, remove it (toggle off)
-                    return preferencesArray.filter(item => item !== option).join(" ");
-                  } else {
-                    // If not selected, add it (but first remove any other philosophy options)
-                    const updatedPreferences = preferencesArray.filter((item) =>
-                      !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
-                    );
-                    return [...updatedPreferences, option].join(" ");
-                  }
-                });
-              }}
-              className={`px-4 py-2 rounded-full border-2 ${
-                preferences.includes(option)
-                  ? "bg-teal-500 text-white border-white" 
-                  : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
-              } transition-all`}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
+    
+        {/* Full-screen white background */}
+        <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
+    
+        {/* Main Content Container - Ensures content starts below navbar */}
+        <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+            {/* Plan Your Meals - main title */}
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+              Plan Your Meals
+            </h2>
+    
+            {/* Dietary Preferences Section */}
+            <div className="mb-8">
+              {/* First subsection */}
+              <p className="text-base font-semibold text-gray-700 mb-3">
+                A Taste of…
+              </p>
+              <div className="flex flex-wrap gap-2 mb-6">
+                {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => {
+                      setPreferences((prev) => {
+                        const preferencesArray = prev.split(" ").filter(Boolean);
+                        const updatedPreferences = preferencesArray.filter((item) =>
+                          !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
+                        );
+    
+                        return [...updatedPreferences, option].join(" "); 
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-full border-2 ${
+                      preferences.includes(option)
+                        ? "bg-orange-500 text-white border-white" 
+                        : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+                    } transition-all`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+    
+              {/* Second subsection */}
+              <p className="text-base font-semibold text-gray-700 mb-3">
+                Your Eating Philosophy
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => {
+                      setPreferences((prev) => {
+                        const preferencesArray = prev.split(" ").filter(Boolean);
+                        
+                        // Check if this option is already selected
+                        if (preferencesArray.includes(option)) {
+                          // If selected, remove it (toggle off)
+                          return preferencesArray.filter(item => item !== option).join(" ");
+                        } else {
+                          // If not selected, add it (but first remove any other philosophy options)
+                          const updatedPreferences = preferencesArray.filter((item) =>
+                            !["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].includes(item)
+                          );
+                          return [...updatedPreferences, option].join(" ");
+                        }
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-full border-2 ${
+                      preferences.includes(option)
+                        ? "bg-teal-500 text-white border-white" 
+                        : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+                    } transition-all`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
         </div>
 
         {/* Macro Calculation Mode */}
@@ -753,7 +767,7 @@ export default function Home() {
             </div>
 
             {/* Display Meal Plan */}
-            {Array.isArray(mealPlan) && mealPlan.length > 0 && (
+            {Array.isArray(mealPlan) && mealPlan.length > 0 && !showChatbot && (
               <div className="mt-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {mealPlan.map((meal, index) => (
@@ -790,20 +804,32 @@ export default function Home() {
                     </button>
                   )}
 
-                  {/* Order Plan Ingredients Button */}
-                  <button
-                    onClick={handleOrderPlanIngredients}
-                    disabled={loading || orderingPlanIngredients}
-                    className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
-                  >
-                    {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
-                  </button>
-                </div>
-              </div>
-            )}
+              {/* Order Plan Ingredients Button */}
+              <button
+                onClick={handleOrderPlanIngredients}
+                disabled={loading || orderingPlanIngredients}
+                className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
+              >
+                {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
+              </button>
+            </div>
           </div>
-        </main>
-        <Footer />
-      </>
-    );
-  }
+        )}
+      </div>
+      
+      {showChatbot && (
+        <ChatbotWindow
+          user={user}
+          preferences={preferences}
+          mealType={mealType}
+          isVisible={showChatbot}
+          onClose={() => setShowChatbot(false)}
+          onChatComplete={handleChatComplete}
+          mealPlanReady={mealPlanReady} // Pass the meal plan ready state
+        />
+      )}
+    </main>
+    <Footer />
+  </>
+);
+}
