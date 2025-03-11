@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 import os
@@ -7,6 +7,7 @@ import google.generativeai as genai
 import datetime, asyncio
 from typing import List, Optional, Dict, Any
 from pymongo import MongoClient
+from app.utils.tasks import generate_chat_response
 
 # Configure logging
 logging.basicConfig(
@@ -124,7 +125,7 @@ async def start_chat_session(request: ChatRequest):
         )
 
 @router.post("/send_message")
-async def send_message(request: ChatRequest, background_tasks: BackgroundTasks):
+async def send_message(request: ChatRequest):
     if not request.session_id:
         raise HTTPException(
             status_code=400,
@@ -152,13 +153,14 @@ async def send_message(request: ChatRequest, background_tasks: BackgroundTasks):
         # Update chat session with user message
         await update_chat_messages(request.session_id, user_message)
         
-        # Trigger background task for Gemini response
-        background_tasks.add_task(
-            async_generate_response,
+        # Get existing messages
+        existing_messages = chat_session.get("messages", []) + [user_message]
+        
+        generate_chat_response.delay(
             request.session_id, 
             request.dietary_preferences, 
             request.meal_type,
-            chat_session.get("messages", []) + [user_message]
+            existing_messages
         )
         
         return {
@@ -176,83 +178,6 @@ async def send_message(request: ChatRequest, background_tasks: BackgroundTasks):
 
 async def _get_chat_session(session_id: str):
     return await chat_collection.find_one({"session_id": session_id})
-
-async def async_generate_response(
-    session_id: str, 
-    dietary_preferences: str, 
-    meal_type: str,
-    existing_messages: List[dict]
-):
-    try:
-        # Get API key from environment variables
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_api_key:
-            logger.error("GEMINI_API_KEY environment variable not set")
-            return
-
-        genai.configure(api_key=gemini_api_key)
-        
-        # Prepare context based on latest message
-        latest_message = next((msg for msg in reversed(existing_messages) 
-                             if msg["role"] == "user"), None)
-        
-        if not latest_message:
-            logger.error("No user message found in conversation history")
-            return
-
-        # Create conversation history for Gemini
-        conversation_history = []
-        for msg in existing_messages:
-            if msg.get("is_notification", False):
-                continue
-                
-            role = "user" if msg["role"] == "user" else "model"
-            conversation_history.append({"role": role, "parts": [msg["content"]]})
-
-        # Create fresh model instance
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        chat = model.start_chat(history=conversation_history)
-        
-        # Create nutrition context
-        nutrition_context = f"""
-        You are a nutrition assistant chatting with a user while their {meal_type} meal plan generates.
-        Keep responses friendly, conversational, and focused on nutrition/healthy eating.
-        Current dietary focus: {dietary_preferences or 'balanced nutrition'}
-        
-        Guidelines:
-        - Be encouraging and supportive
-        - Share practical tips (1-2 sentences)
-        - Ask follow-up questions to continue dialog
-        - Acknowledge meal plan is processing if asked
-        - Never discuss technical processes
-        - Respond to: '{latest_message['content']}'
-        """
-
-        # Generate response with timeout
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                chat.send_message,
-                nutrition_context
-            ),
-            timeout=20
-        )
-
-        assistant_message = {
-            "role": "assistant",
-            "content": response.text,
-            "timestamp": datetime.datetime.now(),
-            "is_notification": False
-        }
-
-        # Update MongoDB asynchronously
-        await update_chat_messages(session_id, assistant_message)
-
-    except asyncio.TimeoutError:
-        logger.error("Response generation timed out")
-        await store_error_message(session_id, "I'm having trouble responding right now. Please try again.")
-    except Exception as e:
-        logger.error(f"Background response error: {str(e)}")
-        await store_error_message(session_id, "Something went wrong with my response. Could you rephrase that?")
 
 async def update_chat_messages(session_id: str, message: dict, is_error: bool = False):
     """

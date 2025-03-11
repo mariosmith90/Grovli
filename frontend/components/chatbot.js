@@ -159,11 +159,19 @@ const ChatbotWindow = ({
 
   // Fetch the current chat session with all messages
   const fetchChatSession = async () => {
-    if (isProcessingUpdate) return;
+    // We still use the lock, but make it more targeted
+    if (isProcessingUpdate) {
+      console.log("Skipping fetch because another is in progress");
+      return;
+    }
+    
+    // Get a local reference to the current time for this fetch operation
+    const thisFetchTime = Date.now();
     
     try {
       setIsProcessingUpdate(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      
       const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
       
       if (!response.ok) {
@@ -171,6 +179,10 @@ const ChatbotWindow = ({
       }
       
       const data = await response.json();
+      
+      // Get rid of typing indicator if it exists
+      setMessages(prev => prev.filter(m => !m.isTyping));
+      processedMessages.current.delete('assistant:typing');
       
       // Create a map of messages we already have
       const existingMessagesMap = new Map();
@@ -229,7 +241,7 @@ const ChatbotWindow = ({
         }
       }
       
-      setLastFetchTime(Date.now());
+      setLastFetchTime(thisFetchTime);
     } catch (error) {
       console.error('Error fetching chat session:', error);
     } finally {
@@ -244,7 +256,7 @@ const ChatbotWindow = ({
     
     const messageText = predefinedMessage || input.trim();
     
-    if ((!messageText || !sessionId || isLoading) && !predefinedMessage) return;
+    if ((!messageText || !sessionId) && !predefinedMessage) return;
     
     // Hide suggestions immediately when sending a message
     setShowSuggestions(false);
@@ -252,127 +264,164 @@ const ChatbotWindow = ({
     
     // Add user message to the chat
     const userMessage = {
-        role: 'user',
-        content: messageText,
-        timestamp: Date.now().toString(),
-        messageId: `user-${Date.now()}`
+      role: 'user',
+      content: messageText,
+      timestamp: Date.now().toString(),
+      messageId: `user-${Date.now()}`
     };
     
     // Track this message
     processedMessages.current.add(`${userMessage.role}:${userMessage.content}:false`);
     
+    // Update UI immediately with user message
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setIsLoading(true);
+    
+    // Only set loading state for the message being sent, not the whole UI
+    const currentMessageId = `user-${Date.now()}`;
     
     try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/chatbot/send_message`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: user?.sub || 'anonymous',
-                session_id: sessionId,
-                message: messageText,
-                dietary_preferences: preferences,
-                meal_type: mealType
-            }),
-        });
-        
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      
+      // Fire and forget - don't await this promise
+      fetch(`${apiUrl}/chatbot/send_message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: user?.sub || 'anonymous',
+          session_id: sessionId,
+          message: messageText,
+          dietary_preferences: preferences,
+          meal_type: mealType
+        }),
+      }).then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+          throw new Error(`HTTP error ${response.status}`);
         }
-        
-        const data = await response.json();
-        
-        // If status is processing, start polling
+        return response.json();
+      }).then(data => {
+        // If status is processing, start polling without blocking
         if (data.status === 'processing') {
-            startPollingForResponse();
+          startPollingForResponse();
         }
-    } catch (error) {
+      }).catch(error => {
         console.error('Error sending message:', error);
         
         // Handle error - add a fallback message
         const fallbackMessage = { 
-            role: 'assistant', 
-            content: "I'm having trouble connecting right now. Please try again.",
-            timestamp: Date.now().toString(),
-            messageId: `fallback-${Date.now()}`
+          role: 'assistant', 
+          content: "I'm having trouble connecting right now. Please try again.",
+          timestamp: Date.now().toString(),
+          messageId: `fallback-${Date.now()}`
         };
         
         setMessages(prev => [...prev, fallbackMessage]);
-    } finally {
-        setIsLoading(false);
+      });
+      
+      // Add a temporary "typing" indicator
+      setTimeout(() => {
+        if (!processedMessages.current.has('assistant:typing')) {
+          processedMessages.current.add('assistant:typing');
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: "...",
+            isTyping: true,
+            timestamp: Date.now().toString(),
+            messageId: `typing-${Date.now()}`
+          }]);
+        }
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error initiating message send:', error);
     }
-};
+  };
 
 // Add a new polling method
 const startPollingForResponse = () => {
-    let attempts = 0;
-    const maxAttempts = 10;
+  let attempts = 0;
+  const maxAttempts = 10;
+  let isPollingUpdate = false;
+  
+  const pollForResponse = () => {
+    // Don't start a new poll if one is already in progress
+    if (isPollingUpdate) return;
     
-    const pollForResponse = async () => {
-        try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-            const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            // Find the most recent assistant message that hasn't been processed
-            const newMessages = data.messages.filter(msg => 
-                msg.role === 'assistant' && 
-                !processedMessages.current.has(`${msg.role}:${msg.content}:${msg.is_notification}`)
-            );
-            
-            if (newMessages.length > 0) {
-                // Add new messages
-                newMessages.forEach(msg => {
-                    const key = `${msg.role}:${msg.content}:${msg.is_notification}`;
-                    processedMessages.current.add(key);
-                    
-                    setMessages(prev => [...prev, {
-                        ...msg,
-                        messageId: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
-                    }]);
-                    
-                    // Generate suggested responses if it's a non-notification message
-                    if (!msg.is_notification) {
-                        generateSuggestedResponses(msg.content);
-                        setShowSuggestions(true);
-                    }
-                });
-                
-                // Stop polling once messages are found
-                clearInterval(pollInterval);
-            }
-            
-            attempts++;
-            if (attempts >= maxAttempts) {
-                clearInterval(pollInterval);
-                // Handle timeout scenario
-                const timeoutMessage = { 
-                    role: 'assistant', 
-                    content: "I apologize, but I'm taking longer than expected to respond. Please try again.",
-                    timestamp: Date.now().toString(),
-                    messageId: `timeout-${Date.now()}`
-                };
-                
-                setMessages(prev => [...prev, timeoutMessage]);
-            }
-        } catch (error) {
-            console.error('Error polling for response:', error);
-            clearInterval(pollInterval);
+    isPollingUpdate = true;
+    
+    // Create a function that returns a promise but doesn't block the UI
+    const doPoll = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/chatbot/get_session/${sessionId}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
         }
+        
+        const data = await response.json();
+        
+        // Get rid of typing indicator if it exists
+        setMessages(prev => prev.filter(m => !m.isTyping));
+        processedMessages.current.delete('assistant:typing');
+        
+        // Find the most recent assistant message that hasn't been processed
+        const newMessages = data.messages.filter(msg => 
+          msg.role === 'assistant' && 
+          !processedMessages.current.has(`${msg.role}:${msg.content}:${msg.is_notification}`)
+        );
+        
+        if (newMessages.length > 0) {
+          // Add new messages
+          newMessages.forEach(msg => {
+            const key = `${msg.role}:${msg.content}:${msg.is_notification}`;
+            processedMessages.current.add(key);
+            
+            setMessages(prev => [...prev, {
+              ...msg,
+              messageId: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+            }]);
+            
+            // Generate suggested responses if it's a non-notification message
+            if (!msg.is_notification) {
+              generateSuggestedResponses(msg.content);
+              setShowSuggestions(true);
+            }
+          });
+          
+          // Stop polling once messages are found
+          clearInterval(pollInterval);
+        }
+        
+        attempts++;
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          // Handle timeout scenario
+          const timeoutMessage = { 
+            role: 'assistant', 
+            content: "I apologize, but I'm taking longer than expected to respond. Please try again.",
+            timestamp: Date.now().toString(),
+            messageId: `timeout-${Date.now()}`
+          };
+          
+          setMessages(prev => [...prev, timeoutMessage]);
+        }
+      } catch (error) {
+        console.error('Error polling for response:', error);
+        clearInterval(pollInterval);
+      } finally {
+        isPollingUpdate = false;
+      }
     };
     
-    // Poll every 2 seconds
-    const pollInterval = setInterval(pollForResponse, 2000);
+    // Execute the poll without awaiting it
+    doPoll();
+  };
+  
+  // Poll every 2 seconds
+  const pollInterval = setInterval(pollForResponse, 2000);
 };
 
   // Handle View Meal Plan button click
@@ -478,43 +527,51 @@ const startPollingForResponse = () => {
         
         {/* Chat messages */}
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-          {messages.map((message, index) => (
+        {messages.map((message, index) => (
+          <div 
+            key={message.messageId || index} 
+            className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
             <div 
-              key={message.messageId || index} 
-              className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`rounded-2xl px-4 py-3 max-w-[80%] ${
+                message.role === 'user' 
+                  ? 'bg-teal-600 text-white rounded-tr-none' 
+                  : message.is_notification
+                    ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none'
+                    : 'bg-white text-gray-800 shadow-md rounded-tl-none'
+              }`}
             >
-              <div 
-                className={`rounded-2xl px-4 py-3 max-w-[80%] ${
-                  message.role === 'user' 
-                    ? 'bg-teal-600 text-white rounded-tr-none' 
-                    : message.is_notification
-                      ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none'
-                      : 'bg-white text-gray-800 shadow-md rounded-tl-none'
-                }`}
-              >
-                {message.is_notification && (
-                  <div className="flex items-center mb-2 text-orange-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                    </svg>
-                    <span className="font-semibold">Notification</span>
-                  </div>
-                )}
-                {formatMessage(message.content)}
-                {message.is_notification && (
-                  <div className="mt-3">
-                    <button
-                      onClick={handleViewMealPlan}
-                      className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                      View Meal Plan
-                    </button>
-                  </div>
-                )}
-              </div>
+              {message.is_notification && (
+                <div className="flex items-center mb-2 text-orange-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                  <span className="font-semibold">Notification</span>
+                </div>
+              )}
+              {message.isTyping ? (
+                <div className="flex space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0s' }}></div>
+                  <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                </div>
+              ) : (
+                formatMessage(message.content)
+              )}
+              {message.is_notification && (
+                <div className="mt-3">
+                  <button
+                    onClick={handleViewMealPlan}
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    View Meal Plan
+                  </button>
+                </div>
+              )}
             </div>
-          ))}
+          </div>
+        ))}
           
           {/* User-side suggested responses (quick reply bubbles) */}
           {suggestedResponses.length > 0 && !isLoading && showSuggestions && (

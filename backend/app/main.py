@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.background import BackgroundTasks
 from app.api.meals import router as meal_plan_router
 from app.api.list import router as shopping_list_router
 from app.api.recipes import router as user_recipes_router
