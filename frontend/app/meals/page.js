@@ -346,32 +346,30 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [menuOpen]);
 
-  useEffect(() => {
-    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
-  
-    if (savedData) {
-      setPreferences(savedData.preferences || '');
-      
-      // If user isn't Pro and has Full Day saved, reset to Breakfast
-      if (!isPro && savedData.mealType === 'Full Day') {
-        setMealType('Breakfast');
-      } else {
-        setMealType(savedData.mealType || 'Breakfast');
-      }
-      
-      setNumDays(savedData.numDays || 1);
-      setCarbs(savedData.carbs || 0);
-      setCalories(savedData.calories || 0);
-      setProtein(savedData.protein || 0);
-      setSugar(savedData.sugar || 0);
-      setFat(savedData.fat || 0);
-      setFiber(savedData.fiber || 0);
-      setMealPlan(savedData.mealPlan || []);
-    } else {
-      // Set default meal type for new users
-      setMealType('Breakfast');
-    }
-  }, [isPro]);
+
+// 1. Load initial state from localStorage on component mount
+useEffect(() => {
+  const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
+  if (savedData) {
+    setPreferences(savedData.preferences || '');
+    setMealType(savedData.mealType || 'Breakfast');
+    setNumDays(savedData.numDays || 1);
+    setCarbs(savedData.carbs || 0);
+    setCalories(savedData.calories || 0);
+    setProtein(savedData.protein || 0);
+    setSugar(savedData.sugar || 0);
+    setFat(savedData.fat || 0);
+    setFiber(savedData.fiber || 0);
+    setMealPlan(savedData.mealPlan || []);
+  }
+}, []); // Empty dependency array = runs only on mount
+
+// 2. Adjust meal type if Pro status changes
+useEffect(() => {
+  if (!isPro && mealType === 'Full Day') {
+    setMealType('Breakfast');
+  }
+}, [isPro]); // Only runs when isPro changes
 
   // 🔹 Save inputs to localStorage whenever they change
   useEffect(() => {
