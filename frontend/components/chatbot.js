@@ -191,15 +191,13 @@ const ChatbotWindow = ({
         existingMessagesMap.set(key, true);
       });
       
-      // Filter out duplicates
       const uniqueMessages = data.messages.filter(m => {
         const key = `${m.role}:${m.content}:${m.timestamp}`;
         return !processedMessages.current.has(key);
       });
       
-      // Track these messages
       uniqueMessages.forEach(m => {
-        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
+        const key = `${m.role}:${m.content}:${m.timestamp}`;
         processedMessages.current.add(key);
       });
       
