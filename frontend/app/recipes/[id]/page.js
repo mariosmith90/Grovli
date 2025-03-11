@@ -189,15 +189,15 @@ export default function RecipePage() {
           </div>
         </div>
         
-        {/* Instructions Section - Modern Step Format */}
+        {/* Instructions Section - Modern Step Format with titles filtered out */}
         <div className="px-6 pb-20">
           <h2 className="text-3xl font-bold mb-6">Instructions</h2>
           
-          <div className="space-y-6">
+          <div className="space-y-8">
             {parseInstructions(recipe.instructions).map((step, idx) => (
               <div key={idx} className="flex">
                 <div className="mr-6">
-                  <div className="w-14 h-14 rounded-full bg-teal-100 flex items-center justify-center text-teal-800 font-bold text-2xl shrink-0">
+                  <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 font-bold text-2xl shrink-0">
                     {idx + 1}
                   </div>
                 </div>
@@ -327,23 +327,39 @@ function getIngredientDescription(name) {
 function parseInstructions(instructions) {
   if (!instructions) return [];
   
-  // Split by any common step separators
-  let steps = [];
-  
-  // Check if the instruction text contains step markers like "Step 1:", "###", etc.
-  if (instructions.includes('Step') || instructions.includes('###')) {
-    // Split by common step markers
-    const splitText = instructions.replace(/#{3}|\*\*Step \d+:|\*\*/g, '###')
-      .split('###')
-      .filter(text => text.trim().length > 0);
+  // For structured instructions with step markers
+  if (instructions.includes('###') || instructions.includes('**') || 
+      instructions.includes('Step') || instructions.includes('\\n')) {
     
-    steps = splitText.map(step => step.trim());
-  } else {
-    // If no explicit step markers, just split by newlines
-    steps = instructions.split('\\n')
-      .filter(text => text.trim().length > 0)
-      .map(step => step.trim());
+    // Handle markdown and other common formatting
+    let cleanInstructions = instructions
+      // Replace markdown headings with a standard delimiter
+      .replace(/#{1,3}\s*(.*?)(?=\n|$)/g, '###$1###')
+      // Replace bold markdown
+      .replace(/\*\*(.*?)\*\*/g, '###$1###')
+      // Replace step indicators
+      .replace(/Step\s+\d+\s*:\s*/gi, '###');
+    
+    // Split the text and clean up each part
+    const parts = cleanInstructions.split(/###|\n/)
+      .map(part => part.trim())
+      .filter(part => part.length > 0);
+    
+    // Use heuristics to identify detailed instructions vs. section headers
+    return parts.filter(part => {
+      // Detailed instructions are typically longer and more complex
+      // Section headers are usually short, title-cased phrases
+      const isLikelyHeader = part.length < 25 && 
+                             /^[A-Z][a-z]/.test(part) && 
+                             !part.includes(',') && 
+                             part.split(' ').length <= 4;
+      
+      return !isLikelyHeader;
+    });
   }
   
-  return steps;
+  // Default handling for simple text
+  return instructions.split('\\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
 }
