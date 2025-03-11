@@ -151,8 +151,8 @@ async def send_message(request: ChatRequest):
         }
         
         # Update chat session with user message
-        await update_chat_messages(request.session_id, user_message)
-        
+        await update_chat_messages(request.session_id, user_message, store_immediately=False)  
+
         # Get existing messages
         existing_messages = chat_session.get("messages", []) + [user_message]
         
@@ -179,25 +179,20 @@ async def send_message(request: ChatRequest):
 async def _get_chat_session(session_id: str):
     return await chat_collection.find_one({"session_id": session_id})
 
-async def update_chat_messages(session_id: str, message: dict, is_error: bool = False):
-    """
-    Update chat session with a new message or error message.
-    """
+async def update_chat_messages(session_id: str, message: dict, store_immediately=True):
+    """Updates chat session messages in MongoDB."""
     try:
+        update_data = {"$set": {"updated_at": datetime.datetime.now()}}
+        
+        # Only store messages immediately if specified
+        if store_immediately:
+            update_data["$push"] = {"messages": message}
+        
         await chat_collection.update_one(
-            {"session_id": session_id},
-            {
-                "$push": {"messages": message},
-                "$set": {"updated_at": datetime.datetime.now()}
-            }
+            {"session_id": session_id}, update_data
         )
     except Exception as e:
         logger.error(f"MongoDB update error for session {session_id}: {str(e)}")
-        if is_error:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to store error message"
-            )
 
 async def store_error_message(session_id: str, error_text: str):
     error_message = {
