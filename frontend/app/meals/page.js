@@ -572,8 +572,8 @@ export default function Home() {
               onClick={() => setCalculationMode("auto")}
               className={`px-4 py-2 rounded-full border-2 ${
                 calculationMode === "auto"
-                  ? "bg-teal-500 text-white border-teal-500"
-                  : "bg-gray-200 text-gray-700 border-gray-300 hover:bg-gray-300"
+                  ? "bg-teal-500 text-white border-white"
+                  : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300"
               } transition-all`}
             >
               Auto
@@ -741,7 +741,7 @@ export default function Home() {
             {/* Calorie & Macro Selection Section - REDUCED spacing */}
             <div className="mb-4"> {/* Reduced from mb-8 to mb-4 to bring closer to macros */}
               <p className="text-base font-semibold text-gray-700 mb-3">
-                Set Your Daily Calories
+                Calorie Target
               </p>
 
               <div className="flex items-center space-x-4">
@@ -876,13 +876,25 @@ export default function Home() {
             )}
               
             {/* Generate Free Plan - Now a Text Button */}
-            <div className="flex justify-center mt-2">
-              <p
-                onClick={fetchMealPlan}
-                className="text-teal-600 text-lg cursor-pointer font-bold"
-              >
-                {loading ? "Loading..." : isPro ? "Generate Plan" : "Generate Free Plan"}
-              </p>
+            <div className="flex justify-center mt-4 mb-6">
+              {isPro ? (
+                /* Pro Button - Long teal button with white text */
+                <button
+                  onClick={fetchMealPlan}
+                  disabled={loading}
+                  className="w-full py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
+                >
+                  {loading ? "Generating..." : "Generate Plan"}
+                </button>
+              ) : (
+                /* Free Button - Remains as text style */
+                <p
+                  onClick={fetchMealPlan}
+                  className="text-teal-600 text-lg cursor-pointer font-bold"
+                >
+                  {loading ? "Loading..." : "Generate Free Plan"}
+                </p>
+              )}
             </div>
 
           {/* Display Meal Plan */}
