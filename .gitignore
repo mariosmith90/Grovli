@@ -5,6 +5,7 @@ __pycache__/
 **/.smbdelete*
 .env
 .next
+dump.rdb
 node_modules
 frontend/mealplan-nextjs/.env.smbdelete*
 frontend/app/recipes/\[id]/._page.js
