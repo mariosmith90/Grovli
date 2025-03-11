@@ -193,8 +193,8 @@ const ChatbotWindow = ({
       
       // Filter out duplicates
       const uniqueMessages = data.messages.filter(m => {
-        const key = `${m.role}:${m.content}:${m.is_notification ? 'notif' : 'msg'}`;
-        return !existingMessagesMap.has(key) && !processedMessages.current.has(key);
+        const key = `${m.role}:${m.content}:${m.timestamp}`;
+        return !processedMessages.current.has(key);
       });
       
       // Track these messages
