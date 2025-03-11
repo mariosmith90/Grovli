@@ -47,6 +47,12 @@ export default function Header() {
           {isAuthenticated ? (
             <>
               <button
+                onClick={() => router.push('/meals')}
+                className="text-white hover:text-teal-300"
+              >
+                Meals
+              </button>
+              <button
                 onClick={() => router.push('/planner')}
                 className="text-white hover:text-teal-300"
               >
@@ -118,7 +124,19 @@ export default function Header() {
                   </>
                 ) : (
                   <>
-                    {/* Planner link without icon */}
+                    {/* Meals link */}
+                    <li>
+                      <button
+                        onClick={() => {
+                          router.push('/meals');
+                          setMenuOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
+                      >
+                        Meals
+                      </button>
+                    </li>
+                    {/* Planner link */}
                     <li>
                       <button
                         onClick={() => {
