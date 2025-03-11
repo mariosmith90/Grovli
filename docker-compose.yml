@@ -92,7 +92,6 @@ services:
   worker:
     build: 
       context: ./backend
-    command: celery -A app.utils.celery_config worker --loglevel=info
     environment:
       - MONGO_URI=${MONGO_URI}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
