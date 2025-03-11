@@ -882,7 +882,7 @@ useEffect(() => {
                   disabled={loading}
                   className="w-full py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
                 >
-                  {loading ? "Generating..." : "Generate Plan"}
+                  {loading ? "Generating..." : "Generate Meals"}
                 </button>
               ) : (
                 /* Free Button - Remains as text style */
@@ -890,7 +890,7 @@ useEffect(() => {
                   onClick={fetchMealPlan}
                   className="text-teal-600 text-lg cursor-pointer font-bold"
                 >
-                  {loading ? "Loading..." : "Generate Free Plan"}
+                  {loading ? "Loading..." : "Generate Free Meals"}
                 </p>
               )}
             </div>

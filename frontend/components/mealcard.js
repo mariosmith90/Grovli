@@ -183,14 +183,53 @@ export function MealPlanDisplay({
     }
   }
 
+  // Extract all meal IDs for Select All functionality
+  const allMealIds = Object.values(mealsByDay).flat().map(meal => meal.id);
+  
+  // Check if all meals are currently selected
+  const allMealsSelected = allMealIds.length > 0 && allMealIds.every(id => selectedRecipes.includes(id));
+  
+  // Handle Global Select All toggle
+  const handleSelectAllDays = () => {
+    if (allMealsSelected) {
+      // Deselect all meals
+      allMealIds.forEach(id => {
+        if (selectedRecipes.includes(id)) {
+          handleMealSelection(id);
+        }
+      });
+    } else {
+      // Select all meals
+      allMealIds.forEach(id => {
+        if (!selectedRecipes.includes(id)) {
+          handleMealSelection(id);
+        }
+      });
+    }
+  };
+
   return (
     <div className="mt-6">
       {/* Group meals by day */}
       {Object.entries(mealsByDay).map(([day, meals]) => (
         <div key={`day-${day}`} className="mb-8">
-          <h3 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b">
-            Day {day}
-          </h3>
+          {/* Day Header with Select All button inline */}
+          <div className="flex justify-between items-center mb-4 pb-2 border-b">
+            <h3 className="text-xl font-bold text-gray-800">
+              Day {day}
+            </h3>
+            
+            {/* Only show the Select All button on the first day */}
+            {day === '1' && (
+              <button
+                onClick={handleSelectAllDays}
+                className="flex items-center py-2 px-4 rounded-lg font-medium transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                <CheckIcon className={`w-5 h-5 mr-2 ${allMealsSelected ? "text-teal-500" : "text-gray-500"}`} />
+                Select All
+              </button>
+            )}
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {meals.map((meal, index) => (
@@ -231,14 +270,25 @@ export function MealPlanDisplay({
           </button>
         )}
 
-        {/* Order Plan Ingredients Button */}
-        <button
-          onClick={handleOrderPlanIngredients}
-          disabled={loading || orderingPlanIngredients}
-          className="w-full py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
-        >
-          {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
-        </button>
+        {/* Button Row with Plan Creator and Order Ingredients */}
+        <div className="flex gap-3">
+          {/* Plan Creator Button */}
+          <button
+            onClick={() => window.location.href = '/planner'}
+            className="flex-1 py-2 px-4 bg-teal-700 hover:bg-teal-900 text-white font-bold rounded-lg transition-all"
+          >
+            Plan Creator
+          </button>
+          
+          {/* Order Plan Ingredients Button */}
+          <button
+            onClick={handleOrderPlanIngredients}
+            disabled={loading || orderingPlanIngredients}
+            className="flex-1 py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
+          >
+            {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
+          </button>
+        </div>
       </div>
     </div>
   );
