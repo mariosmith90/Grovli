@@ -463,80 +463,85 @@ export default function MealPlannerCalendar() {
   };
 
   // Save the entire meal plan
-  const saveMealPlan = async () => {
-    if (!user) {
-      toast.error("Please log in to save your meal plan");
+// MealPlannerCalendar.js - Here's the complete saveMealPlan function with the fix:
+
+const saveMealPlan = async () => {
+  if (!user) {
+    toast.error("Please log in to save your meal plan");
+    return;
+  }
+  
+  try {
+    setIsSaving(true);
+    
+    // Get access token using Auth0
+    const accessToken = await getAccessToken({
+      authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+    });
+    
+    // Format meals for API
+    const formattedMeals = formatMealsForAPI();
+    
+    if (formattedMeals.length === 0) {
+      toast.error("Cannot save an empty meal plan");
+      setIsSaving(false);
       return;
     }
     
-    try {
-      setIsSaving(true);
-      
-      // Get access token using Auth0
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-      
-      // Format meals for API
-      const formattedMeals = formatMealsForAPI();
-      
-      if (formattedMeals.length === 0) {
-        toast.error("Cannot save an empty meal plan");
-        setIsSaving(false);
-        return;
-      }
-      
-      // Prepare request data
-      const requestData = {
-        userId: user.sub,
-        planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
-        meals: formattedMeals
-      };
-      
-      // API endpoint based on whether we're creating or updating
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const endpoint = activePlanId 
-        ? `${apiUrl}/api/user-plans/update`
-        : `${apiUrl}/api/user-plans/save`;
-      
-      // Add planId if updating
-      if (activePlanId) {
-        requestData.planId = activePlanId;
-      }
-      
-      // API request
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify(requestData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to save: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      // If it was a new plan, update the activePlanId
-      if (!activePlanId && result.id) {
-        setActivePlanId(result.id);
-        setPlanName(result.name);
-      }
-      
-      // Refresh the user's plans
-      fetchUserMealPlans();
-      
-      toast.success("Meal plan saved successfully!");
-    } catch (error) {
-      console.error('Error saving meal plan:', error);
-      toast.error("Failed to save meal plan. Please try again.");
-    } finally {
-      setIsSaving(false);
+    // Prepare request data
+    const requestData = {
+      userId: user.sub,
+      planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
+      meals: formattedMeals
+    };
+    
+    // API endpoint based on whether we're creating or updating
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+    const endpoint = activePlanId 
+      ? `${apiUrl}/api/user-plans/update`
+      : `${apiUrl}/api/user-plans/save`;
+    
+    // Add planId if updating
+    if (activePlanId) {
+      requestData.planId = activePlanId;
     }
-  };
+    
+    // API request
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(requestData)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to save: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    // If it was a new plan, update the activePlanId
+    if (!activePlanId && result.id) {
+      setActivePlanId(result.id);
+      setPlanName(result.name);
+    }
+    
+    // THE FIX: Store timestamp in localStorage to trigger profile page refresh
+    localStorage.setItem('mealPlanLastSaved', new Date().toISOString());
+    
+    // Refresh the user's plans
+    fetchUserMealPlans();
+    
+    toast.success("Meal plan saved successfully!");
+  } catch (error) {
+    console.error('Error saving meal plan:', error);
+    toast.error("Failed to save meal plan. Please try again.");
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   // Create a new meal plan
   const createNewPlan = () => {

@@ -86,23 +86,23 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                         break
             
             # If not found in saved_meals, check meals collection
-        if not meal_details:
-            from app.api.meals import meals_collection
-            meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
-            if meal_doc:
-                calories_value = meal_doc["macros"].get("calories", 0)
-                meal_details = {
-                    "id": meal_doc["meal_id"],
-                    "title": meal_doc["meal_name"],
-                    "name": meal_doc["meal_name"],  # Add name explicitly
-                    "meal_type": meal_doc["meal_type"],
-                    "nutrition": meal_doc["macros"],
-                    "ingredients": meal_doc["ingredients"],
-                    "instructions": meal_doc["meal_text"],
-                    "imageUrl": meal_doc.get("image_url", ""),
-                    "calories": calories_value  # Add calories explicitly as a number
-                }
-            
+            if not meal_details:
+                from app.api.meals import meals_collection
+                meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
+                if meal_doc:
+                    calories_value = meal_doc["macros"].get("calories", 0)
+                    meal_details = {
+                        "id": meal_doc["meal_id"],
+                        "title": meal_doc["meal_name"],
+                        "name": meal_doc["meal_name"],  # Add name explicitly
+                        "meal_type": meal_doc["meal_type"],
+                        "nutrition": meal_doc["macros"],
+                        "ingredients": meal_doc["ingredients"],
+                        "instructions": meal_doc["meal_text"],
+                        "imageUrl": meal_doc.get("image_url", ""),
+                        "calories": calories_value  # Add calories explicitly as a number
+                    }
+                
             if meal_details:
                 processed_meal = {
                     "date": meal_item.date,
@@ -111,7 +111,7 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                 }
                 processed_meals.append(processed_meal)
         
-        # Create the meal plan document
+        # Create the meal plan document - MOVED OUTSIDE THE LOOP
         meal_plan = {
             "id": plan_id,
             "user_id": request.userId,
@@ -121,10 +121,10 @@ async def save_meal_plan(request: SaveMealPlanRequest):
             "meals": processed_meals
         }
         
-        # Save to database
+        # Save to database - MOVED OUTSIDE THE LOOP
         user_meal_plans_collection.insert_one(meal_plan)
         
-        return {
+        return {  # MOVED OUTSIDE THE LOOP
             "id": plan_id,
             "name": plan_name,
             "message": "Meal plan saved successfully"

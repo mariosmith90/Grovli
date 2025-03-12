@@ -21,6 +21,7 @@ export default function ProfilePage() {
   const [activePlanId, setActivePlanId] = useState(null);
   const [userPlans, setUserPlans] = useState([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [lastCheckTime, setLastCheckTime] = useState(null);
 
   // Default meal structure
   const defaultMeal = {
@@ -283,6 +284,50 @@ export default function ProfilePage() {
     }
   }, [isAuthenticated, isLoading]);
 
+  // THE FIX: Add an effect to check for meal plan updates
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    
+    // Function to check if meal plan was updated
+    const checkForMealPlanUpdates = () => {
+      const lastSavedTime = localStorage.getItem('mealPlanLastSaved');
+      
+      if (lastSavedTime && (!lastCheckTime || new Date(lastSavedTime) > new Date(lastCheckTime))) {
+        // Update our last check time
+        setLastCheckTime(new Date().toISOString());
+        
+        // Refresh the meal plans since there was an update
+        console.log('Detected meal plan update, refreshing data...');
+        fetchUserMealPlans();
+      }
+    };
+    
+    // Check immediately when component mounts
+    checkForMealPlanUpdates();
+    
+    // Set up periodic checking (every 5 seconds)
+    const intervalId = setInterval(checkForMealPlanUpdates, 5000);
+    
+    // Also check when window gets focus
+    const handleFocus = () => checkForMealPlanUpdates();
+    window.addEventListener('focus', handleFocus);
+    
+    // Also check when returning to this page
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForMealPlanUpdates();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Clean up
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthenticated, isLoading, lastCheckTime]);
+
   // Update calorie count based on planned meals
   const updateCalorieCount = (currentMealPlan = mealPlan) => {
     const totalCalories = currentMealPlan.reduce((sum, meal) => sum + (meal.calories || 0), 0);
@@ -298,7 +343,7 @@ export default function ProfilePage() {
 
   // Navigation functions
   const handleCreateNewMeals = () => router.push('/meals');
-  const handleViewMealPlanner = () => router.push('/meal-planner');
+  const handleViewMealPlanner = () => router.push('/planner');
   
   const handleAddMeal = (mealType) => {
     setSelectedMealType(mealType);
