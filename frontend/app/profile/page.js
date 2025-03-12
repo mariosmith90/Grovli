@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon } from 'lucide-react';
+import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon, Calendar } from 'lucide-react';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
 
@@ -15,10 +15,12 @@ export default function ProfilePage() {
   // States with simplified initialization
   const [activeSection, setActiveSection] = useState('timeline');
   const [selectedMealType, setSelectedMealType] = useState(null);
-  const [calorieData, setCalorieData] = useState({ consumed: 350, target: 2000 });
-  const [savedMealPlans, setSavedMealPlans] = useState([]);
+  const [calorieData, setCalorieData] = useState({ consumed: 0, target: 2000 });
   const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(true);
-  const [currentMealIndex, setCurrentMealIndex] = useState(1); // Starting with lunch as current
+  const [currentMealIndex, setCurrentMealIndex] = useState(0);
+  const [activePlanId, setActivePlanId] = useState(null);
+  const [userPlans, setUserPlans] = useState([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
 
   // Default meal structure
   const defaultMeal = {
@@ -42,8 +44,8 @@ export default function ProfilePage() {
   // Next meal state derived from current meal
   const [nextMeal, setNextMeal] = useState({
     ...defaultMeal,
-    time: '12:30 PM',
-    type: 'lunch'
+    time: '8:00 AM',
+    type: 'breakfast'
   });
 
   // Saved meals by category
@@ -54,113 +56,206 @@ export default function ProfilePage() {
     dinner: []
   });
 
-  // Fetch saved meal plans with proper authentication
-  const fetchSavedMealPlans = async () => {
-    if (!user) {
-      setIsLoadingSavedMeals(false);
-      return;
-    }
-
+  // Helper function to make authenticated API requests
+  const makeAuthenticatedRequest = async (endpoint, options = {}) => {
+    if (!user) throw new Error("User not authenticated");
+    
     try {
-      setIsLoadingSavedMeals(true);
-      
-      // Reset states
-      setSavedMealPlans([]);
-      setSavedMeals({ breakfast: [], lunch: [], snack: [], dinner: [] });
-      
-      // Get access token
       const accessToken = await getAccessToken({
         authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
       });
       
-      // API request
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/user-recipes/saved-recipes/`, {
+      const url = `${apiUrl}${endpoint}`;
+      
+      const response = await fetch(url, {
+        ...options,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${accessToken}`,
+          ...(options.headers || {})
         }
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
+        throw new Error(`API error: ${response.status}`);
       }
       
-      const data = await response.json();
-      setSavedMealPlans(data);
-      
-      // Process meals by category
-      const categorizedMeals = { breakfast: [], lunch: [], snack: [], dinner: [] };
-      
-      // Group recipes by meal type
-      data.forEach(plan => {
-        if (plan.recipes && Array.isArray(plan.recipes)) {
-          plan.recipes.forEach(recipe => {
-            const mealType = (recipe.meal_type || '').toLowerCase();
-            const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
-              ? mealType : 'snack';
-            
-            const formattedMeal = {
-              id: recipe.id,
-              name: recipe.title,
-              calories: recipe.nutrition?.calories || 0,
-              protein: recipe.nutrition?.protein || 0,
-              carbs: recipe.nutrition?.carbs || 0,
-              fat: recipe.nutrition?.fat || 0,
-              image: recipe.imageUrl || recipe.image_url || "",
-              ingredients: recipe.ingredients || [],
-              instructions: recipe.instructions || ''
-            };
-            
-            // Add if not duplicate
-            if (!categorizedMeals[category].some(meal => meal.name === formattedMeal.name)) {
-              categorizedMeals[category].push(formattedMeal);
-            }
-          });
-        }
-      });
-      
-      setSavedMeals(categorizedMeals);
-      populateMealPlanFromSavedMeals(categorizedMeals);
-      
+      return await response.json();
     } catch (error) {
-      console.error('Error fetching saved meal plans:', error);
-    } finally {
-      setIsLoadingSavedMeals(false);
+      console.error(`API request failed: ${error.message}`);
+      throw error;
     }
   };
-  
-  // Populate meal plan with saved meals
-  const populateMealPlanFromSavedMeals = (categorizedMeals) => {
-    const updatedMealPlan = mealPlan.map(meal => {
-      // If meal slot is empty and we have saved meals of this type
-      if (!meal.name && categorizedMeals[meal.type]?.length > 0) {
-        const randomIndex = Math.floor(Math.random() * categorizedMeals[meal.type].length);
-        const savedMeal = categorizedMeals[meal.type][randomIndex];
-        
-        return {
-          ...meal,
-          name: savedMeal.name,
-          calories: savedMeal.calories,
-          protein: savedMeal.protein,
-          carbs: savedMeal.carbs,
-          fat: savedMeal.fat,
-          image: savedMeal.image
+
+  // Fetch user's meal plans
+  const fetchUserMealPlans = async () => {
+    if (!user) return;
+
+    try {
+      setIsLoadingPlans(true);
+      
+      const userId = user.sub;
+      const plans = await makeAuthenticatedRequest(`/api/user-plans/user/${userId}`);
+      setUserPlans(plans);
+      
+      // Load the most recent plan if available
+      if (plans.length > 0) {
+        const sortedPlans = [...plans].sort((a, b) => 
+          new Date(b.updated_at) - new Date(a.updated_at)
+        );
+        loadPlanToCalendar(sortedPlans[0]);
+      }
+      
+    } catch (error) {
+      console.error('Error fetching user meal plans:', error);
+    } finally {
+      setIsLoadingPlans(false);
+    }
+  };
+
+  // Load a plan to the meal plan state
+  const loadPlanToCalendar = (plan) => {
+    if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
+      return;
+    }
+    
+    setActivePlanId(plan.id);
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Filter for today's meals
+    const todaysMeals = plan.meals.filter(mealItem => mealItem.date === today);
+    
+    if (todaysMeals.length === 0) {
+      console.log("No meals planned for today");
+      return;
+    }
+    
+    // Create a new meal plan based on today's meals
+    const updatedMealPlan = [...mealPlan];
+    
+    // Map the meal types to our time structure
+    const mealTypeToTime = {
+      breakfast: '8:00 AM',
+      lunch: '12:30 PM',
+      snack: '3:30 PM',
+      dinner: '7:00 PM'
+    };
+    
+    todaysMeals.forEach(mealItem => {
+      const { mealType, meal } = mealItem;
+      
+      if (!meal) return;
+      
+      // Find index of this meal type in our meal plan
+      const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+      
+      if (mealIndex !== -1) {
+        updatedMealPlan[mealIndex] = {
+          ...updatedMealPlan[mealIndex],
+          name: meal.name || meal.title || "",
+          calories: meal.calories || meal.nutrition?.calories || 0,
+          protein: meal.protein || meal.nutrition?.protein || 0,
+          carbs: meal.carbs || meal.nutrition?.carbs || 0,
+          fat: meal.fat || meal.nutrition?.fat || 0,
+          image: meal.image || meal.imageUrl || "",
+          completed: false // Reset completion status for today
         };
       }
-      return meal;
     });
     
     setMealPlan(updatedMealPlan);
     
-    // Update next meal card
-    const currentIndex = updatedMealPlan.findIndex(meal => !meal.completed);
-    if (currentIndex !== -1) {
-      setCurrentMealIndex(currentIndex);
-      updateNextMealCard(updatedMealPlan[currentIndex]);
+    // Update current meal index to the earliest non-completed meal
+    const currentTime = new Date();
+    const timeToMinutes = (timeStr) => {
+      const [hours, minutesWithSuffix] = timeStr.split(':');
+      const minutes = parseInt(minutesWithSuffix);
+      const isPM = timeStr.toLowerCase().includes('pm');
+      return (parseInt(hours) % 12 + (isPM ? 12 : 0)) * 60 + minutes;
+    };
+    
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    
+    // Find the next meal based on current time
+    let nextIndex = 0;
+    let closestDiff = Infinity;
+    
+    updatedMealPlan.forEach((meal, index) => {
+      if (meal.name) { // Only consider meals that have been planned
+        const mealMinutes = timeToMinutes(meal.time);
+        const diff = mealMinutes - currentMinutes;
+        
+        // If the meal is in the future and closer than our current closest
+        if (diff >= 0 && diff < closestDiff) {
+          closestDiff = diff;
+          nextIndex = index;
+        }
+      }
+    });
+    
+    // If all meals are in the past, select the earliest meal
+    if (closestDiff === Infinity) {
+      nextIndex = updatedMealPlan.findIndex(meal => meal.name) || 0;
+    }
+    
+    setCurrentMealIndex(nextIndex);
+    updateNextMealCard(updatedMealPlan[nextIndex]);
+    updateCalorieCount(updatedMealPlan);
+  };
+
+  // Fetch saved meals for the add meal selector
+  const fetchSavedMeals = async () => {
+    if (!user) return;
+
+    try {
+      setIsLoadingSavedMeals(true);
+      
+      const data = await makeAuthenticatedRequest('/api/user-recipes/saved-recipes/');
+      
+      // Process meals by category
+      const categorizedMeals = { breakfast: [], lunch: [], snack: [], dinner: [] };
+      const addedMealNames = new Set();
+      
+      data.forEach(plan => {
+        if (!plan.recipes || !Array.isArray(plan.recipes)) return;
+        
+        plan.recipes.forEach(recipe => {
+          // Skip if we've already added this meal
+          if (addedMealNames.has(recipe.title)) return;
+          
+          const mealType = (recipe.meal_type || '').toLowerCase();
+          const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
+            ? mealType : 'snack';
+          
+          const formattedMeal = {
+            id: recipe.id,
+            name: recipe.title,
+            calories: recipe.nutrition?.calories || 0,
+            protein: recipe.nutrition?.protein || 0,
+            carbs: recipe.nutrition?.carbs || 0,
+            fat: recipe.nutrition?.fat || 0,
+            image: recipe.imageUrl || recipe.image_url || "",
+            ingredients: recipe.ingredients || [],
+            instructions: recipe.instructions || ''
+          };
+          
+          categorizedMeals[category].push(formattedMeal);
+          addedMealNames.add(recipe.title);
+        });
+      });
+      
+      setSavedMeals(categorizedMeals);
+      
+    } catch (error) {
+      console.error('Error fetching saved meals:', error);
+    } finally {
+      setIsLoadingSavedMeals(false);
     }
   };
-  
+
   // Update next meal card
   const updateNextMealCard = (meal) => {
     if (!meal) return;
@@ -179,25 +274,32 @@ export default function ProfilePage() {
 
   // Initialize the app
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchSavedMealPlans();
+    if (isAuthenticated && !isLoading) {
+      // Fetch user's meal plans first to get the active plan
+      fetchUserMealPlans();
+      
+      // Fetch saved meals for the selector
+      fetchSavedMeals();
     }
-    
-    // Update calorie count
-    updateCalorieCount();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isLoading]);
 
-  // Update calorie count based on completed meals
-  const updateCalorieCount = () => {
-    const completedCalories = mealPlan
+  // Update calorie count based on planned meals
+  const updateCalorieCount = (currentMealPlan = mealPlan) => {
+    const totalCalories = currentMealPlan.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+    const consumedCalories = currentMealPlan
       .filter(meal => meal.completed)
       .reduce((sum, meal) => sum + (meal.calories || 0), 0);
     
-    setCalorieData(prev => ({ ...prev, consumed: completedCalories }));
+    setCalorieData({ 
+      consumed: consumedCalories, 
+      target: Math.max(totalCalories, 2000) // Set target to at least 2000
+    });
   };
 
   // Navigation functions
   const handleCreateNewMeals = () => router.push('/meals');
+  const handleViewMealPlanner = () => router.push('/meal-planner');
+  
   const handleAddMeal = (mealType) => {
     setSelectedMealType(mealType);
     setActiveSection('savedMeals');
@@ -226,7 +328,7 @@ export default function ProfilePage() {
         updateNextMealCard(updatedMealPlan[mealTypeIndex]);
       }
       
-      updateCalorieCount();
+      updateCalorieCount(updatedMealPlan);
     }
     
     setActiveSection('timeline');
@@ -249,7 +351,7 @@ export default function ProfilePage() {
     setMealPlan(updatedMealPlan);
     setCurrentMealIndex(nextIndex);
     updateNextMealCard(updatedMealPlan[nextIndex]);
-    updateCalorieCount();
+    updateCalorieCount(updatedMealPlan);
   };
 
   // Remove a meal
@@ -282,7 +384,7 @@ export default function ProfilePage() {
         updateNextMealCard(updatedMealPlan[nextIndex]);
       }
       
-      updateCalorieCount();
+      updateCalorieCount(updatedMealPlan);
     }
   };
 
@@ -293,61 +395,85 @@ export default function ProfilePage() {
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
           
-          {/* Next Meal Section */}
-          <section className="mb-6 bg-white rounded-lg shadow-md p-4">
-            <h2 className="text-2xl font-semibold mb-3 flex items-center">
-              {(() => {
-                const Icon = { breakfast: Coffee, lunch: Utensils, snack: Apple, dinner: Moon }[nextMeal.type];
-                return (
-                  <>
-                    <Icon className="w-6 h-6 mr-2 text-teal-600" />
-                    {nextMeal.type.charAt(0).toUpperCase() + nextMeal.type.slice(1)}
-                  </>
-                );
-              })()}
-            </h2>
-            <NextMealCard 
-              meal={nextMeal} 
-              onJustAte={handleJustAte} 
-              handleCreateNewMeals={handleCreateNewMeals} 
-            />
-            <div className="mt-4">
-              <CalorieProgressBar 
-                consumed={calorieData.consumed} 
-                target={calorieData.target} 
-              />
-            </div>
-          </section>
+          {/* Plan Header */}
+          <div className="mb-4 flex justify-between items-center">
+            <h2 className="text-2xl font-semibold text-gray-800">Today's Meals</h2>
+            <button
+              onClick={handleViewMealPlanner}
+              className="flex items-center text-teal-600 hover:text-teal-800 transition-colors"
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              View Meal Planner
+            </button>
+          </div>
           
-          {/* Conditional Rendering for Timeline or Saved Meals */}
-          {activeSection === 'timeline' ? (
-            <section className="mb-6 bg-white rounded-lg shadow-md p-4">
-              <h2 className="text-lg font-semibold mb-3">Your Meal Timeline</h2>
-              <MealTimeline 
-                meals={mealPlan} 
-                onAddMeal={handleAddMeal}
-                onRemoveMeal={handleRemoveMeal}
-              />
-            </section>
-          ) : (
-            <section className="mb-6 bg-white rounded-lg shadow-md p-4">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-semibold">Saved Meals</h2>
-                <button 
-                  onClick={() => setActiveSection('timeline')}
-                  className="text-teal-600 hover:underline flex items-center"
-                >
-                  <ArrowLeft className="w-4 h-4 mr-1" /> Back to Timeline
-                </button>
-              </div>
-              <SavedMeals 
-                mealType={selectedMealType} 
-                onSelectMeal={handleSelectSavedMeal}
-                savedMeals={savedMeals}
-                isLoading={isLoadingSavedMeals}
-                handleCreateNewMeals={handleCreateNewMeals}
-              />
-            </section>
+          {/* Loading State */}
+          {isLoadingPlans && (
+            <div className="flex justify-center items-center py-8">
+              <div className="animate-pulse text-gray-500">Loading your meal plan...</div>
+            </div>
+          )}
+          
+          {/* Meal Content - Only show when not loading */}
+          {!isLoadingPlans && (
+            <>
+              {/* Next Meal Section */}
+              <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+                <h2 className="text-2xl font-semibold mb-3 flex items-center">
+                  {(() => {
+                    const Icon = { breakfast: Coffee, lunch: Utensils, snack: Apple, dinner: Moon }[nextMeal.type];
+                    return (
+                      <>
+                        <Icon className="w-6 h-6 mr-2 text-teal-600" />
+                        {nextMeal.type.charAt(0).toUpperCase() + nextMeal.type.slice(1)}
+                      </>
+                    );
+                  })()}
+                </h2>
+                <NextMealCard 
+                  meal={nextMeal} 
+                  onJustAte={handleJustAte} 
+                  handleCreateNewMeals={handleCreateNewMeals} 
+                />
+                <div className="mt-4">
+                  <CalorieProgressBar 
+                    consumed={calorieData.consumed} 
+                    target={calorieData.target} 
+                  />
+                </div>
+              </section>
+              
+              {/* Conditional Rendering for Timeline or Saved Meals */}
+              {activeSection === 'timeline' ? (
+                <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+                  <h2 className="text-lg font-semibold mb-3">Your Meal Timeline</h2>
+                  <MealTimeline 
+                    meals={mealPlan} 
+                    onAddMeal={handleAddMeal}
+                    onRemoveMeal={handleRemoveMeal}
+                  />
+                </section>
+              ) : (
+                <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold">Saved Meals</h2>
+                    <button 
+                      onClick={() => setActiveSection('timeline')}
+                      className="text-teal-600 hover:underline flex items-center"
+                    >
+                      <ArrowLeft className="w-4 h-4 mr-1" /> Back to Timeline
+                    </button>
+                  </div>
+                  <SavedMeals 
+                    mealType={selectedMealType} 
+                    onSelectMeal={handleSelectSavedMeal}
+                    savedMeals={savedMeals}
+                    isLoading={isLoadingSavedMeals}
+                    handleCreateNewMeals={handleCreateNewMeals}
+                  />
+                </section>
+              )}
+            </>
           )}
         </div>
       </main>
@@ -372,9 +498,13 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
           onClick={() => setIsSelected(!isSelected)}
         >
           <img
-            src={meal.image}
+            src={meal.image || '/fallback-meal-image.jpg'}
             alt={meal.name || "No meal selected"}
             className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.onerror = null;
+              e.target.src = "/fallback-meal-image.jpg";
+            }}
           />
           <div
             className={`absolute inset-0 transition-opacity ${
@@ -544,6 +674,10 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
                               src={meal.image} 
                               alt={meal.name} 
                               className="w-12 h-12 rounded-md object-cover mr-3"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = "/fallback-meal-image.jpg";
+                              }}
                             />
                           )}
                           <div>
@@ -615,9 +749,13 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreat
             className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
           >
             <img 
-              src={meal.image} 
+              src={meal.image || '/fallback-meal-image.jpg'} 
               alt={meal.name} 
               className="w-16 h-16 rounded-md object-cover"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = "/fallback-meal-image.jpg";
+              }}
             />
             <div className="ml-3">
               <h4 className="font-medium">{meal.name}</h4>
