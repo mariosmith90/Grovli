@@ -48,36 +48,9 @@ export default function Home() {
   useEffect(() => {
     setGlobalSettings((prev) => ({
       ...prev,
-      calories: calories,
+      calories: globalSettings.calories,
     }));
   }, [calories]);
-
-  const calculateMacros = (caloriesValue) => {
-    if (globalSettings.calculationMode === 'auto' && caloriesValue > 0) {
-      const { protein, carbs, fat, fiber, sugar } = adjustMacrosForMealType(
-        caloriesValue, 
-        mealType, 
-        preferences
-      );
-  
-      return {
-        protein,
-        carbs,
-        fat,
-        fiber,
-        sugar
-      };
-    }
-    
-    // If not auto mode or no calories, return current settings
-    return {
-      fat: globalSettings.fat,
-      protein: globalSettings.protein,
-      carbs: globalSettings.carbs,
-      fiber: globalSettings.fiber,
-      sugar: globalSettings.sugar
-    };
-  };
 
   const handleDietPreferenceChange = (option) => {
     setPreferences((prev) => {
@@ -529,10 +502,10 @@ const fetchMealPlan = async () => {
             {/* Calories Counter */}
             <div className="flex flex-col items-end">
               <div className="flex items-center gap-2">
-                <span className="text-xl font-semibold text-gray-700">{calories}</span>
+                <span className="text-xl font-semibold text-gray-700">{globalSettings.calories}</span>
                 <span className="text-sm text-gray-500">kcal</span>
               </div>
-              <button 
+              <button
                 onClick={() => router.push('/settings')}
                 className="text-xs text-teal-600 hover:text-teal-800 transition-colors font-medium"
               >
@@ -604,21 +577,6 @@ const fetchMealPlan = async () => {
               <button
                 key={option}
                 onClick={() => {
-                  console.log("Setting meal type to:", option);
-                  
-                  // Get range for the new meal type option
-                  const newRange = getCalorieRange(option);
-                  
-                  // Adjust calories to fit the new meal type range
-                  const adjustedCalories = Math.min(
-                    Math.max(calories, newRange.min), 
-                    newRange.max
-                  );
-                  
-                  // Update calories state
-                  setCalories(adjustedCalories);
-                  
-                  // Update meal type
                   setMealType(option);
                 }}
                 className={`px-4 py-2 rounded-full border-2 ${
@@ -638,19 +596,6 @@ const fetchMealPlan = async () => {
               <button
                 onClick={() => {
                   if (isPro) {
-                    // Get range for Full Day
-                    const newRange = getCalorieRange("Full Day");
-                    
-                    // Adjust calories if needed
-                    const adjustedCalories = Math.min(
-                      Math.max(calories, newRange.min), 
-                      newRange.max
-                    );
-                    
-                    // Update calories state
-                    setCalories(adjustedCalories);
-                    
-                    // Update meal type
                     setMealType("Full Day");
                   }
                 }}
