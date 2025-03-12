@@ -177,39 +177,69 @@ def generate_meal_plan(
         
         # Calculate the macronutrient distribution per meal type
         meal_type_calorie_ratio = {
-            "Breakfast": 0.25, # 25% of daily calories
-            "Lunch": 0.30, # 30% of daily calories
-            "Dinner": 0.35, # 35% of daily calories
-            "Snack": 0.10 # 10% of daily calories per snack
+            "Breakfast": 0.25,  # 25% of daily calories
+            "Lunch": 0.30,      # 30% of daily calories
+            "Dinner": 0.35,     # 35% of daily calories
+            "Snack": 0.10       # 10% of daily calories per snack
         }
-        
+
         # For single meal type requests, use all macros
         if meal_type != "Full Day":
-            meal_macros = {
-                meal_type: {
-                    "calories": calories,
-                    "protein": protein,
-                    "carbs": carbs,
-                    "fat": fat,
-                    "fiber": fiber,
-                    "sugar": sugar
+            ratio = meal_type_calorie_ratio.get(meal_type, 0)
+            num_meals = meal_counts.get(meal_type, 1)  # Get the number of meals for this type
+            
+            # For snacks, ensure each snack gets 10% of the daily calories
+            if meal_type == "Snack":
+                # Each snack gets 10% of the daily calories, regardless of the number of snacks
+                meal_macros = {
+                    meal_type: {
+                        "calories": int(calories * ratio),  # 10% of daily calories
+                        "protein": int(protein * ratio),
+                        "carbs": int(carbs * ratio),
+                        "fat": int(fat * ratio),
+                        "fiber": int(fiber * ratio),
+                        "sugar": int(sugar * ratio)
+                    }
                 }
-            }
+            else:
+                # For non-snack meal types, use the ratio as is
+                meal_macros = {
+                    meal_type: {
+                        "calories": int(calories * ratio),
+                        "protein": int(protein * ratio),
+                        "carbs": int(carbs * ratio),
+                        "fat": int(fat * ratio),
+                        "fiber": int(fiber * ratio),
+                        "sugar": int(sugar * ratio)
+                    }
+                }
         else:
             # For "Full Day" meal type, distribute macros proportionally
             meal_macros = {}
             for meal_type, ratio in meal_type_calorie_ratio.items():
                 count = meal_counts.get(meal_type, 0)
                 if count > 0:
-                    type_ratio = ratio * count
-                    meal_macros[meal_type] = {
-                        "calories": int(calories * type_ratio),
-                        "protein": int(protein * type_ratio),
-                        "carbs": int(carbs * type_ratio),
-                        "fat": int(fat * type_ratio),
-                        "fiber": int(fiber * type_ratio),
-                        "sugar": int(sugar * type_ratio)
-                    }
+                    # For snacks, ensure each snack gets 10% of the daily calories
+                    if meal_type == "Snack":
+                        meal_macros[meal_type] = {
+                            "calories": int(calories * ratio),  # 10% of daily calories per snack
+                            "protein": int(protein * ratio),
+                            "carbs": int(carbs * ratio),
+                            "fat": int(fat * ratio),
+                            "fiber": int(fiber * ratio),
+                            "sugar": int(sugar * ratio)
+                        }
+                    else:
+                        # For non-snack meal types, distribute macros proportionally
+                        type_ratio = ratio * count
+                        meal_macros[meal_type] = {
+                            "calories": int(calories * type_ratio),
+                            "protein": int(protein * type_ratio),
+                            "carbs": int(carbs * type_ratio),
+                            "fat": int(fat * type_ratio),
+                            "fiber": int(fiber * type_ratio),
+                            "sugar": int(sugar * type_ratio)
+                        }
         
         # Generate meals for each meal type using Google Gemini
         all_generated_meals = []

@@ -91,6 +91,51 @@ export default function Home() {
       setCalories(savedSettings.calories || 2400); // Sync calories state
     }
   }, []);
+
+  // Load global settings from localStorage and server
+  useEffect(() => {
+    // First load from localStorage as fallback
+    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
+    if (savedData) {
+      setPreferences(savedData.preferences || '');
+      setMealType(savedData.mealType || 'Breakfast');
+      setNumDays(savedData.numDays || 1);
+      setMealPlan(savedData.mealPlan || []);
+    }
+    
+    // Load settings from localStorage first
+    const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
+    if (Object.keys(savedSettings).length > 0) {
+      setGlobalSettings(savedSettings);
+      setCalories(savedSettings.calories || 2400); // Sync calories state
+    }
+    
+    // If user is authenticated, fetch settings from server (takes precedence)
+    if (user && user.sub) {
+      const fetchUserSettings = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+          
+          if (response.ok) {
+            const serverSettings = await response.json();
+            console.log("Loaded server settings on meal plan page:", serverSettings);
+            
+            // Update global settings from server
+            setGlobalSettings(serverSettings);
+            setCalories(serverSettings.calories || 2400); // Sync calories state
+            
+            // Also update localStorage with these settings for consistency
+            localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
+          }
+        } catch (error) {
+          console.error("Error fetching user settings:", error);
+        }
+      };
+      
+      fetchUserSettings();
+    }
+  }, [user]);
   
   // Save to localStorage whenever relevant states change
   useEffect(() => {
@@ -216,7 +261,7 @@ const fetchMealPlan = async () => {
         meal_type: mealType,
         num_days: numDays,
         carbs: globalSettings.carbs,
-        calories: calories, // Use calories state
+        calories: globalSettings.calories, 
         protein: globalSettings.protein,
         sugar: globalSettings.sugar,
         fat: globalSettings.fat,

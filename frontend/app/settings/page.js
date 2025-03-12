@@ -11,6 +11,8 @@ export default function GlobalSettings() {
   const router = useRouter();
   const { user } = useUser();
   const [isPro, setIsPro] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Global Settings State
   const [calculationMode, setCalculationMode] = useState('auto');
@@ -105,8 +107,9 @@ export default function GlobalSettings() {
     };
   };
 
-  // Load settings from localStorage on mount
+  // Load settings from localStorage and server
   useEffect(() => {
+    // First load default settings from localStorage as a fallback
     const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
     if (savedSettings) {
       setCalculationMode(savedSettings.calculationMode || 'auto');
@@ -117,11 +120,43 @@ export default function GlobalSettings() {
       setFiber(savedSettings.fiber || 34);
       setSugar(savedSettings.sugar || 60);
     }
-  }, []);
+    
+    // If user is authenticated, fetch their settings from server
+    if (user && user.sub) {
+      const fetchUserSettings = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+          
+          if (response.ok) {
+            const serverSettings = await response.json();
+            console.log("Loaded server settings:", serverSettings);
+            setCalculationMode(serverSettings.calculationMode);
+            setCalories(serverSettings.calories);
+            setCarbs(serverSettings.carbs);
+            setProtein(serverSettings.protein);
+            setFat(serverSettings.fat); 
+            setFiber(serverSettings.fiber);
+            setSugar(serverSettings.sugar);
+            
+            // Also update localStorage with these settings
+            localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
+          }
+        } catch (error) {
+          console.error("Error fetching user settings:", error);
+        }
+      };
+      
+      fetchUserSettings();
+    }
+  }, [user]);
 
-  // Save settings to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('globalMealSettings', JSON.stringify({
+  // Save settings to both localStorage and server
+  const saveSettings = async () => {
+    setLoading(true);
+    
+    // Prepare the settings object
+    const settingsData = {
       calculationMode,
       calories,
       carbs,
@@ -129,8 +164,49 @@ export default function GlobalSettings() {
       fat,
       fiber,
       sugar
-    }));
-  }, [calculationMode, calories, carbs, protein, fat, fiber, sugar]);
+    };
+    
+    // Always save to localStorage
+    localStorage.setItem("globalMealSettings", JSON.stringify(settingsData));
+    
+    // If user is authenticated, save to server as well
+    if (user && user.sub) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const token = await getAccessToken({
+          authorizationParams: {
+            audience: "https://grovli.citigrove.com/audience"
+          }
+        });
+        
+        const response = await fetch(`${apiUrl}/user-settings/${user.sub}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(settingsData)
+        });
+        
+        if (!response.ok) {
+          console.error("Failed to save settings to server");
+        } else {
+          console.log("Settings saved to server successfully");
+        }
+      } catch (error) {
+        console.error("Error saving settings to server:", error);
+      }
+    }
+    
+    // Show success message
+    setSaveSuccess(true);
+    
+    // Hide success message after 3 seconds
+    setTimeout(() => {
+      setSaveSuccess(false);
+      setLoading(false);
+    }, 3000);
+  };
 
   // Calculate macros when calories change
   useEffect(() => {
@@ -369,6 +445,36 @@ export default function GlobalSettings() {
               </div>
             </div>
           </div>
+
+          {/* Save Button */}
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={saveSettings}
+              disabled={loading}
+              className="w-full max-w-md py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
+            >
+              {loading ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+          
+          {/* Success Message */}
+          {saveSuccess && (
+            <div className="mt-4 p-3 bg-green-100 text-green-700 rounded-lg text-center">
+              Settings saved successfully!
+            </div>
+          )}
+          
+          {/* Upgrade Now Button for non-Pro users */}
+          {!isPro && (
+            <div className="mt-8">
+              <button
+                onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
+                className="w-full py-2 px-4 text-white bg-teal-600 rounded-lg hover:bg-teal-900 transition-colors text-lg font-medium"
+              >
+                Upgrade Now for Full Customization
+              </button>
+            </div>
+          )}
         </div>
       </main>
       <Footer />
