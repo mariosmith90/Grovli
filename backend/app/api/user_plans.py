@@ -273,7 +273,7 @@ async def delete_meal_plan(plan_id: str):
     
     return {"message": "Meal plan deleted successfully"}
 
-@router.delete("/meal")
+@router.post("/meal/delete")
 async def delete_meal_from_plan(request: DeleteMealRequest):
     """Delete a specific meal from a plan"""
     try:
