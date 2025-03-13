@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from "@auth0/nextjs-auth0";
-import { Menu } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 
 export default function Header() {
   const router = useRouter();
@@ -24,10 +24,15 @@ export default function Header() {
   useEffect(() => {
     if (menuOpen) {
       document.addEventListener("mousedown", handleOutsideClick);
+      // Prevent scrolling when menu is open
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
     }
     
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
+      document.body.style.overflow = 'auto';
     };
   }, [menuOpen]);
 
@@ -65,6 +70,12 @@ export default function Header() {
                 Profile
               </button>
               <button
+                onClick={() => router.push('/settings')}
+                className="text-white hover:text-teal-300"
+              >
+                Settings
+              </button>
+              <button
                 onClick={() => router.push('/auth/logout')}
                 className="text-white hover:text-teal-300"
               >
@@ -94,85 +105,109 @@ export default function Header() {
           <button onClick={() => setMenuOpen(!menuOpen)} className="text-white">
             <Menu size={32} />
           </button>
+          
+          {/* Full-height, full-width menu that slides in from the right */}
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg z-50 mobile-menu-content">
-              <ul className="py-2 text-gray-900">
-                {!isAuthenticated ? (
-                  <>
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/auth/login?returnTo=/profile');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Login
-                      </button>
-                    </li>
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/register');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Register
-                      </button>
-                    </li>
-                  </>
-                ) : (
-                  <>
-                    {/* Meals link */}
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/meals');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Meals
-                      </button>
-                    </li>
-                    {/* Planner link */}
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/planner');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Planner
-                      </button>
-                    </li>
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/profile');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Profile
-                      </button>
-                    </li>
-                    <li>
-                      <button
-                        onClick={() => {
-                          router.push('/auth/logout');
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-200 block"
-                      >
-                        Logout
-                      </button>
-                    </li>
-                  </>
-                )}
-              </ul>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50">
+              <div 
+                className="fixed top-0 right-0 h-full w-full max-w-xs bg-gradient-to-b from-gray-800 to-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out mobile-menu-content"
+              >
+                <div className="flex justify-between items-center py-3 px-4 border-b border-gray-700" style={{ height: '60px' }}>
+                  <span className="text-white text-2xl font-semibold">Menu</span>
+                  <button onClick={() => setMenuOpen(false)} className="text-white">
+                    <X size={32} />
+                  </button>
+                </div>
+                
+                <ul className="py-4 text-white">
+                  {!isAuthenticated ? (
+                    <>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/auth/login?returnTo=/profile');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Login
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/register');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Register
+                        </button>
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      {/* Meals link */}
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/meals');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Meals
+                        </button>
+                      </li>
+                      {/* Planner link */}
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/planner');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Planner
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/profile');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Profile
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/settings');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Settings
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/auth/logout');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                        >
+                          Logout
+                        </button>
+                      </li>
+                    </>
+                  )}
+                </ul>
+              </div>
             </div>
           )}
         </div>
