@@ -75,23 +75,6 @@ export default function Home() {
     });
   };
 
-  // Load global settings from localStorage
-  useEffect(() => {
-    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
-    if (savedData) {
-      setPreferences(savedData.preferences || '');
-      setMealType(savedData.mealType || 'Breakfast');
-      setNumDays(savedData.numDays || 1);
-      setMealPlan(savedData.mealPlan || []);
-    }
-    
-    const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
-    if (Object.keys(savedSettings).length > 0) {
-      setGlobalSettings(savedSettings);
-      setCalories(savedSettings.calories || 2400); // Sync calories state
-    }
-  }, []);
-
   // Load global settings from localStorage and server
   useEffect(() => {
     // First load from localStorage as fallback
@@ -100,7 +83,18 @@ export default function Home() {
       setPreferences(savedData.preferences || '');
       setMealType(savedData.mealType || 'Breakfast');
       setNumDays(savedData.numDays || 1);
-      setMealPlan(savedData.mealPlan || []);
+      
+      // Ensure mealPlan is properly restored if it exists
+      if (Array.isArray(savedData.mealPlan) && savedData.mealPlan.length > 0) {
+        setMealPlan(savedData.mealPlan);
+        
+        // Also restore the displayed meal type
+        if (savedData.displayedMealType) {
+          setDisplayedMealType(savedData.displayedMealType);
+        } else {
+          setDisplayedMealType(savedData.mealType || 'Breakfast');
+        }
+      }
     }
     
     // Load settings from localStorage first
@@ -139,16 +133,20 @@ export default function Home() {
   
   // Save to localStorage whenever relevant states change
   useEffect(() => {
+    // Make sure mealPlan is an array before storing
+    const mealPlanToStore = Array.isArray(mealPlan) ? mealPlan : [];
+    
     localStorage.setItem(
       "mealPlanInputs",
       JSON.stringify({
         preferences,
         mealType,
         numDays,
-        mealPlan
+        mealPlan: mealPlanToStore,
+        displayedMealType: displayedMealType
       })
     );
-  }, [preferences, mealType, numDays, mealPlan]);
+  }, [preferences, mealType, numDays, mealPlan, displayedMealType]);
 
   // Fetch Subscription Status
   const fetchSubscriptionStatus = async () => {
