@@ -149,28 +149,55 @@ async def save_user_profile(user_id: str, profile_data: UserProfileData):
 @user_profile_router.get("/check-onboarding/{user_id}")
 async def check_onboarding_status(user_id: str):
     """
-    Check if a user has completed onboarding
+    Check if a user has completed onboarding.
+
+    Args:
+        user_id (str): The user's unique identifier (e.g., Auth0 ID).
+
+    Returns:
+        dict: A dictionary containing:
+            - `onboarded` (bool): Whether the user has completed onboarding.
+            - `profile_exists` (bool): Whether the user's profile exists.
+            - `message` (str): Additional information (e.g., "User not found").
+
+    Raises:
+        HTTPException: If there is an error querying the database.
     """
     try:
-        # Check user record
+        logger.info(f"Checking onboarding status for user: {user_id}")
+
+        # Check if the user exists in the `users` collection
         user = user_collection.find_one({"auth0_id": user_id})
-        
         if not user:
-            return {"onboarded": False, "message": "User not found"}
-            
+            logger.info(f"User {user_id} not found in the users collection.")
+            return {
+                "onboarded": False,
+                "profile_exists": False,
+                "message": "User not found."
+            }
+
         # Check if onboarding is marked as complete
         onboarding_completed = user.get("onboarding_completed", False)
-        
-        # Also check for profile existence as a backup
+
+        # Check if a user profile exists in the `user_profiles` collection
         profile_exists = user_profile_collection.find_one({"user_id": user_id}) is not None
-        
+
+        # Determine if the user is considered "onboarded"
+        onboarded = onboarding_completed or profile_exists
+
+        logger.info(
+            f"Onboarding status for user {user_id}: "
+            f"onboarded={onboarded}, profile_exists={profile_exists}"
+        )
+
         return {
-            "onboarded": onboarding_completed or profile_exists,
-            "profile_exists": profile_exists
+            "onboarded": onboarded,
+            "profile_exists": profile_exists,
+            "message": "Onboarding status checked successfully."
         }
-        
+
     except Exception as e:
-        logger.error(f"Error checking onboarding status: {str(e)}")
+        logger.error(f"Error checking onboarding status for user {user_id}: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to check onboarding status: {str(e)}"

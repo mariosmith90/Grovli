@@ -30,62 +30,24 @@ export default function Home() {
 
 
   const checkOnboardingStatus = async () => {
-    if (!user) return;
-    
+    if (!user) return false;
+  
     try {
-      // Check if user has completed onboarding
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
-      
+  
       if (response.ok) {
         const data = await response.json();
-        
-        // If user hasn't completed onboarding, redirect to onboarding page
-        if (!data.onboarded) {
-          console.log("User has not completed onboarding, redirecting...");
-          router.push('/onboarding');
-          return false;
-        }
-        
-        return true;
+        return data.onboarded; // Ensure this matches the API response structure
       } else {
-        // If API fails, check localStorage as fallback
-        const savedProfileData = localStorage.getItem('userProfileData');
-        if (!savedProfileData) {
-          // No profile data in localStorage either, redirect to onboarding
-          console.log("No profile data found, redirecting to onboarding...");
-          router.push('/onboarding');
-          return false;
-        }
-        
-        return true;
+        console.error("Failed to fetch onboarding status:", response.status);
+        return false; // Do not fall back to localStorage for onboarding status
       }
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      
-      // On error, check localStorage as fallback
-      const savedProfileData = localStorage.getItem('userProfileData');
-      return !!savedProfileData;
+      return false; // Do not fall back to localStorage for onboarding status
     }
   };
-  
-  // Add this to your useEffect that runs when the component mounts
-  useEffect(() => {
-    // Only run once the user is loaded
-    if (!isLoading && user) {
-      // First check if onboarding is needed
-      checkOnboardingStatus().then((onboardingComplete) => {
-        if (onboardingComplete) {
-          // User has completed onboarding, proceed with normal flow
-          // First load subscription status
-          fetchSubscriptionStatus().then(() => {
-            // Then load user profile for prefilling the form
-            loadUserProfileData();
-          });
-        }
-      });
-    }
-  }, [user, isLoading]);
 
   
   // Global Settings State
@@ -466,18 +428,21 @@ const fetchMealPlan = async () => {
     }
   };
 
-  // Add the following to your existing useEffect that depends on [user]
   useEffect(() => {
-    // Your existing code for loading settings remains the same...
-    
-    // Add this at the end of your useEffect
-    if (user && user.sub) {
-      fetchSubscriptionStatus().then(() => {
-        // Load user profile after checking subscription status
-        loadUserProfileData();
+    if (!isLoading && user) {
+      checkOnboardingStatus().then((onboardingComplete) => {
+        if (!onboardingComplete) {
+          console.log("User has not completed onboarding, redirecting...");
+          router.push('/onboarding');
+        } else {
+          // User has completed onboarding, proceed with normal flow
+          fetchSubscriptionStatus().then(() => {
+            loadUserProfileData();
+          });
+        }
       });
     }
-  }, [user]);
+  }, [user, isLoading]);
 
   // Save Selected Recipes
   const saveSelectedRecipes = async () => {
