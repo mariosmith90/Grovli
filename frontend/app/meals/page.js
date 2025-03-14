@@ -344,6 +344,83 @@ const fetchMealPlan = async () => {
     }
   };
 
+  // Load user profile and prefill meal form
+  const loadUserProfileData = async () => {
+    if (!user) return;
+    
+    try {
+      // First fetch user profile from API
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const profileResponse = await fetch(`${apiUrl}/user-profile/${user.sub}`);
+      
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
+        
+        if (profileData.found) {
+          const userProfile = profileData.profile;
+          console.log("Found user profile:", userProfile);
+          
+          // 1. Set dietary preferences based on profile
+          if (userProfile.dietary_preferences && userProfile.dietary_preferences.length > 0) {
+            // Join all preferences with spaces to match the format expected by the UI
+            setPreferences(userProfile.dietary_preferences.join(" "));
+          }
+          
+          // 2. Set meal type based on the meal_plan_preference
+          if (userProfile.meal_plan_preference) {
+            const mealTypeMapping = {
+              'breakfast': 'Breakfast',
+              'lunch': 'Lunch',
+              'dinner': 'Dinner',
+              'snacks': 'Snack',
+              'full_day': 'Full Day'
+            };
+            
+            const mappedMealType = mealTypeMapping[userProfile.meal_plan_preference];
+            
+            // Only set Full Day if user is Pro
+            if (mappedMealType === 'Full Day' && !isPro) {
+              setMealType('Breakfast'); // Default to Breakfast for non-Pro users
+            } else {
+              setMealType(mappedMealType || 'Breakfast');
+            }
+          }
+          
+          // 3. Set number of days - default to 1 for now 
+          // (can be expanded later to set based on user preferences)
+          setNumDays(1);
+          
+          // Save to localStorage for persistence
+          localStorage.setItem(
+            "mealPlanInputs",
+            JSON.stringify({
+              preferences: userProfile.dietary_preferences.join(" "),
+              mealType: mealType,
+              numDays: numDays,
+              mealPlan: [],
+              displayedMealType: ""
+            })
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error loading user profile data:", error);
+    }
+  };
+
+  // Add the following to your existing useEffect that depends on [user]
+  useEffect(() => {
+    // Your existing code for loading settings remains the same...
+    
+    // Add this at the end of your useEffect
+    if (user && user.sub) {
+      fetchSubscriptionStatus().then(() => {
+        // Load user profile after checking subscription status
+        loadUserProfileData();
+      });
+    }
+  }, [user]);
+
   // Save Selected Recipes
   const saveSelectedRecipes = async () => {
     if (!user) {

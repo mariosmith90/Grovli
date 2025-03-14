@@ -30,7 +30,7 @@ const HomePage = () => {
   };
 
   const handleTryGrovli = () => {
-    router.push("/meals"); 
+    router.push("/onboarding"); 
   };
 
   return (
