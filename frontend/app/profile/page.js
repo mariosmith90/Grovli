@@ -23,6 +23,16 @@ export default function ProfilePage() {
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [lastCheckTime, setLastCheckTime] = useState(null);
 
+  const [globalSettings, setGlobalSettings] = useState({
+    calculationMode: 'auto',
+    calories: 2000, // Default value
+    carbs: 270,
+    protein: 180,
+    fat: 67,
+    fiber: 34,
+    sugar: 60
+  });
+
   // Default meal structure
   const defaultMeal = {
     name: '',
@@ -116,27 +126,26 @@ export default function ProfilePage() {
   };
 
   // Load a plan to the meal plan state
-  const loadPlanToCalendar = (plan) => {
+  const loadPlanToCalendar = async (plan) => {
     if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
       return;
     }
-    
+  
     setActivePlanId(plan.id);
-    
+  
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split('T')[0];
-    
+  
     // Filter for today's meals
     const todaysMeals = plan.meals.filter(mealItem => mealItem.date === today);
-    
+  
     if (todaysMeals.length === 0) {
       console.log("No meals planned for today");
       return;
     }
-    
-    // Create a new meal plan based on today's meals
+  
     const updatedMealPlan = [...mealPlan];
-    
+  
     // Map the meal types to our time structure
     const mealTypeToTime = {
       breakfast: '8:00 AM',
@@ -144,31 +153,37 @@ export default function ProfilePage() {
       snack: '3:30 PM',
       dinner: '7:00 PM'
     };
-    
-    todaysMeals.forEach(mealItem => {
+  
+    for (const mealItem of todaysMeals) {
       const { mealType, meal } = mealItem;
-      
-      if (!meal) return;
-      
-      // Find index of this meal type in our meal plan
+  
+      if (!meal || !meal.recipe_id) {
+        console.error("Invalid meal data for mealType:", mealType);
+        continue;
+      }
+  
+      // Fetch meal details using the recipe_id (which corresponds to meal_id)
+      const mealDetails = await makeAuthenticatedRequest(`/mealplan/${meal.recipe_id}`);
+
       const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
-      
+  
       if (mealIndex !== -1) {
         updatedMealPlan[mealIndex] = {
           ...updatedMealPlan[mealIndex],
-          name: meal.name || meal.title || "",
-          calories: meal.calories || meal.nutrition?.calories || 0,
-          protein: meal.protein || meal.nutrition?.protein || 0,
-          carbs: meal.carbs || meal.nutrition?.carbs || 0,
-          fat: meal.fat || meal.nutrition?.fat || 0,
-          image: meal.image || meal.imageUrl || "",
+          name: mealDetails.title || meal.title || "",
+          calories: mealDetails.nutrition?.calories || 0,
+          protein: mealDetails.nutrition?.protein || 0,
+          carbs: mealDetails.nutrition?.carbs || 0,
+          fat: mealDetails.nutrition?.fat || 0,
+          image: mealDetails.imageUrl || meal.imageUrl || "",
+          id: mealDetails.id || meal.recipe_id || "",
           completed: false // Reset completion status for today
         };
       }
-    });
-    
+    }
+  
     setMealPlan(updatedMealPlan);
-    
+  
     // Update current meal index to the earliest non-completed meal
     const currentTime = new Date();
     const timeToMinutes = (timeStr) => {
@@ -177,18 +192,18 @@ export default function ProfilePage() {
       const isPM = timeStr.toLowerCase().includes('pm');
       return (parseInt(hours) % 12 + (isPM ? 12 : 0)) * 60 + minutes;
     };
-    
+  
     const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    
+  
     // Find the next meal based on current time
     let nextIndex = 0;
     let closestDiff = Infinity;
-    
+  
     updatedMealPlan.forEach((meal, index) => {
       if (meal.name) { // Only consider meals that have been planned
         const mealMinutes = timeToMinutes(meal.time);
         const diff = mealMinutes - currentMinutes;
-        
+  
         // If the meal is in the future and closer than our current closest
         if (diff >= 0 && diff < closestDiff) {
           closestDiff = diff;
@@ -196,12 +211,12 @@ export default function ProfilePage() {
         }
       }
     });
-    
+  
     // If all meals are in the past, select the earliest meal
     if (closestDiff === Infinity) {
       nextIndex = updatedMealPlan.findIndex(meal => meal.name) || 0;
     }
-    
+  
     setCurrentMealIndex(nextIndex);
     updateNextMealCard(updatedMealPlan[nextIndex]);
     updateCalorieCount(updatedMealPlan);
@@ -210,46 +225,49 @@ export default function ProfilePage() {
   // Fetch saved meals for the add meal selector
   const fetchSavedMeals = async () => {
     if (!user) return;
-
+  
     try {
       setIsLoadingSavedMeals(true);
-      
+  
       const data = await makeAuthenticatedRequest('/api/user-recipes/saved-recipes/');
-      
+  
       // Process meals by category
       const categorizedMeals = { breakfast: [], lunch: [], snack: [], dinner: [] };
       const addedMealNames = new Set();
-      
-      data.forEach(plan => {
-        if (!plan.recipes || !Array.isArray(plan.recipes)) return;
-        
-        plan.recipes.forEach(recipe => {
+  
+      for (const plan of data) {
+        if (!plan.recipes || !Array.isArray(plan.recipes)) continue;
+  
+        for (const recipe of plan.recipes) {
           // Skip if we've already added this meal
-          if (addedMealNames.has(recipe.title)) return;
-          
+          if (addedMealNames.has(recipe.title)) continue;
+  
           const mealType = (recipe.meal_type || '').toLowerCase();
           const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
             ? mealType : 'snack';
-          
+  
+          // Fetch meal details using the recipe_id (which corresponds to meal_id)
+          const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
+  
           const formattedMeal = {
-            id: recipe.id,
-            name: recipe.title,
-            calories: recipe.nutrition?.calories || 0,
-            protein: recipe.nutrition?.protein || 0,
-            carbs: recipe.nutrition?.carbs || 0,
-            fat: recipe.nutrition?.fat || 0,
-            image: recipe.imageUrl || recipe.image_url || "",
-            ingredients: recipe.ingredients || [],
-            instructions: recipe.instructions || ''
+            id: recipe.recipe_id, // Use the recipe_id from the saved recipe
+            name: mealDetails.title || recipe.title,
+            calories: mealDetails.nutrition?.calories || 0,
+            protein: mealDetails.nutrition?.protein || 0,
+            carbs: mealDetails.nutrition?.carbs || 0,
+            fat: mealDetails.nutrition?.fat || 0,
+            image: mealDetails.imageUrl || recipe.imageUrl || "",
+            ingredients: mealDetails.ingredients || [],
+            instructions: mealDetails.instructions || ''
           };
-          
+  
           categorizedMeals[category].push(formattedMeal);
           addedMealNames.add(recipe.title);
-        });
-      });
-      
+        }
+      }
+  
       setSavedMeals(categorizedMeals);
-      
+  
     } catch (error) {
       console.error('Error fetching saved meals:', error);
     } finally {
@@ -281,6 +299,55 @@ export default function ProfilePage() {
       
       // Fetch saved meals for the selector
       fetchSavedMeals();
+    }
+  }, [isAuthenticated, isLoading]);
+
+  // In your useEffect that loads data when the component mounts
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      // Fetch user's meal plans first to get the active plan
+      fetchUserMealPlans();
+      
+      // Fetch saved meals for the selector
+      fetchSavedMeals();
+      
+      // Load global settings from localStorage
+      const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
+      if (Object.keys(savedSettings).length > 0) {
+        setGlobalSettings(savedSettings);
+        
+        // Update calorieData with the target from global settings
+        setCalorieData(prev => ({
+          ...prev,
+          target: savedSettings.calories || 2000
+        }));
+      }
+      
+      // If user is authenticated, fetch settings from server
+      if (user && user.sub) {
+        const fetchUserSettings = async () => {
+          try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+            
+            if (response.ok) {
+              const serverSettings = await response.json();
+              console.log("Loaded server settings:", serverSettings);
+              setGlobalSettings(serverSettings);
+              
+              // Update calorieData with the target from server settings
+              setCalorieData(prev => ({
+                ...prev,
+                target: serverSettings.calories || 2000
+              }));
+            }
+          } catch (error) {
+            console.error("Error fetching user settings:", error);
+          }
+        };
+        
+        fetchUserSettings();
+      }
     }
   }, [isAuthenticated, isLoading]);
 
@@ -337,7 +404,7 @@ export default function ProfilePage() {
     
     setCalorieData({ 
       consumed: consumedCalories, 
-      target: Math.max(totalCalories, 2000) // Set target to at least 2000
+      target: Math.max(totalCalories, globalSettings.calories) // Use global settings
     });
   };
 
@@ -447,7 +514,6 @@ export default function ProfilePage() {
               onClick={handleViewMealPlanner}
               className="flex items-center text-teal-600 hover:text-teal-800 transition-colors"
             >
-              <Calendar className="w-4 h-4 mr-2" />
               View Meal Planner
             </button>
           </div>
@@ -483,7 +549,8 @@ export default function ProfilePage() {
                 <div className="mt-4">
                   <CalorieProgressBar 
                     consumed={calorieData.consumed} 
-                    target={calorieData.target} 
+                    target={calorieData.target}
+                    globalSettings={globalSettings}
                   />
                 </div>
               </section>
@@ -530,6 +597,7 @@ export default function ProfilePage() {
 // Component: NextMealCard - Simplified
 function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
   const [isSelected, setIsSelected] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="flex flex-col gap-2 max-w-3xl mx-auto">
@@ -592,6 +660,16 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
               <p className="font-bold text-sm">{meal.carbs}g</p>
             </div>
           </div>
+
+          {/* See Recipe button */}
+          {meal.id && (
+            <button
+              onClick={() => router.push(`/mealplan/${meal.id}`)}
+              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all"
+            >
+              See Recipe →
+            </button>
+          )}
           
           {/* Conditionally show "Mark as Completed" button when selected */}
           {isSelected && meal.name && (
@@ -621,15 +699,21 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
 }
 
 // Component: CalorieProgressBar - Simplified
-function CalorieProgressBar({ consumed, target }) {
-  const percentage = Math.min(Math.round((consumed / target) * 100), 100);
-  const remaining = target - consumed;
+function CalorieProgressBar({ consumed, target, globalSettings }) {  
+  // Use globalSettings.calories for all calculations
+  const targetCalories = globalSettings?.calories || target;
+  
+  // Calculate percentage based on targetCalories, not target
+  const percentage = Math.min(Math.round((consumed / targetCalories) * 100), 100);
+  
+  // Calculate remaining based on targetCalories, not target
+  const remaining = targetCalories - consumed;
   
   return (
     <div className="mt-4">
       <div className="flex justify-between mb-1">
         <span className="text-sm font-medium">Daily Calories</span>
-        <span className="text-sm font-medium">{consumed} / {target} kcal</span>
+        <span className="text-sm font-medium">{consumed} / {targetCalories} kcal</span>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-4">
         <div 
@@ -654,7 +738,8 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
     snack: Apple,
     dinner: Moon
   };
-  
+  const router = useRouter(); // Add this line
+
   return (
     <div className="relative">
       {/* Vertical line */}
@@ -718,7 +803,11 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
                             <img 
                               src={meal.image} 
                               alt={meal.name} 
-                              className="w-12 h-12 rounded-md object-cover mr-3"
+                              className="w-12 h-12 rounded-md object-cover mr-3 cursor-pointer hover:ring-2 hover:ring-teal-500 hover:ring-offset-2 transition-all"
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent event bubbling
+                                router.push(`/recipes/${meal.id}`); // Navigate to recipe page
+                              }}
                               onError={(e) => {
                                 e.target.onerror = null;
                                 e.target.src = "/fallback-meal-image.jpg";

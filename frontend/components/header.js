@@ -70,6 +70,12 @@ export default function Header() {
                 Profile
               </button>
               <button
+                onClick={() => router.push('/saved-meals')}
+                className="text-white hover:text-teal-300"
+              >
+                My Meals
+              </button>
+              <button
                 onClick={() => router.push('/settings')}
                 className="text-white hover:text-teal-300"
               >
@@ -110,16 +116,15 @@ export default function Header() {
           {menuOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 z-50">
               <div 
-                className="fixed top-0 right-0 h-full w-full max-w-xs bg-gradient-to-b from-gray-800 to-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out mobile-menu-content"
+                className="fixed top-0 right-0 h-full w-full max-w-xs bg-gradient-to-b from-gray-800 to-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out mobile-menu-content flex flex-col"
               >
-                <div className="flex justify-between items-center py-3 px-4 border-b border-gray-700" style={{ height: '60px' }}>
-                  <span className="text-white text-2xl font-semibold">Menu</span>
-                  <button onClick={() => setMenuOpen(false)} className="text-white">
+                <div className="flex justify-between items-center py-5 px-4 border-b border-gray-700" style={{ height: '80px' }}>
+                  <button onClick={() => setMenuOpen(false)} className="text-white absolute right-4">
                     <X size={32} />
                   </button>
                 </div>
                 
-                <ul className="py-4 text-white">
+                <ul className="py-4 text-white w-full">
                   {!isAuthenticated ? (
                     <>
                       <li>
@@ -128,7 +133,7 @@ export default function Header() {
                             router.push('/auth/login?returnTo=/profile');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Login
                         </button>
@@ -139,7 +144,7 @@ export default function Header() {
                             router.push('/register');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Register
                         </button>
@@ -154,7 +159,7 @@ export default function Header() {
                             router.push('/meals');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Meals
                         </button>
@@ -166,7 +171,7 @@ export default function Header() {
                             router.push('/planner');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Planner
                         </button>
@@ -177,9 +182,21 @@ export default function Header() {
                             router.push('/profile');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Profile
+                        </button>
+                      </li>
+                      {/* Saved Meals link */}
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/saved-meals');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
+                        >
+                          My Meals
                         </button>
                       </li>
                       <li>
@@ -188,7 +205,7 @@ export default function Header() {
                             router.push('/settings');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Settings
                         </button>
@@ -199,7 +216,7 @@ export default function Header() {
                             router.push('/auth/logout');
                             setMenuOpen(false);
                           }}
-                          className="w-full text-left px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center"
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Logout
                         </button>

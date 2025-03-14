@@ -8,7 +8,7 @@ from jose import jwt, JWTError
 router = APIRouter(prefix="/user-recipes", tags=["User Recipes"])
 
 # Auth0 Configuration - Make sure these are set in your environment variables
-AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "dev-rw8ff6vxgb7t0i4c.us.auth0.com")
+AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "dev-rw8ff6vxgb7t0i4c.us.auth0.com").replace("https://", "").replace("http://", "")
 AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "https://grovli.citigrove.com/audience")
 JWKS_URL = f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
 
