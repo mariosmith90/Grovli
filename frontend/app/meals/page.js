@@ -29,7 +29,65 @@ export default function Home() {
   const [displayedMealType, setDisplayedMealType] = useState('');
 
 
+  const checkOnboardingStatus = async () => {
+    if (!user) return;
+    
+    try {
+      // Check if user has completed onboarding
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // If user hasn't completed onboarding, redirect to onboarding page
+        if (!data.onboarded) {
+          console.log("User has not completed onboarding, redirecting...");
+          router.push('/onboarding');
+          return false;
+        }
+        
+        return true;
+      } else {
+        // If API fails, check localStorage as fallback
+        const savedProfileData = localStorage.getItem('userProfileData');
+        if (!savedProfileData) {
+          // No profile data in localStorage either, redirect to onboarding
+          console.log("No profile data found, redirecting to onboarding...");
+          router.push('/onboarding');
+          return false;
+        }
+        
+        return true;
+      }
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+      
+      // On error, check localStorage as fallback
+      const savedProfileData = localStorage.getItem('userProfileData');
+      return !!savedProfileData;
+    }
+  };
+  
+  // Add this to your useEffect that runs when the component mounts
+  useEffect(() => {
+    // Only run once the user is loaded
+    if (!isLoading && user) {
+      // First check if onboarding is needed
+      checkOnboardingStatus().then((onboardingComplete) => {
+        if (onboardingComplete) {
+          // User has completed onboarding, proceed with normal flow
+          // First load subscription status
+          fetchSubscriptionStatus().then(() => {
+            // Then load user profile for prefilling the form
+            loadUserProfileData();
+          });
+        }
+      });
+    }
+  }, [user, isLoading]);
 
+  
   // Global Settings State
   const [globalSettings, setGlobalSettings] = useState({
     calculationMode: 'auto',
