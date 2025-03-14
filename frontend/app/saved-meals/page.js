@@ -62,8 +62,55 @@ export default function SavedMealsArchive() {
     return letterGroups;
   }, [filteredMeals, alphabet]);
   
+  // Calculate available letters based on allMeals, not filteredMeals
+// Calculate available letters based on search and tag filtered meals, but not letter filter
+const getAvailableLetters = useCallback(() => {
+    const letterCounts = {};
+    
+    // Initialize counts for all letters
+    alphabet.forEach(letter => {
+      letterCounts[letter] = 0;
+    });
+    
+    // Apply search and tag filters to get intermediate filtered meals
+    let intermediateFilteredMeals = [...allMeals];
+    
+    // Apply search filter
+    if (searchTerm) {
+      const lowerCaseSearch = searchTerm.toLowerCase();
+      intermediateFilteredMeals = intermediateFilteredMeals.filter(meal => 
+        meal.title.toLowerCase().includes(lowerCaseSearch) ||
+        (meal.ingredients && meal.ingredients.some(ingredient => 
+          (typeof ingredient === 'string' && ingredient.toLowerCase().includes(lowerCaseSearch)) ||
+          (ingredient.name && ingredient.name.toLowerCase().includes(lowerCaseSearch))
+        ))
+      );
+    }
+    
+    // Apply tag filters
+    if (selectedTags.length > 0) {
+      intermediateFilteredMeals = intermediateFilteredMeals.filter(meal => {
+        const mealType = meal.meal_type?.toLowerCase() || '';
+        return selectedTags.includes(mealType);
+      });
+    }
+    
+    // Count meals for each letter from the filtered collection
+    intermediateFilteredMeals.forEach(meal => {
+      const firstChar = meal.title.charAt(0).toUpperCase();
+      const letterKey = firstChar.match(/[A-Z]/) ? firstChar : '#';
+      
+      if (letterCounts[letterKey] !== undefined) {
+        letterCounts[letterKey]++;
+      }
+    });
+    
+    return letterCounts;
+  }, [allMeals, alphabet, searchTerm, selectedTags]);
+  
   // Calculate letter groups when filteredMeals changes
   const letterGroups = getMealsByLetter();
+  const letterCounts = getAvailableLetters();
   
   // Filter meals based on search term and selected letter
   useEffect(() => {
@@ -214,11 +261,6 @@ export default function SavedMealsArchive() {
     setActiveFilters(false);
   };
   
-  // Calculate available letters (those with at least one meal)
-  const availableLetters = alphabet.filter(letter => 
-    letter === 'all' || letterGroups[letter]?.length > 0
-  );
-  
   // Count total filtered meals
   const totalFilteredMeals = Object.values(letterGroups).reduce(
     (total, meals) => total + meals.length, 
@@ -334,26 +376,32 @@ export default function SavedMealsArchive() {
             
             <div className="flex flex-wrap gap-1.5">
                 {alphabet.map(letter => {
-                const hasItems = letterGroups[letter]?.length > 0;
-                
-                return (
-                    <button
-                    key={letter}
-                    onClick={() => hasItems && setSelectedLetter(letter === selectedLetter ? 'all' : letter)}
-                    disabled={!hasItems}
-                    className={`w-7 h-7 flex items-center justify-center rounded-md font-medium text-sm
-                        ${hasItems 
-                        ? selectedLetter === letter
-                            ? 'bg-teal-500 text-white' // Selected letter
-                            : 'bg-gray-50 text-gray-700 hover:bg-gray-100' // Available letters stand out more
-                        : 'bg-gray-50/50 text-gray-300 cursor-not-allowed' // Clearer disabled state
-                        }
-                    `}
-                    title={hasItems ? `View ${letter} recipes` : 'No recipes start with this letter'}
-                    >
-                    {letter}
-                    </button>
-                );
+                    const hasItems = letterCounts[letter] > 0;
+                    
+                    return (
+                        <button
+                            key={letter}
+                            onClick={() => {
+                                if (hasItems) {
+                                    // If clicking the same letter, toggle it off
+                                    // If clicking a different letter, select it
+                                    setSelectedLetter(current => current === letter ? 'all' : letter);
+                                }
+                            }}
+                            disabled={!hasItems}
+                            className={`w-7 h-7 flex items-center justify-center rounded-md font-medium text-sm
+                            ${hasItems 
+                                ? selectedLetter === letter
+                                ? 'bg-teal-500 text-white' // Selected letter
+                                : 'bg-gray-50 text-gray-700 hover:bg-gray-100' // Available letters stand out more
+                                : 'bg-gray-50/50 text-gray-300 cursor-not-allowed' // Clearer disabled state
+                            }
+                            `}
+                            title={hasItems ? `View ${letter} recipes` : 'No recipes start with this letter'}
+                        >
+                            {letter}
+                        </button>
+                    );
                 })}
             </div>
             </div>
