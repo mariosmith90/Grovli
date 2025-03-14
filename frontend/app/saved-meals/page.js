@@ -314,48 +314,49 @@ export default function SavedMealsArchive() {
           )}
           
           {/* Alphabet Navigation */}
-          <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-3 mb-6 border-b border-gray-200">
+            <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-3 mb-6 border-b border-gray-200">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-medium text-gray-700">
+                <h3 className="font-medium text-gray-700">
                 {totalFilteredMeals} {totalFilteredMeals === 1 ? 'Recipe' : 'Recipes'}
-              </h3>
-              
-              <button 
+                </h3>
+                
+                <button 
                 onClick={() => setSelectedLetter('all')}
                 className={`text-sm px-3 py-1 rounded-md ${
-                  selectedLetter === 'all'
+                    selectedLetter === 'all'
                     ? 'bg-teal-100 text-teal-800 font-medium'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
-              >
+                >
                 View All
-              </button>
+                </button>
             </div>
             
             <div className="flex flex-wrap gap-1.5">
-              {alphabet.map(letter => {
+                {alphabet.map(letter => {
                 const hasItems = letterGroups[letter]?.length > 0;
                 
                 return (
-                  <button
+                    <button
                     key={letter}
-                    onClick={() => setSelectedLetter(hasItems ? letter : selectedLetter)}
+                    onClick={() => hasItems && setSelectedLetter(letter === selectedLetter ? 'all' : letter)}
                     disabled={!hasItems}
                     className={`w-7 h-7 flex items-center justify-center rounded-md font-medium text-sm
-                      ${hasItems 
+                        ${hasItems 
                         ? selectedLetter === letter
-                          ? 'bg-teal-500 text-white'
-                          : 'hover:bg-gray-100 text-gray-700'
-                        : 'text-gray-300 cursor-not-allowed'
-                      }
+                            ? 'bg-teal-500 text-white' // Selected letter
+                            : 'bg-gray-50 text-gray-700 hover:bg-gray-100' // Available letters stand out more
+                        : 'bg-gray-50/50 text-gray-300 cursor-not-allowed' // Clearer disabled state
+                        }
                     `}
-                  >
+                    title={hasItems ? `View ${letter} recipes` : 'No recipes start with this letter'}
+                    >
                     {letter}
-                  </button>
+                    </button>
                 );
-              })}
+                })}
             </div>
-          </div>
+            </div>
           
           {/* Loading State */}
           {loading ? (
