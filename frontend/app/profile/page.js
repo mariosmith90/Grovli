@@ -136,8 +136,8 @@ export default function ProfilePage() {
     // Get today's date in YYYY-MM-DD format
     const today = new Date().toISOString().split('T')[0];
   
-    // Filter for today's meals
-    const todaysMeals = plan.meals.filter(mealItem => mealItem.date === today);
+    // Filter for today's meals using the current_day flag
+    const todaysMeals = plan.meals.filter(mealItem => mealItem.date === today || mealItem.current_day === true);
   
     if (todaysMeals.length === 0) {
       console.log("No meals planned for today");
@@ -155,34 +155,51 @@ export default function ProfilePage() {
     };
   
     for (const mealItem of todaysMeals) {
-      const { mealType, meal } = mealItem;
+      const { mealType, meal, mealId } = mealItem;
+      
+      // Determine the meal ID to use
+      const recipeId = mealId || (meal && (meal.recipe_id || meal.id));
   
-      if (!meal || !meal.recipe_id) {
+      if (!recipeId) {
         console.error("Invalid meal data for mealType:", mealType);
         continue;
       }
   
       // Fetch meal details using the recipe_id (which corresponds to meal_id)
-      const mealDetails = await makeAuthenticatedRequest(`/mealplan/${meal.recipe_id}`);
-
+      const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipeId}`);
+  
       const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
   
       if (mealIndex !== -1) {
         updatedMealPlan[mealIndex] = {
           ...updatedMealPlan[mealIndex],
-          name: mealDetails.title || meal.title || "",
-          calories: mealDetails.nutrition?.calories || 0,
-          protein: mealDetails.nutrition?.protein || 0,
-          carbs: mealDetails.nutrition?.carbs || 0,
-          fat: mealDetails.nutrition?.fat || 0,
-          image: mealDetails.imageUrl || meal.imageUrl || "",
-          id: mealDetails.id || meal.recipe_id || "",
+          name: mealDetails.title || (meal && meal.title) || "",
+          calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
+          protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
+          carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
+          fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
+          image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
+          id: recipeId,
           completed: false // Reset completion status for today
         };
       }
     }
   
     setMealPlan(updatedMealPlan);
+  
+    // If there's a recently added meal type, try to focus on it
+    const recentlyAddedMealType = localStorage.getItem('lastAddedMealType');
+    if (recentlyAddedMealType) {
+      const recentMealIndex = updatedMealPlan.findIndex(m => m.type === recentlyAddedMealType);
+      if (recentMealIndex !== -1 && updatedMealPlan[recentMealIndex].name) {
+        // We found the recently added meal, use it as current
+        setCurrentMealIndex(recentMealIndex);
+        updateNextMealCard(updatedMealPlan[recentMealIndex]);
+        updateCalorieCount(updatedMealPlan);
+        localStorage.removeItem('lastAddedMealType');
+        return; // Skip the time-based selection
+      }
+    }
   
     // Update current meal index to the earliest non-completed meal
     const currentTime = new Date();
@@ -304,11 +321,10 @@ export default function ProfilePage() {
 
   // In your useEffect that loads data when the component mounts
   useEffect(() => {
+    // Check if the user is authenticated and not loading
     if (isAuthenticated && !isLoading) {
-      // Fetch user's meal plans first to get the active plan
+      // Fetch meal plans and saved meals when the component mounts
       fetchUserMealPlans();
-      
-      // Fetch saved meals for the selector
       fetchSavedMeals();
       
       // Load global settings from localStorage
@@ -350,7 +366,36 @@ export default function ProfilePage() {
       }
     }
   }, [isAuthenticated, isLoading]);
-
+  
+  // Add a separate effect to refresh data when the component gets focus
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    
+    // Function to refresh meal plans
+    const refreshMealPlans = () => {
+      console.log('Refreshing meal plans data...');
+      fetchUserMealPlans();
+    };
+    
+    // Set up handlers for when the page regains focus
+    const handleFocus = () => refreshMealPlans();
+    window.addEventListener('focus', handleFocus);
+    
+    // Also refresh when returning to this page
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMealPlans();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthenticated, isLoading]);
+  
   // THE FIX: Add an effect to check for meal plan updates
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;

@@ -21,6 +21,7 @@ class MealPlanItem(BaseModel):
     date: str
     mealType: str
     mealId: str
+    current_day: bool = False 
 
 class SaveMealPlanRequest(BaseModel):
     userId: str
@@ -186,6 +187,7 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
     """Update an existing meal plan"""
     try:
         # Verify plan exists
+        from app.api.meals import meals_collection
         plan = user_meal_plans_collection.find_one({"id": request.planId})
         if not plan:
             raise HTTPException(
@@ -195,7 +197,16 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
         
         # Process each meal in the plan
         processed_meals = []
+        
+        # Get today's date for current_day flag
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        
         for meal_item in request.meals:
+            # Check if the date is today for setting current_day
+            is_current_day = meal_item.date == today
+            if hasattr(meal_item, 'current_day'):
+                is_current_day = is_current_day or meal_item.current_day
+            
             # For each meal we need to get the full meal details from saved_meals
             meal_details = None
             
@@ -214,7 +225,6 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
             
             # If not found in saved_meals, check meals collection
             if not meal_details:
-                from app.api.meals import meals_collection  # Use app.api instead of app.routers
                 meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
                 if meal_doc:
                     meal_details = {
@@ -237,7 +247,8 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
                 processed_meal = {
                     "date": meal_item.date,
                     "mealType": meal_item.mealType,
-                    "meal": meal_details
+                    "meal": meal_details,
+                    "current_day": is_current_day  # Add current_day flag
                 }
                 processed_meals.append(processed_meal)
         

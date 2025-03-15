@@ -300,3 +300,30 @@ async def get_current_user_from_auth0(request: Request):
         print(f"Unexpected auth error: {str(e)}")
         # Convert unexpected errors to 401 responses
         raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
+
+@router.get("/is-saved/{recipe_id}")
+async def is_recipe_saved(
+    recipe_id: str,
+    current_user: dict = Depends(get_auth0_user)
+):
+    """Check if a specific recipe is saved by the user"""
+    try:
+        # Find all saved meal plans for this user
+        saved_plans = saved_meal_plans_collection.find({"user_id": current_user["id"]})
+        
+        # Check if the recipe exists in any plan
+        for plan in saved_plans:
+            if "recipes" in plan:
+                for recipe in plan["recipes"]:
+                    if recipe.get("recipe_id") == recipe_id or recipe.get("id") == recipe_id:
+                        return {"isSaved": True}
+        
+        # If we've gone through all plans and not found it
+        return {"isSaved": False}
+    
+    except Exception as e:
+        print(f"Error checking saved status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check saved status: {str(e)}"
+        )

@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.meals import router as meal_plan_router
 from app.api.list import router as shopping_list_router
-from app.api.recipes import router as user_recipes_router
 from app.api.chat import router as chatbot_router
+from app.api.user_recipes import router as user_recipes_router
 from app.api.user_plans import router as user_plans_router
 from app.api.user_settings import user_settings_router
 from app.api.user_profile import user_profile_router
