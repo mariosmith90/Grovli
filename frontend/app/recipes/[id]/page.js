@@ -728,13 +728,6 @@ export default function RecipePage() {
                   )}
                 </button>
               )}
-              {/* Go to Meal Planner Button */}
-              <button
-                onClick={() => router.push('/planner')}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-orange-500 text-white py-3 font-medium shadow-md hover:bg-orange-600 transition-colors"
-              >
-                Go to Planner
-              </button>
             </div>
           )}
         </div>       
