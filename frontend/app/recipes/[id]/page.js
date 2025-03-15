@@ -722,7 +722,6 @@ export default function RecipePage() {
                     </>
                   ) : (
                     <>
-                      <Save className="w-5 h-5" />
                       Save Recipe
                     </>
                   )}
