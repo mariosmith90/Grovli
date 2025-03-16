@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon, Calendar } from 'lucide-react';
@@ -11,7 +11,8 @@ export default function ProfilePage() {
   const router = useRouter();
   const { user, isLoading } = useUser();
   const isAuthenticated = !!user;
-  
+  const [accessToken, setAccessToken] = useState(null);
+
   // States with simplified initialization
   const [activeSection, setActiveSection] = useState('timeline');
   const [selectedMealType, setSelectedMealType] = useState(null);
@@ -69,13 +70,9 @@ export default function ProfilePage() {
 
   // Helper function to make authenticated API requests
   const makeAuthenticatedRequest = async (endpoint, options = {}) => {
-    if (!user) throw new Error("User not authenticated");
+    if (!accessToken) throw new Error("Access token not available");
     
     try {
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-      
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       const url = `${apiUrl}${endpoint}`;
       
@@ -311,13 +308,31 @@ export default function ProfilePage() {
   // Initialize the app
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
+      // Fetch access token on initial load
+      const fetchAccessToken = async () => {
+        try {
+          const token = await getAccessToken({
+            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+          });
+          setAccessToken(token);
+        } catch (error) {
+          console.error('Error fetching access token:', error);
+        }
+      };
+
+      fetchAccessToken();
+    }
+  }, [isAuthenticated, isLoading]);
+
+  useEffect(() => {
+    if (accessToken) {
       // Fetch user's meal plans first to get the active plan
       fetchUserMealPlans();
       
       // Fetch saved meals for the selector
       fetchSavedMeals();
     }
-  }, [isAuthenticated, isLoading]);
+  }, [accessToken]);
 
   // In your useEffect that loads data when the component mounts
   useEffect(() => {
