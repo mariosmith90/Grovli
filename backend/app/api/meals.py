@@ -14,6 +14,8 @@ import base64, logging
 import google.generativeai as genai
 from app.utils.tasks import generate_meal_plan as meal_plan_task
 from app.utils.tasks import notify_meal_plan_ready_task
+from app.utils.redis_client import get_cache, set_cache, delete_cache, MEAL_CACHE_TTL
+import pickle
 
 # Configure logging
 logging.basicConfig(
@@ -244,15 +246,47 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     request_hash = f"{request.meal_type}_{request.dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
     logger.info(f"🔑 Request hash: {request_hash}")
     
-    # Step 3: Check if we already have a meal plan for this exact request
+    # Step 3: Check Redis cache first
+    cache_key = f"meal_plan:{request_hash}"
+    cached_meal_plan = get_cache(cache_key)
+    
+    if cached_meal_plan and len(cached_meal_plan) >= total_meals_needed:
+        logger.info(f"✅ Found cached meal plan in Redis for request hash: {request_hash}")
+        logger.info(f"📋 DEBUG: Found {len(cached_meal_plan)} cached meals in Redis")
+        formatted_meals = []
+        
+        for meal in cached_meal_plan[:total_meals_needed]:
+            image_url = meal.get("image_url", "/fallback-meal-image.jpg")
+            logger.info(f"📋 DEBUG: Redis cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
+            formatted_meal = {
+                "id": meal["meal_id"],
+                "title": meal["meal_name"],
+                "meal_type": meal["meal_type"],
+                "nutrition": meal["macros"],
+                "ingredients": meal["ingredients"],
+                "instructions": meal["meal_text"],
+                "imageUrl": image_url
+            }
+            formatted_meals.append(formatted_meal)
+        
+        # Notify user through the same logic as before
+        try_notify_meal_plan_ready(
+            session_id=get_active_session_id(user_id),
+            user_id=user_id, 
+            meal_plan_id=cached_meal_plan[0].get("meal_plan_id", request_hash)
+        )
+        
+        return {"meal_plan": formatted_meals, "cached": True, "cache_source": "redis"}
+    
+    # Step 4: If not in Redis, check MongoDB
     existing_meal_plan = list(meals_collection.find({"request_hash": request_hash}).limit(total_meals_needed))
     if len(existing_meal_plan) >= total_meals_needed:
-        logger.info(f"✅ Found cached meal plan for request hash: {request_hash}")
-        logger.info(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals")
+        logger.info(f"✅ Found cached meal plan in MongoDB for request hash: {request_hash}")
+        logger.info(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals in MongoDB")
         formatted_meals = []
         for meal in existing_meal_plan[:total_meals_needed]:
             image_url = meal.get("image_url", "/fallback-meal-image.jpg")
-            logger.info(f"📋 DEBUG: Cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
+            logger.info(f"📋 DEBUG: MongoDB meal: {meal.get('meal_name')} - Image URL: {image_url}")
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
@@ -264,21 +298,16 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
             }
             formatted_meals.append(formatted_meal)
             
+        # Cache the results in Redis for future requests
+        set_cache(cache_key, existing_meal_plan, MEAL_CACHE_TTL)
+        logger.info(f"📋 DEBUG: Cached MongoDB results in Redis: {cache_key}")
+            
         # Try to send notification if possible
         try:
             # Look for active chat session based on user_id
             if user_id:
-                logger.info(f"Looking for chat sessions for user_id: {user_id}")
-                # Find the most recent chat session for this user
-                recent_chat = chat_collection.find_one(
-                    {"user_id": user_id},
-                    sort=[("created_at", -1)]
-                )
-                
-                if recent_chat:
-                    session_id = recent_chat.get("session_id")
-                    logger.info(f"Found session_id: {session_id} for user_id: {user_id}")
-                    
+                session_id = get_active_session_id(user_id)
+                if session_id:
                     # Get the meal plan ID from the first meal
                     meal_plan_id = existing_meal_plan[0].get("meal_plan_id", request_hash)
                     
@@ -308,36 +337,30 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
             # Log but don't fail if notification fails
             logger.error(f"⚠️ Non-critical error setting up notification: {str(e)}")
             
-        return {"meal_plan": formatted_meals, "cached": True}
+        return {"meal_plan": formatted_meals, "cached": True, "cache_source": "mongodb"}
     
-    # Step 4: If no cached plan exists, queue generation in Celery
+    # Step 5: If no cached plan exists, queue generation in Celery
     logger.info(f"⚠️ No cached meal plan found. Scheduling generation of new meals.")
     meal_plan_id = f"{request_hash}_{random.randint(10000, 99999)}"
     
     # First, update chat session to mark meal plan as processing
     try:
         if user_id:
-            recent_chat = chat_collection.find_one(
-                {"user_id": user_id},
-                sort=[("created_at", -1)]
-            )
-            
-            if recent_chat:
-                session_id = recent_chat.get("session_id")
-                if session_id:
-                    # Update chat session to mark meal plan as processing
-                    chat_collection.update_one(
-                        {"session_id": session_id},
-                        {
-                            "$set": {
-                                "meal_plan_processing": True,
-                                "meal_plan_ready": False,
-                                "meal_plan_id": meal_plan_id,
-                                "updated_at": datetime.datetime.now()
-                            }
+            session_id = get_active_session_id(user_id)
+            if session_id:
+                # Update chat session to mark meal plan as processing
+                chat_collection.update_one(
+                    {"session_id": session_id},
+                    {
+                        "$set": {
+                            "meal_plan_processing": True,
+                            "meal_plan_ready": False,
+                            "meal_plan_id": meal_plan_id,
+                            "updated_at": datetime.datetime.now()
                         }
-                    )
-                    logger.info(f"Updated chat session {session_id} to mark meal plan as processing")
+                    }
+                )
+                logger.info(f"Updated chat session {session_id} to mark meal plan as processing")
     except Exception as e:
         logger.error(f"⚠️ Non-critical error updating chat session: {str(e)}")
     
@@ -371,14 +394,57 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
         "request_hash": request_hash
     }
 
+# Helper to get the active session ID from a user ID
+def get_active_session_id(user_id):
+    """Get the most recent chat session ID for a user."""
+    if not user_id:
+        return None
+        
+    # Try Redis cache first
+    cache_key = f"active_session:{user_id}"
+    cached_session = get_cache(cache_key)
+    if cached_session:
+        return cached_session
+    
+    # If not in cache, query MongoDB
+    recent_chat = chat_collection.find_one(
+        {"user_id": user_id},
+        sort=[("created_at", -1)]
+    )
+    
+    if recent_chat:
+        session_id = recent_chat.get("session_id")
+        if session_id:
+            # Cache the result for 5 minutes
+            set_cache(cache_key, session_id, 300)  # 5 minutes TTL
+            return session_id
+    
+    return None
+
 @router.get("/{meal_id}")
 async def get_meal_by_id(meal_id: str):
     """
-    Retrieves a specific meal by its meal_id.
+    Retrieves a specific meal by its meal_id with Redis caching.
     """
-    print(f"🔎 Looking up meal with ID: {meal_id}")  # Debugging
+    print(f"🔎 Looking up meal with ID: {meal_id}")  
     
-    # Direct lookup by meal_id
+    # Check Redis cache first
+    cache_key = f"meal:{meal_id}"
+    cached_meal = get_cache(cache_key)
+    if cached_meal:
+        print(f"✅ Found meal in Redis cache: {cached_meal.get('meal_name')}")
+        return {
+            "id": cached_meal["meal_id"],
+            "title": cached_meal["meal_name"],
+            "nutrition": cached_meal["macros"],
+            "ingredients": cached_meal["ingredients"],
+            "instructions": cached_meal["meal_text"],
+            "meal_type": cached_meal.get("meal_type"),
+            "imageUrl": cached_meal.get("image_url", "/fallback-meal-image.jpg"),
+            "cache_source": "redis"
+        }
+    
+    # If not in Redis, direct lookup by meal_id in MongoDB
     meal = meals_collection.find_one({"meal_id": meal_id})
     
     if not meal:
@@ -391,7 +457,10 @@ async def get_meal_by_id(meal_id: str):
         print(f"⚠️ Meal still not found with pattern: {meal_id}")
         raise HTTPException(status_code=404, detail=f"Meal not found with ID: {meal_id}")
 
-    print(f"✅ Found meal: {meal.get('meal_name')}")
+    print(f"✅ Found meal in MongoDB: {meal.get('meal_name')}")
+    
+    # Cache the result in Redis
+    set_cache(cache_key, meal, MEAL_CACHE_TTL)
     
     return {
         "id": meal["meal_id"],
@@ -400,21 +469,45 @@ async def get_meal_by_id(meal_id: str):
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
         "meal_type": meal.get("meal_type"),
-        "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
+        "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg"),
+        "cache_source": "mongodb"
     }
 
-# In meals.py
 @router.get("/by_id/{meal_plan_id}")
 async def get_meal_plan_by_id(meal_plan_id: str):
     """
-    Retrieves a meal plan by its ID.
+    Retrieves a meal plan by its ID using Redis cache.
     """
     try:
-        # Find meals with this meal plan ID
+        # Check Redis cache first
+        cache_key = f"meal_plan_id:{meal_plan_id}"
+        cached_meals = get_cache(cache_key)
+        
+        if cached_meals:
+            logger.info(f"Found meal plan in Redis cache: {meal_plan_id}")
+            formatted_meals = []
+            for meal in cached_meals:
+                formatted_meal = {
+                    "id": meal["meal_id"],
+                    "title": meal["meal_name"],
+                    "meal_type": meal["meal_type"],
+                    "nutrition": meal["macros"],
+                    "ingredients": meal["ingredients"],
+                    "instructions": meal["meal_text"],
+                    "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
+                }
+                formatted_meals.append(formatted_meal)
+            
+            return {"meal_plan": formatted_meals, "cache_source": "redis"}
+        
+        # If not in cache, find meals in MongoDB
         meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
         
         if not meals:
             raise HTTPException(status_code=404, detail=f"Meal plan not found: {meal_plan_id}")
+        
+        # Cache the results in Redis
+        set_cache(cache_key, meals, MEAL_CACHE_TTL)
         
         # Format the meals for return
         formatted_meals = []
@@ -430,7 +523,7 @@ async def get_meal_plan_by_id(meal_plan_id: str):
             }
             formatted_meals.append(formatted_meal)
         
-        return {"meal_plan": formatted_meals}
+        return {"meal_plan": formatted_meals, "cache_source": "mongodb"}
     except Exception as e:
         logger.error(f"Error retrieving meal plan: {str(e)}")
         raise HTTPException(

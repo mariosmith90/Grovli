@@ -4,6 +4,8 @@ import os, json, datetime
 from typing import Optional
 from pymongo import MongoClient
 import logging
+from app.utils.redis_client import get_cache, set_cache, delete_cache, PROFILE_CACHE_TTL
+
 
 # Configure logging
 logging.basicConfig(
@@ -32,24 +34,41 @@ class UserSettings(BaseModel):
 @user_settings_router.get("/{user_id}")
 async def get_user_settings(user_id: str):
     """
-    Retrieves a user's stored nutrition settings. Returns default values if none exist.
+    Retrieves a user's stored nutrition settings with Redis caching.
+    Returns default values if none exist.
     """
     try:
         logger.info(f"Fetching settings for user: {user_id}")
-        # Look up user settings in MongoDB
+        
+        # Check Redis cache first
+        cache_key = f"user_settings:{user_id}"
+        cached_settings = get_cache(cache_key)
+        
+        if cached_settings:
+            logger.info(f"Found settings in Redis cache for user {user_id}")
+            return cached_settings
+        
+        # If not in cache, look up user settings in MongoDB
         user_settings = user_settings_collection.find_one({"user_id": user_id})
         
         if not user_settings:
             logger.info(f"No settings found for user {user_id}, returning defaults")
             # Return default settings if none found
-            return UserSettings().dict()
+            default_settings = UserSettings().dict()
+            return default_settings
             
         # Remove MongoDB internal fields
         if "_id" in user_settings:
-            del user_settings["_id"]
-            
-        logger.info(f"Found settings for user {user_id}")
-        return user_settings
+            user_settings_clean = {k: v for k, v in user_settings.items() if k != "_id"}
+        else:
+            user_settings_clean = user_settings
+        
+        # Cache the settings in Redis
+        set_cache(cache_key, user_settings_clean, PROFILE_CACHE_TTL)
+        logger.info(f"Cached user settings in Redis for user {user_id}")
+        
+        logger.info(f"Found settings in MongoDB for user {user_id}")
+        return user_settings_clean
         
     except Exception as e:
         logger.error(f"Error retrieving user settings: {str(e)}")
@@ -61,22 +80,29 @@ async def get_user_settings(user_id: str):
 @user_settings_router.post("/{user_id}")
 async def save_user_settings(user_id: str, settings: UserSettings):
     """
-    Save a user's nutrition settings to the database
+    Save a user's nutrition settings to the database and update Redis cache.
     """
     try:
         logger.info(f"Saving settings for user: {user_id}")
-        # Update or insert the user settings
+        
+        # Convert Pydantic model to dictionary and add user_id and timestamp
+        settings_dict = {
+            **settings.dict(),
+            "user_id": user_id,
+            "updated_at": datetime.datetime.now()
+        }
+        
+        # Update or insert the user settings in MongoDB
         result = user_settings_collection.update_one(
             {"user_id": user_id},
-            {
-                "$set": {
-                    **settings.dict(),
-                    "user_id": user_id,
-                    "updated_at": datetime.datetime.now()
-                }
-            },
+            {"$set": settings_dict},
             upsert=True
         )
+        
+        # Update the Redis cache
+        cache_key = f"user_settings:{user_id}"
+        set_cache(cache_key, settings_dict, PROFILE_CACHE_TTL)
+        logger.info(f"Updated user settings in Redis cache for user {user_id}")
         
         logger.info(f"Settings saved for user {user_id}: Modified={result.modified_count}, Upserted={result.upserted_id is not None}")
         return {"status": "success", "message": "Settings saved successfully"}

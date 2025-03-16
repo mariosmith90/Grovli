@@ -4,6 +4,7 @@ import os, json, datetime
 from typing import Optional, List
 from pymongo import MongoClient
 import logging
+from app.utils.redis_client import get_cache, set_cache, delete_cache, PROFILE_CACHE_TTL
 
 # Configure logging
 logging.basicConfig(
@@ -58,12 +59,20 @@ async def ensure_user_exists(user_id: str):
 @user_profile_router.get("/{user_id}")
 async def get_user_profile(user_id: str):
     """
-    Retrieves a user's profile data.
+    Retrieves a user's profile data with Redis caching.
     """
     try:
         logger.info(f"Fetching profile for user: {user_id}")
         
-        # Look up user profile in MongoDB
+        # Check Redis cache first
+        cache_key = f"user_profile:{user_id}"
+        cached_profile = get_cache(cache_key)
+        
+        if cached_profile:
+            logger.info(f"Found profile in Redis cache for user {user_id}")
+            return {"found": True, "profile": cached_profile, "cache_source": "redis"}
+        
+        # If not in cache, look up user profile in MongoDB
         user_profile = user_profile_collection.find_one({"user_id": user_id})
         
         if not user_profile:
@@ -72,10 +81,16 @@ async def get_user_profile(user_id: str):
         
         # Remove MongoDB internal fields
         if "_id" in user_profile:
-            del user_profile["_id"]
+            user_profile_clean = {k: v for k, v in user_profile.items() if k != "_id"}
+        else:
+            user_profile_clean = user_profile
             
-        logger.info(f"Found profile for user {user_id}")
-        return {"found": True, "profile": user_profile}
+        # Cache the profile in Redis
+        set_cache(cache_key, user_profile_clean, PROFILE_CACHE_TTL)
+        logger.info(f"Cached user profile in Redis for user {user_id}")
+            
+        logger.info(f"Found profile in MongoDB for user {user_id}")
+        return {"found": True, "profile": user_profile_clean, "cache_source": "mongodb"}
     
     except Exception as e:
         logger.error(f"Error retrieving user profile: {str(e)}")
@@ -87,7 +102,7 @@ async def get_user_profile(user_id: str):
 @user_profile_router.post("/{user_id}")
 async def save_user_profile(user_id: str, profile_data: UserProfileData):
     """
-    Save a user's profile data to the database, ensuring we don't create duplicates
+    Save a user's profile data to the database and update Redis cache.
     """
     try:
         logger.info(f"Saving profile for user: {user_id}")
@@ -131,6 +146,11 @@ async def save_user_profile(user_id: str, profile_data: UserProfileData):
                 }
             }
         )
+        
+        # Update the Redis cache
+        cache_key = f"user_profile:{user_id}"
+        set_cache(cache_key, profile_dict, PROFILE_CACHE_TTL)
+        logger.info(f"Updated user profile in Redis cache for user {user_id}")
         
         logger.info(f"Profile saved for user {user_id}: Modified={result.modified_count}, Upserted={result.upserted_id is not None}")
         return {

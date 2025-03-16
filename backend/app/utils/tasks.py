@@ -13,6 +13,8 @@ from google.oauth2 import service_account
 import tempfile
 import uuid
 from google.cloud import storage
+from app.utils.redis_client import get_cache, set_cache, delete_cache, MEAL_CACHE_TTL
+
 
 # Configure logging
 logging.basicConfig(
@@ -166,12 +168,24 @@ def generate_meal_plan(
         session_id = None
         try:
             if user_id:
-                recent_chat = chat_collection.find_one(
-                    {"user_id": user_id},
-                    sort=[("created_at", -1)]
-                )
-                if recent_chat:
-                    session_id = recent_chat.get("session_id")
+                # Check Redis cache first
+                cache_key = f"active_session:{user_id}"
+                cached_session = get_cache(cache_key)
+                if cached_session:
+                    session_id = cached_session
+                    logger.info(f"Using cached session_id from Redis: {session_id}")
+                else:
+                    # If not in cache, query MongoDB
+                    recent_chat = chat_collection.find_one(
+                        {"user_id": user_id},
+                        sort=[("created_at", -1)]
+                    )
+                    if recent_chat:
+                        session_id = recent_chat.get("session_id")
+                        if session_id:
+                            # Cache the result for 5 minutes
+                            set_cache(cache_key, session_id, 300)  # 5 minutes TTL
+                            logger.info(f"Cached session_id in Redis: {session_id}")
         except Exception as e:
             logger.error(f"Error getting session_id: {str(e)}")
         
@@ -241,109 +255,133 @@ def generate_meal_plan(
                             "sugar": int(sugar * type_ratio)
                         }
         
-        # Generate meals for each meal type using Google Gemini
-        all_generated_meals = []
-        for meal_type, macros in meal_macros.items():
-            num_meals = meal_counts.get(meal_type, 1)
-            prompt = f"""
-            Generate EXACTLY {num_meals} {'meal' if num_meals == 1 else 'meals'} - no more, no less. Each must be a complete, **single-serving** {meal_type.lower()} meal for a {dietary_preferences} diet.
-            The total combined calories of these {meal_type} meals **must equal exactly** {macros['calories']} kcal.
-            Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes
-            that could appear in these publications, with proper culinary techniques and flavor combinations.
-            Each meal must be individually balanced and the sum of all {meal_type} meals should meet these targets:
-            - Be **a single-serving portion**, accurately scaled
-            - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)
-            - Match **combined meal macros** (±1% of target values):
-            • Calories: {macros['calories']} kcal
-            • Protein: {macros['protein']} g
-            • Carbs: {macros['carbs']} g
-            • Fat: {macros['fat']} g
-            • Fiber: {macros['fiber']} g
-            • Sugar: {macros['sugar']} g
-            ### **Mandatory Requirements**:
-            1. **All {num_meals} meals must be {meal_type} meals**
-            2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")
-            3. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")
-            4. **Calculate macros per ingredient and ensure total macros match per serving**
-            5. **List all essential ingredients** (cooking fats, seasonings, and garnishes)
-            6. **Validate meal totals against individual ingredient macros**
-            7. **All meals must share** meal_plan_id: `{meal_plan_id}`
-            8. **Each recipe must feel like an authentic recipe from Food & Wine, Bon Appétit, or Serious Eats**
-            ---
-            ### **Instructions Formatting Requirements**:
-            - **Each instruction step must be detailed, clear, and structured for ease of use**
-            - **Use precise cooking techniques** (e.g., "sear over medium-high heat for 3 minutes per side until golden brown")
-            - **Include prep instructions** (e.g., "Finely mince garlic," "Dice bell peppers into ½-inch cubes")
-            - **Specify temperatures, times, and sensory indicators** (e.g., "Roast at 400°F for 20 minutes until caramelized")
-            - **Use line breaks for readability**
-            - **Include plating instructions** (e.g., "Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs")
-            ---
-            ### **Strict JSON Formatting Requirements**:
-            - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
-            - Represent newlines in instructions as \\n
-            - Ensure all strings use double quotes
-            - No trailing commas in JSON arrays/objects
-            ### **Example Response Format**:
-            ```json
-            [
-            {{
-            "title": "Herb-Roasted Chicken with Vegetables",
-            "meal_type": "{meal_type}",
-            "meal_plan_id": "{meal_plan_id}",
-            "nutrition": {{
-            "calories": 625,
-            "protein": 42,
-            "carbs": 38,
-            "fat": 22,
-            "fiber": 8,
-            "sugar": 9
-            }},
-            "ingredients": [
-            {{
-            "name": "Boneless chicken breast",
-            "quantity": "6 oz",
-            "macros": {{
-            "calories": 280,
-            "protein": 38,
-            "carbs": 0,
-            "fat": 12,
-            "fiber": 0,
-            "sugar": 0
-            }}
-            }}
-            ],
-            "instructions": "### **Step 1: Prepare Ingredients**\\n..."
-            }}
-            ]
-            ```
-            **Strictly return only JSON with no extra text.**
-            """
-            try:
-                # Use Google Gemini to generate the meal plan
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                response = model.generate_content(prompt)
-                response_text = response.text.strip()
-                
-                # Improved JSON extraction with robust regex
-                json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
-                if json_match:
-                    cleaned_response_text = json_match.group(1).strip()
-                else:
-                    cleaned_response_text = response_text.strip()
-                
-                meals_for_type = json.loads(cleaned_response_text)
-                if not isinstance(meals_for_type, list):
-                    raise ValueError(f"AI response for {meal_type} is not a valid list of meals.")
-                
-                # Ensure each meal has the correct meal_type
-                for meal in meals_for_type:
-                    meal["meal_type"] = meal_type
-                
-                # Add these meals to our collection
-                all_generated_meals.extend(meals_for_type)
-            except Exception as e:
-                logger.error(f"⚠️ Error generating {meal_type} meals: {str(e)}")
-                continue  # Continue with other meal types rather than failing completely
+        # Check if we already have a cached prompt response
+        prompt_cache_key = f"meal_prompt:{request_hash}"
+        cached_response = get_cache(prompt_cache_key)
+        if cached_response:
+            logger.info(f"Using cached meal prompt responses for request hash: {request_hash}")
+            all_generated_meals = cached_response
+        else:
+            # Generate meals for each meal type using Google Gemini
+            all_generated_meals = []
+            for meal_type, macros in meal_macros.items():
+                num_meals = meal_counts.get(meal_type, 1)
+                prompt = f"""
+                Generate EXACTLY {num_meals} {'meal' if num_meals == 1 else 'meals'} - no more, no less. Each must be a complete, **single-serving** {meal_type.lower()} meal for a {dietary_preferences} diet.
+                The total combined calories of these {meal_type} meals **must equal exactly** {macros['calories']} kcal.
+                Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create authentic, realistic recipes
+                that could appear in these publications, with proper culinary techniques and flavor combinations.
+                Each meal must be individually balanced and the sum of all {meal_type} meals should meet these targets:
+                - Be **a single-serving portion**, accurately scaled
+                - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)
+                - Match **combined meal macros** (±1% of target values):
+                • Calories: {macros['calories']} kcal
+                • Protein: {macros['protein']} g
+                • Carbs: {macros['carbs']} g
+                • Fat: {macros['fat']} g
+                • Fiber: {macros['fiber']} g
+                • Sugar: {macros['sugar']} g
+                ### **Mandatory Requirements**:
+                1. **All {num_meals} meals must be {meal_type} meals**
+                2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")
+                3. **Each ingredient must list exact quantities** (e.g., "1 tbsp olive oil," not "olive oil")
+                4. **Calculate macros per ingredient and ensure total macros match per serving**
+                5. **List all essential ingredients** (cooking fats, seasonings, and garnishes)
+                6. **Validate meal totals against individual ingredient macros**
+                7. **All meals must share** meal_plan_id: `{meal_plan_id}`
+                8. **Each recipe must feel like an authentic recipe from Food & Wine, Bon Appétit, or Serious Eats**
+                ---
+                ### **Instructions Formatting Requirements**:
+                - **Each instruction step must be detailed, clear, and structured for ease of use**
+                - **Use precise cooking techniques** (e.g., "sear over medium-high heat for 3 minutes per side until golden brown")
+                - **Include prep instructions** (e.g., "Finely mince garlic," "Dice bell peppers into ½-inch cubes")
+                - **Specify temperatures, times, and sensory indicators** (e.g., "Roast at 400°F for 20 minutes until caramelized")
+                - **Use line breaks for readability**
+                - **Include plating instructions** (e.g., "Transfer to a warm plate, drizzle with sauce, and garnish with fresh herbs")
+                ---
+                ### **Strict JSON Formatting Requirements**:
+                - Escape all double quotes inside strings with a backslash (e.g., \\"example\\")
+                - Represent newlines in instructions as \\n
+                - Ensure all strings use double quotes
+                - No trailing commas in JSON arrays/objects
+                ### **Example Response Format**:
+                ```json
+                [
+                {{
+                "title": "Herb-Roasted Chicken with Vegetables",
+                "meal_type": "{meal_type}",
+                "meal_plan_id": "{meal_plan_id}",
+                "nutrition": {{
+                "calories": 625,
+                "protein": 42,
+                "carbs": 38,
+                "fat": 22,
+                "fiber": 8,
+                "sugar": 9
+                }},
+                "ingredients": [
+                {{
+                "name": "Boneless chicken breast",
+                "quantity": "6 oz",
+                "macros": {{
+                "calories": 280,
+                "protein": 38,
+                "carbs": 0,
+                "fat": 12,
+                "fiber": 0,
+                "sugar": 0
+                }}
+                }}
+                ],
+                "instructions": "### **Step 1: Prepare Ingredients**\\n..."
+                }}
+                ]
+                ```
+                **Strictly return only JSON with no extra text.**
+                """
+                try:
+                    # Cache key for this specific prompt
+                    single_prompt_cache_key = f"meal_prompt:{meal_type}:{request_hash}"
+                    cached_meal = get_cache(single_prompt_cache_key)
+                    
+                    if cached_meal:
+                        logger.info(f"Using cached meal prompt response for {meal_type}")
+                        meals_for_type = cached_meal
+                    else:
+                        # Use Google Gemini to generate the meal plan
+                        model = genai.GenerativeModel("gemini-1.5-flash")
+                        response = model.generate_content(prompt)
+                        response_text = response.text.strip()
+                        
+                        # Improved JSON extraction with robust regex
+                        json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL | re.IGNORECASE)
+                        if json_match:
+                            cleaned_response_text = json_match.group(1).strip()
+                        else:
+                            cleaned_response_text = response_text.strip()
+                        
+                        meals_for_type = json.loads(cleaned_response_text)
+                        if not isinstance(meals_for_type, list):
+                            raise ValueError(f"AI response for {meal_type} is not a valid list of meals.")
+                            
+                        # Cache this meal type's response
+                        set_cache(single_prompt_cache_key, meals_for_type, MEAL_CACHE_TTL)
+                        logger.info(f"Cached meal prompt response for {meal_type}")
+                    
+                    # Ensure each meal has the correct meal_type
+                    for meal in meals_for_type:
+                        meal["meal_type"] = meal_type
+                    
+                    # Add these meals to our collection
+                    all_generated_meals.extend(meals_for_type)
+                except Exception as e:
+                    logger.error(f"⚠️ Error generating {meal_type} meals: {str(e)}")
+                    continue  # Continue with other meal types rather than failing completely
+            
+            # Cache the complete set of meals
+            if all_generated_meals:
+                set_cache(prompt_cache_key, all_generated_meals, MEAL_CACHE_TTL)
+                logger.info(f"Cached all generated meals for request hash: {request_hash}")
         
         # Verify we have the correct number of meals
         if len(all_generated_meals) != total_meals_needed:
@@ -367,6 +405,11 @@ def generate_meal_plan(
                 unique_id
             )
             
+            # Cache the individual meal
+            meal_cache_key = f"meal:{unique_id}"
+            set_cache(meal_cache_key, saved_meal, MEAL_CACHE_TTL)
+            logger.info(f"Cached individual meal in Redis: {meal['title']} with ID {unique_id}")
+            
             # Generate the image URL
             image_url = generate_and_cache_meal_image(meal["title"], unique_id)
             logger.info(f"📋 Generated meal: {meal['title']} - Image URL: {image_url}")
@@ -381,6 +424,18 @@ def generate_meal_plan(
                 "instructions": meal["instructions"],
                 "imageUrl": image_url
             })
+
+        # Cache the complete meal plan in Redis by both request hash and meal plan ID
+        meal_plan_cache_key = f"meal_plan:{request_hash}"
+        plan_id_cache_key = f"meal_plan_id:{meal_plan_id}"
+        
+        # Extract all meals from MongoDB for consistent cache format
+        saved_meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
+        
+        # Cache both by request hash and by meal plan ID
+        set_cache(meal_plan_cache_key, saved_meals, MEAL_CACHE_TTL)
+        set_cache(plan_id_cache_key, saved_meals, MEAL_CACHE_TTL)
+        logger.info(f"Cached complete meal plan in Redis under keys: {meal_plan_cache_key} and {plan_id_cache_key}")
 
         # Try to send notification that meal plan is ready
         try:
@@ -480,6 +535,13 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     This is called when a meal plan has been generated.
     """
     try:
+        # Check Redis cache for notification history
+        notification_cache_key = f"notification:{session_id}:{meal_plan_id}"
+        previously_notified = get_cache(notification_cache_key)
+        if previously_notified:
+            logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping")
+            return {"status": "already_notified"}
+            
         # Look up existing chat session
         chat_session = chat_collection.find_one({"session_id": session_id})
         if not chat_session:
@@ -493,6 +555,8 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
                 msg.get("meal_plan_id") == meal_plan_id and
                 "meal plan is now ready" in msg.get("content", "")):
                 logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping")
+                # Cache this result to avoid future checks
+                set_cache(notification_cache_key, True, 86400)  # 24 hours
                 return {"status": "already_notified"}
         
         # Create notification message
@@ -520,6 +584,9 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
                 }
             }
         )
+        
+        # Cache notification status to prevent duplicates
+        set_cache(notification_cache_key, True, 86400)  # 24 hours TTL
         
         logger.info(f"✅ Successfully sent meal plan ready notification to chat session {session_id}")
         return {"status": "success"}
