@@ -3,7 +3,9 @@ from pymongo import MongoClient
 from typing import List
 from pydantic import BaseModel
 import datetime, os, requests, uuid
+import hashlib
 from jose import jwt, JWTError
+from app.utils.redis_client import get_cache, set_cache, delete_cache, PROFILE_CACHE_TTL, AUTH_CACHE_TTL
 
 router = APIRouter(prefix="/user-recipes", tags=["User Recipes"])
 
@@ -60,6 +62,12 @@ async def get_auth0_user(request: Request):
     # Get user ID from Auth0 sub claim
     auth0_id = auth0_user.get("sub")
     
+    # Check Redis cache first for user
+    cache_key = f"user:{auth0_id}"
+    cached_user = get_cache(cache_key)
+    if cached_user:
+        return cached_user
+    
     # Check if user exists in database
     user = user_collection.find_one({"auth0_id": auth0_id})
     
@@ -77,6 +85,15 @@ async def get_auth0_user(request: Request):
         }
         user_collection.insert_one(user)
         user = user_collection.find_one({"auth0_id": auth0_id})
+    
+    # Clean user object for caching
+    if "_id" in user:
+        user_clean = {k: v for k, v in user.items() if k != "_id"}
+    else:
+        user_clean = user
+    
+    # Cache the user
+    set_cache(cache_key, user_clean, PROFILE_CACHE_TTL)
     
     return user
 
@@ -101,10 +118,25 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
     for recipe in request.recipes:
         recipe_id = recipe.get("id")
         
-        # Check if we need to fetch additional details from meals collection
-        mongo_recipe = None
+        # Check Redis cache for meal details
         if recipe_id:
-            mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
+            meal_cache_key = f"meal:{recipe_id}"
+            cached_meal = get_cache(meal_cache_key)
+            
+            if cached_meal:
+                mongo_recipe = cached_meal
+            else:
+                # If not in cache, check MongoDB
+                mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
+                if mongo_recipe:
+                    # Cache the meal for future use
+                    if "_id" in mongo_recipe:
+                        mongo_recipe_clean = {k: v for k, v in mongo_recipe.items() if k != "_id"}
+                        set_cache(meal_cache_key, mongo_recipe_clean, PROFILE_CACHE_TTL)
+                    else:
+                        set_cache(meal_cache_key, mongo_recipe, PROFILE_CACHE_TTL)
+        else:
+            mongo_recipe = None
         
         # Get meal_type from sources with fallbacks
         meal_type = None
@@ -140,8 +172,12 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
     # Save to database
     saved_meal_plans_collection.insert_one(meal_plan)
     
+    # Invalidate user's saved recipes cache
+    user_saved_recipes_key = f"user_saved_recipes:{current_user['id']}"
+    delete_cache(user_saved_recipes_key)
+    
     # Return the created plan
-    return {
+    response_data = {
         "id": meal_plan["id"],
         "user_id": meal_plan["user_id"],
         "name": meal_plan["name"],
@@ -159,6 +195,12 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             for recipe in saved_recipes
         ]
     }
+    
+    # Cache this new plan
+    saved_plan_key = f"saved_plan:{plan_id}"
+    set_cache(saved_plan_key, response_data, PROFILE_CACHE_TTL)
+    
+    return response_data
 
 @router.get("/saved-recipes/")
 async def get_saved_recipes(
@@ -167,7 +209,14 @@ async def get_saved_recipes(
     current_user: dict = Depends(get_auth0_user)
 ):
     """Get all saved meal plans for the current user"""
-    # Find all meal plans for this user
+    # Check Redis cache first
+    cache_key = f"user_saved_recipes:{current_user['id']}:{skip}:{limit}"
+    cached_plans = get_cache(cache_key)
+    
+    if cached_plans:
+        return cached_plans
+    
+    # If not in cache, query MongoDB
     cursor = saved_meal_plans_collection.find(
         {"user_id": current_user["id"]}
     ).sort("created_at", -1).skip(skip).limit(limit)
@@ -181,6 +230,9 @@ async def get_saved_recipes(
         doc["created_at"] = doc["created_at"].isoformat()
         meal_plans.append(doc)
     
+    # Cache the results
+    set_cache(cache_key, meal_plans, PROFILE_CACHE_TTL)
+    
     return meal_plans
 
 @router.get("/saved-recipes/{plan_id}")
@@ -189,6 +241,16 @@ async def get_saved_meal_plan(
     current_user: dict = Depends(get_auth0_user)
 ):
     """Get a specific saved meal plan by ID"""
+    # Check Redis cache first
+    cache_key = f"saved_plan:{plan_id}"
+    cached_plan = get_cache(cache_key)
+    
+    if cached_plan:
+        # Verify this plan belongs to the current user
+        if cached_plan.get("user_id") == current_user["id"]:
+            return cached_plan
+    
+    # If not in cache or not owned by this user, query MongoDB
     meal_plan = saved_meal_plans_collection.find_one({
         "id": plan_id,
         "user_id": current_user["id"]
@@ -200,7 +262,15 @@ async def get_saved_meal_plan(
             detail="Meal plan not found"
         )
     
+    # Format the response
+    if "_id" in meal_plan:
+        meal_plan = {k: v for k, v in meal_plan.items() if k != "_id"}
+    
     meal_plan["created_at"] = meal_plan["created_at"].isoformat()
+    
+    # Cache the result
+    set_cache(cache_key, meal_plan, PROFILE_CACHE_TTL)
+    
     return meal_plan
 
 @router.delete("/saved-recipes/{plan_id}")
@@ -220,10 +290,14 @@ async def delete_saved_meal_plan(
             detail="Meal plan not found"
         )
     
+    # Invalidate caches
+    delete_cache(f"saved_plan:{plan_id}")
+    delete_cache(f"user_saved_recipes:{current_user['id']}*")  # Use wildcard to clear all user's saved recipes caches
+    
     return {"message": "Meal plan deleted successfully"}
 
 async def get_current_user_from_auth0(request: Request):
-    """Validate the Auth0 JWT token and return the user info"""
+    """Validate the Auth0 JWT token and return the user info with Redis caching"""
     try:
         # Extract token from Authorization header
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -231,6 +305,16 @@ async def get_current_user_from_auth0(request: Request):
         if not token:
             print("Missing authorization token")
             raise HTTPException(status_code=401, detail="Missing authorization token")
+
+        # Create a cache key based on the token hash (don't store the raw token)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        cache_key = f"auth0_token:{token_hash}"
+        
+        # Check Redis cache first
+        cached_payload = get_cache(cache_key)
+        if cached_payload:
+            print(f"Using cached token validation for sub: {cached_payload.get('sub', 'unknown')}")
+            return cached_payload
 
         # Get token header to find kid (key ID)
         try:
@@ -247,14 +331,24 @@ async def get_current_user_from_auth0(request: Request):
         global jwks_cache, jwks_last_fetched
         current_time = datetime.datetime.now().timestamp()
         
-        if jwks_cache is None or current_time - jwks_last_fetched > 3600:  # Cache for 1 hour
+        # Check Redis for JWKS cache
+        jwks_cache_key = f"auth0_jwks:{AUTH0_DOMAIN}"
+        cached_jwks = get_cache(jwks_cache_key)
+        
+        if cached_jwks:
+            print(f"Using cached JWKS from Redis")
+            jwks_cache = cached_jwks
+        elif jwks_cache is None or current_time - jwks_last_fetched > 3600:  # Cache for 1 hour
             try:
                 print(f"Fetching JWKS from {JWKS_URL}")
                 jwks_response = requests.get(JWKS_URL, timeout=10)
                 jwks_response.raise_for_status()
                 jwks_cache = jwks_response.json()
                 jwks_last_fetched = current_time
-                print("JWKS fetched successfully")
+                
+                # Cache JWKS in Redis for 24 hours
+                set_cache(jwks_cache_key, jwks_cache, 86400)  # 24 hours
+                print("JWKS fetched successfully and cached in Redis")
             except Exception as e:
                 print(f"Error fetching JWKS: {str(e)}")
                 raise HTTPException(status_code=500, detail="Failed to fetch JWKS")
@@ -280,6 +374,11 @@ async def get_current_user_from_auth0(request: Request):
                 audience=AUTH0_AUDIENCE,
                 issuer=f"https://{AUTH0_DOMAIN}/"
             )
+            
+            # Cache the validated payload in Redis
+            # Use a shorter TTL than the actual token to ensure we refresh before expiry
+            set_cache(cache_key, payload, AUTH_CACHE_TTL)
+            
             print(f"Token validated successfully for sub: {payload.get('sub', 'unknown')}")
             return payload
             
@@ -308,7 +407,14 @@ async def is_recipe_saved(
 ):
     """Check if a specific recipe is saved by the user"""
     try:
-        # Find all saved meal plans for this user
+        # Check Redis cache first
+        cache_key = f"is_saved:{current_user['id']}:{recipe_id}"
+        cached_result = get_cache(cache_key)
+        
+        if cached_result is not None:  # Check explicitly against None since False is a valid result
+            return {"isSaved": cached_result}
+        
+        # If not in cache, find all saved meal plans for this user
         saved_plans = saved_meal_plans_collection.find({"user_id": current_user["id"]})
         
         # Check if the recipe exists in any plan
@@ -316,9 +422,13 @@ async def is_recipe_saved(
             if "recipes" in plan:
                 for recipe in plan["recipes"]:
                     if recipe.get("recipe_id") == recipe_id or recipe.get("id") == recipe_id:
+                        # Cache the positive result
+                        set_cache(cache_key, True, PROFILE_CACHE_TTL)
                         return {"isSaved": True}
         
         # If we've gone through all plans and not found it
+        # Cache the negative result
+        set_cache(cache_key, False, PROFILE_CACHE_TTL)
         return {"isSaved": False}
     
     except Exception as e:
