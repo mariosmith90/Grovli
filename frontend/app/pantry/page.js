@@ -63,7 +63,7 @@ export default function PantryPage() {
       });
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/items`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/items`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -107,7 +107,7 @@ export default function PantryPage() {
       });
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/add-item`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/add-item`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,7 +152,7 @@ export default function PantryPage() {
       });
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/items/${editingItem.id}`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/items/${editingItem.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -188,7 +188,7 @@ export default function PantryPage() {
       });
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/items/${itemId}`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/items/${itemId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -213,7 +213,7 @@ export default function PantryPage() {
       setIsScanning(true);
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/lookup-barcode`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/lookup-barcode`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -273,7 +273,7 @@ export default function PantryPage() {
       const ingredients = pantryItems.map(item => item.name);
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-pantry/recommend-meals`, {
+      const response = await fetch(`${apiUrl}/api/user-pantry/recommend-meals`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

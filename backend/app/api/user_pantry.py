@@ -119,7 +119,7 @@ def get_meal_recommendations(ingredients: List[str], dietary_preferences: Option
         )
         
         # Generate recommendations using Gemini
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt_parts)
         
         # Parse the response to extract JSON
