@@ -21,8 +21,10 @@ export default function ProfilePage() {
   const [currentMealIndex, setCurrentMealIndex] = useState(0);
   const [activePlanId, setActivePlanId] = useState(null);
   const [userPlans, setUserPlans] = useState([]);
-  const [isLoadingPlans, setIsLoadingPlans] = useState(true); // Set to true initially
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [lastCheckTime, setLastCheckTime] = useState(null);
+  // Add a new state to track if data is ready to be shown
+  const [isDataReady, setIsDataReady] = useState(false);
 
   const [globalSettings, setGlobalSettings] = useState({
     calculationMode: 'auto',
@@ -102,6 +104,7 @@ export default function ProfilePage() {
 
     try {
       setIsLoadingPlans(true);
+      setIsDataReady(false); // Reset data ready state when fetching
       
       const userId = user.sub;
       const plans = await makeAuthenticatedRequest(`/api/user-plans/user/${userId}`);
@@ -112,13 +115,14 @@ export default function ProfilePage() {
         const sortedPlans = [...plans].sort((a, b) => 
           new Date(b.updated_at) - new Date(a.updated_at)
         );
-        loadPlanToCalendar(sortedPlans[0]);
+        await loadPlanToCalendar(sortedPlans[0]);
       }
       
     } catch (error) {
       console.error('Error fetching user meal plans:', error);
     } finally {
       setIsLoadingPlans(false);
+      setIsDataReady(true); // Set data as ready once loading is complete
     }
   };
 
@@ -596,8 +600,8 @@ export default function ProfilePage() {
             </div>
           )}
           
-          {/* Meal Content - Only show when not loading */}
-          {!isLoadingPlans && (
+          {/* Meal Content - Only show when not loading AND data is ready */}
+          {!isLoadingPlans && isDataReady && (
             <>
               {/* Next Meal Section */}
               <section className="mb-6 bg-white rounded-lg shadow-md p-4">
@@ -666,132 +670,53 @@ export default function ProfilePage() {
 }
 
 // Component: NextMealCard - Simplified
-function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
-  const [isSelected, setIsSelected] = useState(false);
-  const router = useRouter();
-
-  return (
-    <div className="flex flex-col gap-2 max-w-3xl mx-auto">
-      <div
-        className={`flex flex-col md:flex-row gap-4 bg-gray-50 rounded-lg overflow-hidden relative
-          ${isSelected ? "ring-2 ring-teal-500" : ""}`}
-      >
-        {/* Clickable Image Section */}
-        <div
-          className="w-full md:w-1/4 h-40 md:h-auto relative cursor-pointer group"
-          onClick={() => setIsSelected(!isSelected)}
-        >
-          <img
-            src={meal.image || ''}
-            alt={meal.name || "No meal selected"}
-            className="w-full h-full object-cover"
-          />
-          <div
-            className={`absolute inset-0 transition-opacity ${
-              isSelected ? "bg-gray-200/50 backdrop-blur-sm" : "bg-black/20 opacity-0 group-hover:opacity-100"
-            }`}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div
-              className={`bg-white/90 rounded-full py-1 px-2 text-xs font-semibold transition-all
-                ${isSelected ? "text-teal-700 bg-teal-100 flex items-center" : "text-gray-700"}`}
-            >
-              {isSelected ? (
-                <>
-                  <CheckIcon className="w-3 h-3 mr-1" />
-                  Selected
-                </>
-              ) : (
-                "Click to Select"
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Meal Information */}
-        <div className="p-3 flex-1">
-          <div className="flex justify-between items-start">
-            <h3 className="text-lg font-bold">{meal.name || "No meal selected"}</h3>
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <div className="text-center p-1.5 bg-blue-50 rounded-lg">
-              <p className="text-xs text-gray-600">Calories</p>
-              <p className="font-bold text-sm">{meal.calories}</p>
-            </div>
-            <div className="text-center p-1.5 bg-green-50 rounded-lg">
-              <p className="text-xs text-gray-600">Protein</p>
-              <p className="font-bold text-sm">{meal.protein}g</p>
-            </div>
-            <div className="text-center p-1.5 bg-yellow-50 rounded-lg">
-              <p className="text-xs text-gray-600">Carbs</p>
-              <p className="font-bold text-sm">{meal.carbs}g</p>
-            </div>
-          </div>
-
-          {/* See Recipe button */}
-          {meal.id && (
-            <button
-              onClick={() => router.push(`/mealplan/${meal.id}`)}
-              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all"
-            >
-              See Recipe →
-            </button>
-          )}
-          
-          {/* Conditionally show "Mark as Completed" button when selected */}
-          {isSelected && meal.name && (
-            <button
-              onClick={() => {
-                onJustAte();
-                setIsSelected(false);
-              }}
-              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all flex items-center justify-center"
-            >
-              <CheckIcon className="w-4 h-4 mr-2" />
-              Mark as Completed
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Create New Meals Button */}
-      <button
-        onClick={handleCreateNewMeals}
-        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all">
-        Create New Meals
-      </button>
-    </div>
-  );
-}
-
 // Component: CalorieProgressBar - Simplified
-function CalorieProgressBar({ consumed, target, globalSettings }) {  
-  // Use globalSettings.calories for all calculations
-  const targetCalories = globalSettings?.calories || target;
+// Component: SavedMeals - Simplified
+function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreateNewMeals }) {
+  const meals = savedMeals[mealType] || [];
   
-  // Calculate percentage based on targetCalories, not target
-  const percentage = Math.min(Math.round((consumed / targetCalories) * 100), 100);
+  if (isLoading) {
+    return <div className="py-8 text-center text-gray-500">Loading saved meals...</div>;
+  }
   
-  // Calculate remaining based on targetCalories, not target
-  const remaining = targetCalories - consumed;
+  if (meals.length === 0) {
+    return (
+      <div className="py-8 text-center text-gray-500">
+        <p>You don't have any saved {mealType} meals yet.</p>
+        <div className="mt-4">
+          <button 
+            onClick={handleCreateNewMeals}
+            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-lg transition-all"
+          >
+            Create new meals
+          </button>
+        </div>
+      </div>
+    );
+  }
   
   return (
-    <div className="mt-4">
-      <div className="flex justify-between mb-1">
-        <span className="text-sm font-medium">Daily Calories</span>
-        <span className="text-sm font-medium">{consumed} / {targetCalories} kcal</span>
+    <div>
+      <h3 className="text-lg font-medium mb-4 capitalize">Saved {mealType} Options</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {meals.map((meal) => (
+          <div 
+            key={meal.id}
+            onClick={() => onSelectMeal(meal)}
+            className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+          >
+            <img 
+              src={meal.image || ''} 
+              alt={meal.name} 
+              className="w-16 h-16 rounded-md object-cover"
+            />
+            <div className="ml-3">
+              <h4 className="font-medium">{meal.name}</h4>
+              <p className="text-sm text-gray-600">{meal.calories} calories</p>
+            </div>
+          </div>
+        ))}
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-4">
-        <div 
-          className="bg-teal-600 h-4 rounded-full" 
-          style={{ width: `${percentage}%` }}
-        ></div>
-      </div>
-      <p className="text-sm text-gray-600 mt-2">
-        {remaining > 0 
-          ? `You have ${remaining} calories remaining today` 
-          : "You've reached your calorie goal for today"}
-      </p>
     </div>
   );
 }
@@ -804,7 +729,7 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
     snack: Apple,
     dinner: Moon
   };
-  const router = useRouter(); // Add this line
+  const router = useRouter();
 
   return (
     <div className="relative">
@@ -910,52 +835,133 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
   );
 }
 
-// Component: SavedMeals - Simplified
-function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreateNewMeals }) {
-  const meals = savedMeals[mealType] || [];
+// Component: CalorieProgressBar - Simplified
+function CalorieProgressBar({ consumed, target, globalSettings }) {  
+  // Use globalSettings.calories for all calculations
+  const targetCalories = globalSettings?.calories || target;
   
-  if (isLoading) {
-    return <div className="py-8 text-center text-gray-500">Loading saved meals...</div>;
-  }
+  // Calculate percentage based on targetCalories, not target
+  const percentage = Math.min(Math.round((consumed / targetCalories) * 100), 100);
   
-  if (meals.length === 0) {
-    return (
-      <div className="py-8 text-center text-gray-500">
-        <p>You don't have any saved {mealType} meals yet.</p>
-        <div className="mt-4">
-          <button 
-            onClick={handleCreateNewMeals}
-            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-lg transition-all"
-          >
-            Create new meals
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Calculate remaining based on targetCalories, not target
+  const remaining = targetCalories - consumed;
   
   return (
-    <div>
-      <h3 className="text-lg font-medium mb-4 capitalize">Saved {mealType} Options</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {meals.map((meal) => (
-          <div 
-            key={meal.id}
-            onClick={() => onSelectMeal(meal)}
-            className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
-          >
-            <img 
-              src={meal.image || ''} 
-              alt={meal.name} 
-              className="w-16 h-16 rounded-md object-cover"
-            />
-            <div className="ml-3">
-              <h4 className="font-medium">{meal.name}</h4>
-              <p className="text-sm text-gray-600">{meal.calories} calories</p>
+    <div className="mt-4">
+      <div className="flex justify-between mb-1">
+        <span className="text-sm font-medium">Daily Calories</span>
+        <span className="text-sm font-medium">{consumed} / {targetCalories} kcal</span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-4">
+        <div 
+          className="bg-teal-600 h-4 rounded-full" 
+          style={{ width: `${percentage}%` }}
+        ></div>
+      </div>
+      <p className="text-sm text-gray-600 mt-2">
+        {remaining > 0 
+          ? `You have ${remaining} calories remaining today` 
+          : "You've reached your calorie goal for today"}
+      </p>
+    </div>
+  );
+}
+
+// Component: NextMealCard - Simplified
+function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
+  const [isSelected, setIsSelected] = useState(false);
+  const router = useRouter();
+
+  return (
+    <div className="flex flex-col gap-2 max-w-3xl mx-auto">
+      <div
+        className={`flex flex-col md:flex-row gap-4 bg-gray-50 rounded-lg overflow-hidden relative
+          ${isSelected ? "ring-2 ring-teal-500" : ""}`}
+      >
+        {/* Clickable Image Section */}
+        <div
+          className="w-full md:w-1/4 h-40 md:h-auto relative cursor-pointer group"
+          onClick={() => setIsSelected(!isSelected)}
+        >
+          <img
+            src={meal.image || ''}
+            alt={meal.name || "No meal selected"}
+            className="w-full h-full object-cover"
+          />
+          <div
+            className={`absolute inset-0 transition-opacity ${
+              isSelected ? "bg-gray-200/50 backdrop-blur-sm" : "bg-black/20 opacity-0 group-hover:opacity-100"
+            }`}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              className={`bg-white/90 rounded-full py-1 px-2 text-xs font-semibold transition-all
+                ${isSelected ? "text-teal-700 bg-teal-100 flex items-center" : "text-gray-700"}`}
+            >
+              {isSelected ? (
+                <>
+                  <CheckIcon className="w-3 h-3 mr-1" />
+                  Selected
+                </>
+              ) : (
+                "Click to Select"
+              )}
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Meal Information */}
+        <div className="p-3 flex-1">
+          <div className="flex justify-between items-start">
+            <h3 className="text-lg font-bold">{meal.name || "No meal selected"}</h3>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="text-center p-1.5 bg-blue-50 rounded-lg">
+              <p className="text-xs text-gray-600">Calories</p>
+              <p className="font-bold text-sm">{meal.calories}</p>
+            </div>
+            <div className="text-center p-1.5 bg-green-50 rounded-lg">
+              <p className="text-xs text-gray-600">Protein</p>
+              <p className="font-bold text-sm">{meal.protein}g</p>
+            </div>
+            <div className="text-center p-1.5 bg-yellow-50 rounded-lg">
+              <p className="text-xs text-gray-600">Carbs</p>
+              <p className="font-bold text-sm">{meal.carbs}g</p>
+            </div>
+          </div>
+
+          {/* See Recipe button */}
+          {meal.id && (
+            <button
+              onClick={() => router.push(`/mealplan/${meal.id}`)}
+              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all"
+            >
+              See Recipe →
+            </button>
+          )}
+          
+          {/* Conditionally show "Mark as Completed" button when selected */}
+          {isSelected && meal.name && (
+            <button
+              onClick={() => {
+                onJustAte();
+                setIsSelected(false);
+              }}
+              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all flex items-center justify-center"
+            >
+              <CheckIcon className="w-4 h-4 mr-2" />
+              Mark as Completed
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Create New Meals Button */}
+      <button
+        onClick={handleCreateNewMeals}
+        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all">
+        Create New Meals
+      </button>
     </div>
   );
 }
