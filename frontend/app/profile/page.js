@@ -17,7 +17,7 @@ export default function ProfilePage() {
   const [activeSection, setActiveSection] = useState('timeline');
   const [selectedMealType, setSelectedMealType] = useState(null);
   const [calorieData, setCalorieData] = useState({ consumed: 0, target: 2000 });
-  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(true);
+  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false); // Changed to false initially
   const [currentMealIndex, setCurrentMealIndex] = useState(0);
   const [activePlanId, setActivePlanId] = useState(null);
   const [userPlans, setUserPlans] = useState([]);
@@ -60,7 +60,7 @@ export default function ProfilePage() {
     type: 'breakfast'
   });
 
-  // Saved meals by category
+  // Saved meals by category - initialized as empty but only loaded when needed
   const [savedMeals, setSavedMeals] = useState({
     breakfast: [],
     lunch: [],
@@ -236,17 +236,22 @@ export default function ProfilePage() {
     updateCalorieCount(updatedMealPlan);
   };
 
-  // Fetch saved meals for the add meal selector
-  const fetchSavedMeals = async () => {
+  // Fetch saved meals for the add meal selector - only called when needed
+  const fetchSavedMeals = async (mealType) => {
     if (!user) return;
+    
+    // If we already have meals for this type, don't reload
+    if (savedMeals[mealType] && savedMeals[mealType].length > 0) {
+      return;
+    }
   
     try {
       setIsLoadingSavedMeals(true);
   
       const data = await makeAuthenticatedRequest('/api/user-recipes/saved-recipes/');
   
-      // Process meals by category
-      const categorizedMeals = { breakfast: [], lunch: [], snack: [], dinner: [] };
+      // Process meals by category, but only for the requested type
+      const categorizedMeals = { ...savedMeals };
       const addedMealNames = new Set();
   
       for (const plan of data) {
@@ -256,9 +261,12 @@ export default function ProfilePage() {
           // Skip if we've already added this meal
           if (addedMealNames.has(recipe.title)) continue;
   
-          const mealType = (recipe.meal_type || '').toLowerCase();
-          const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
-            ? mealType : 'snack';
+          const recipeMealType = (recipe.meal_type || '').toLowerCase();
+          const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(recipeMealType) 
+            ? recipeMealType : 'snack';
+            
+          // Only process recipes for the requested meal type
+          if (category !== mealType) continue;
   
           // Fetch meal details using the recipe_id (which corresponds to meal_id)
           const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
@@ -275,6 +283,10 @@ export default function ProfilePage() {
             instructions: mealDetails.instructions || ''
           };
   
+          if (!categorizedMeals[category]) {
+            categorizedMeals[category] = [];
+          }
+          
           categorizedMeals[category].push(formattedMeal);
           addedMealNames.add(recipe.title);
         }
@@ -329,8 +341,7 @@ export default function ProfilePage() {
       // Fetch user's meal plans first to get the active plan
       fetchUserMealPlans();
       
-      // Fetch saved meals for the selector
-      fetchSavedMeals();
+      // Remove the default fetchSavedMeals call on initial load
     }
   }, [accessToken]);
 
@@ -338,9 +349,8 @@ export default function ProfilePage() {
   useEffect(() => {
     // Check if the user is authenticated and not loading
     if (isAuthenticated && !isLoading) {
-      // Fetch meal plans and saved meals when the component mounts
+      // Fetch meal plans when the component mounts
       fetchUserMealPlans();
-      fetchSavedMeals();
       
       // Load global settings from localStorage
       const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
@@ -472,9 +482,12 @@ export default function ProfilePage() {
   const handleCreateNewMeals = () => router.push('/meals');
   const handleViewMealPlanner = () => router.push('/planner');
   
+  // Modified to fetch saved meals when a user wants to add a meal
   const handleAddMeal = (mealType) => {
     setSelectedMealType(mealType);
     setActiveSection('savedMeals');
+    // Fetch saved meals for the selected meal type on demand
+    fetchSavedMeals(mealType);
   };
 
   // Select a saved meal
@@ -750,8 +763,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
       {/* Create New Meals Button */}
       <button
         onClick={handleCreateNewMeals}
-        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
-      >
+        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all">
         Create New Meals
       </button>
     </div>
