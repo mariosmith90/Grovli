@@ -29,16 +29,25 @@ const BarcodeScanner = ({ onDetected, onClose }) => {
     
     setErrorMessage('');
     
+    // Detect if on mobile for better constraints
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
     Quagga.init({
       inputStream: {
         name: "Live",
         type: "LiveStream",
         target: scannerRef.current,
         constraints: {
-          width: 480,
-          height: 320,
+          width: isMobile ? { min: 240, ideal: 480, max: 640 } : { min: 640, ideal: 800, max: 1280 },
+          height: isMobile ? { min: 320, ideal: 480, max: 880 } : { min: 480, ideal: 600, max: 960 },
           facingMode: "environment" // Use the rear camera if available
         },
+        area: { // This should match where your guidebox is visually
+          top: "35%",    // Start scanning from 35% down from the top
+          right: "15%",  // 15% in from the right
+          left: "15%",   // 15% in from the left
+          bottom: "15%"  // 15% up from the bottom
+        }
       },
       decoder: {
         readers: [
@@ -70,6 +79,19 @@ const BarcodeScanner = ({ onDetected, onClose }) => {
       
       setIsInitialized(true);
       Quagga.start();
+      
+      // Make sure the video element is properly styled
+      if (scannerRef.current) {
+        const videoEl = scannerRef.current.querySelector('video');
+        if (videoEl) {
+          videoEl.style.position = 'absolute';
+          videoEl.style.top = '0';
+          videoEl.style.left = '0';
+          videoEl.style.width = '100%';
+          videoEl.style.height = '100%';
+          videoEl.style.objectFit = 'cover';
+        }
+      }
     });
     
     // Register callback for successful scans
@@ -103,7 +125,7 @@ const BarcodeScanner = ({ onDetected, onClose }) => {
   };
   
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center justify-center h-full">
       <div className="relative w-full max-w-md">
         {/* Close button */}
         <button
@@ -113,11 +135,18 @@ const BarcodeScanner = ({ onDetected, onClose }) => {
           <XCircle size={24} />
         </button>
         
-        {/* Scanner viewport */}
+        {/* Scanner viewport - Centered vertically */}
         <div 
           ref={scannerRef} 
-          className="overflow-hidden rounded-lg border-2 border-teal-500 bg-black relative"
-          style={{ minHeight: '300px' }}
+          className="overflow-hidden rounded-lg border-2 border-teal-500 bg-black relative mx-auto"
+          style={{ 
+            height: '350px',
+            width: '100%',
+            maxWidth: '400px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
         >
           {!isInitialized && !errorMessage && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-white">
@@ -140,11 +169,12 @@ const BarcodeScanner = ({ onDetected, onClose }) => {
             </div>
           )}
           
-          {/* Scanner guide lines */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="w-full h-full border-4 border-dashed border-white/30 flex flex-col items-center justify-center">
-              <div className="w-2/3 h-16 border-2 border-teal-400"></div>
-            </div>
+          {/* Scanner guide lines - Positioned lower in the viewport */}
+          <div className="absolute inset-0 pointer-events-none flex flex-col items-center">
+            <div 
+              className="w-2/3 h-16 border-2 border-teal-400 rounded"
+              style={{ marginTop: '45%' }} // This positions the guide box lower
+            ></div>
           </div>
         </div>
       </div>
