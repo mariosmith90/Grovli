@@ -98,7 +98,7 @@ export default function ProfilePage() {
 
   // Fetch user's meal plans
   const fetchUserMealPlans = async () => {
-    if (!user) return;
+    if (!user || !accessToken) return;
 
     try {
       setIsLoadingPlans(true);
