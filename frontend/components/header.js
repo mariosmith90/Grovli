@@ -64,6 +64,12 @@ export default function Header() {
                 Planner
               </button>
               <button
+                onClick={() => router.push('/pantry')}
+                className="text-white hover:text-teal-300"
+              >
+                Pantry
+              </button>
+              <button
                 onClick={() => router.push('/profile')}
                 className="text-white hover:text-teal-300"
               >
@@ -174,6 +180,18 @@ export default function Header() {
                           className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end"
                         >
                           Planner
+                        </button>
+                      </li>
+                      <li>
+                        <button
+                          onClick={() => {
+                            router.push('/pantry');
+                            setMenuOpen(false);
+                          }}
+                          className="w-full text-right px-6 py-4 text-lg font-medium hover:bg-gray-700 transition-colors duration-200 flex items-center justify-end relative"
+                        >
+                          Pantry
+                          <span className="ml-2 bg-orange-500 text-white text-xs px-1 py-0.5 rounded">BETA</span>
                         </button>
                       </li>
                       <li>

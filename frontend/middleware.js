@@ -15,7 +15,7 @@ export async function middleware(request) {
   }
   
   // ✅ Define protected routes that require authentication
-  const protectedRoutes = ["/planner", "/profile", "/meals", "saved-meals", "onboarding"];
+  const protectedRoutes = ["/planner", "/profile", "/meals", "saved-meals", "onboarding", "pantry"];
   
   // ✅ Enforce authentication only on protected routes
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
@@ -34,6 +34,7 @@ export const config = {
   matcher: [
     "/auth/:path*",
     "/onboarding",
+    "/pantry",
     "/planner",
     "/profile",
     "/meals",

@@ -7,6 +7,7 @@ from app.api.user_recipes import router as user_recipes_router
 from app.api.user_plans import router as user_plans_router
 from app.api.user_settings import user_settings_router
 from app.api.user_profile import user_profile_router
+from app.api.user_pantry import router as user_pantry_router
 
 import logging
 
@@ -36,6 +37,7 @@ app.include_router(user_plans_router, prefix="/api")
 app.include_router(chatbot_router)
 app.include_router(user_settings_router)
 app.include_router(user_profile_router)
+app.include_router(user_pantry_router, prefix="/api")
 
 @app.get("/")
 def root():
