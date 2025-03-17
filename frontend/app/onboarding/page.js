@@ -49,12 +49,40 @@ export default function OnboardingWizard() {
     sugar: 0
   });
 
+  // Check onboarding status on component mount
   useEffect(() => {
-    // Redirect to login if not authenticated
-    if (!isLoading && !user) {
-      router.push('/auth/login?returnTo=/onboarding');
-    }
+    const checkOnboarding = async () => {
+      if (!isLoading && user) {
+        const onboardingComplete = await checkOnboardingStatus();
+        if (onboardingComplete) {
+          router.push('/meals'); // Redirect to meal planner if onboarding is complete
+        }
+      }
+    };
+
+    checkOnboarding();
   }, [user, isLoading, router]);
+
+  // Function to check onboarding status
+  const checkOnboardingStatus = async () => {
+    if (!user) return false;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.onboarded; // Ensure this matches the API response structure
+      } else {
+        console.error("Failed to fetch onboarding status:", response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+      return false;
+    }
+  };
 
   // Check if all required fields for current step are filled
   const canProceed = () => {

@@ -29,8 +29,37 @@ const HomePage = () => {
     window.location.href = "https://form.typeform.com/to/r6ucQF6l"; // Redirect to Typeform
   };
 
-  const handleTryGrovli = () => {
-    router.push("/onboarding"); 
+  const handleTryGrovli = async () => {
+    if (!user) {
+      // If the user is not authenticated, redirect to login with a returnTo parameter
+      router.push("/auth/login?returnTo=/onboarding");
+      return;
+    }
+  
+    try {
+      // Check if the user has already completed onboarding
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
+  
+      if (response.ok) {
+        const data = await response.json();
+        if (data.onboarded) {
+          // If onboarding is complete, redirect to the meal planner
+          router.push("/meals");
+        } else {
+          // If onboarding is not complete, redirect to onboarding
+          router.push("/onboarding");
+        }
+      } else {
+        console.error("Failed to fetch onboarding status:", response.status);
+        // Fallback: Redirect to onboarding if the API call fails
+        router.push("/onboarding");
+      }
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+      // Fallback: Redirect to onboarding if there's an error
+      router.push("/onboarding");
+    }
   };
 
   return (
