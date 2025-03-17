@@ -684,13 +684,9 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
           onClick={() => setIsSelected(!isSelected)}
         >
           <img
-            src={meal.image || '/fallback-meal-image.jpg'}
+            src={meal.image || ''}
             alt={meal.name || "No meal selected"}
             className="w-full h-full object-cover"
-            onError={(e) => {
-              e.target.onerror = null;
-              e.target.src = "/fallback-meal-image.jpg";
-            }}
           />
           <div
             className={`absolute inset-0 transition-opacity ${
@@ -880,10 +876,6 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
                                 e.stopPropagation(); // Prevent event bubbling
                                 router.push(`/recipes/${meal.id}`); // Navigate to recipe page
                               }}
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = "/fallback-meal-image.jpg";
-                              }}
                             />
                           )}
                           <div>
@@ -955,13 +947,9 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreat
             className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
           >
             <img 
-              src={meal.image || '/fallback-meal-image.jpg'} 
+              src={meal.image || ''} 
               alt={meal.name} 
               className="w-16 h-16 rounded-md object-cover"
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = "/fallback-meal-image.jpg";
-              }}
             />
             <div className="ml-3">
               <h4 className="font-medium">{meal.name}</h4>
