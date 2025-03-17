@@ -9,7 +9,7 @@ import Footer from '../../components/footer';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, isLoading } = useUser();
+  const { user, isLoading: isAuthLoading } = useUser();
   const isAuthenticated = !!user;
   const [accessToken, setAccessToken] = useState(null);
 
@@ -17,11 +17,11 @@ export default function ProfilePage() {
   const [activeSection, setActiveSection] = useState('timeline');
   const [selectedMealType, setSelectedMealType] = useState(null);
   const [calorieData, setCalorieData] = useState({ consumed: 0, target: 2000 });
-  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false); // Changed to false initially
+  const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false);
   const [currentMealIndex, setCurrentMealIndex] = useState(0);
   const [activePlanId, setActivePlanId] = useState(null);
   const [userPlans, setUserPlans] = useState([]);
-  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true); // Set to true initially
   const [lastCheckTime, setLastCheckTime] = useState(null);
 
   const [globalSettings, setGlobalSettings] = useState({
@@ -319,7 +319,7 @@ export default function ProfilePage() {
 
   // Initialize the app
   useEffect(() => {
-    if (isAuthenticated && !isLoading) {
+    if (isAuthenticated && !isAuthLoading) {
       // Fetch access token on initial load
       const fetchAccessToken = async () => {
         try {
@@ -334,21 +334,19 @@ export default function ProfilePage() {
 
       fetchAccessToken();
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isAuthLoading]);
 
   useEffect(() => {
     if (accessToken) {
       // Fetch user's meal plans first to get the active plan
       fetchUserMealPlans();
-      
-      // Remove the default fetchSavedMeals call on initial load
     }
   }, [accessToken]);
 
   // In your useEffect that loads data when the component mounts
   useEffect(() => {
     // Check if the user is authenticated and not loading
-    if (isAuthenticated && !isLoading) {
+    if (isAuthenticated && !isAuthLoading) {
       // Fetch meal plans when the component mounts
       fetchUserMealPlans();
       
@@ -390,11 +388,11 @@ export default function ProfilePage() {
         fetchUserSettings();
       }
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isAuthLoading]);
   
   // Add a separate effect to refresh data when the component gets focus
   useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
+    if (!isAuthenticated || isAuthLoading) return;
     
     // Function to refresh meal plans
     const refreshMealPlans = () => {
@@ -419,11 +417,11 @@ export default function ProfilePage() {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isAuthLoading]);
   
   // THE FIX: Add an effect to check for meal plan updates
   useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
+    if (!isAuthenticated || isAuthLoading) return;
     
     // Function to check if meal plan was updated
     const checkForMealPlanUpdates = () => {
@@ -463,7 +461,7 @@ export default function ProfilePage() {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isAuthenticated, isLoading, lastCheckTime]);
+  }, [isAuthenticated, isAuthLoading, lastCheckTime]);
 
   // Update calorie count based on planned meals
   const updateCalorieCount = (currentMealPlan = mealPlan) => {
