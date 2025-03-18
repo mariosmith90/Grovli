@@ -10,6 +10,9 @@
   "dependencies": {
     "@auth0/auth0-react": "^2.3.0",
     "@auth0/nextjs-auth0": "^4.0.2",
+    "barcode-detector": "^2.2.0",
+    "@capacitor-mlkit/barcode-scanning": "^5.1.0",
+    "@capacitor/core": "^5.5.0",
     "@heroicons/react": "^2.2.0",
     "lucide-react": "^0.475.0",
     "next": "^15.1.7",
