@@ -28,8 +28,8 @@ router = APIRouter(prefix="/user-pantry", tags=["User Pantry"])
 # --- Pydantic Models ---
 class PantryItem(BaseModel):
     name: str
+    quantity: Optional[float] = 1
     barcode: Optional[str] = None
-    quantity: Optional[int] = 1
     expiry_date: Optional[str] = None
     category: Optional[str] = None
     nutritional_info: Optional[Dict] = None
@@ -57,6 +57,61 @@ class MealRecommendationRequest(BaseModel):
     ingredients: List[str]
     dietary_preferences: Optional[str] = None
 
+# --- Category Classification with Gemini ---
+VALID_CATEGORIES = [
+    "Produce", "Dairy", "Meat", "Seafood", "Bakery", 
+    "Pantry", "Frozen", "Beverages", "Snacks", 
+    "Condiments", "Spices", "Other"
+]
+
+def auto_categorize_item(item_name: str) -> str:
+    """
+    Use Gemini AI to automatically categorize a pantry item based on its name
+    """
+    if not GEMINI_API_KEY:
+        return "Other"  # Default category if Gemini API is not available
+    
+    try:
+        # Check cache first to avoid repeated API calls for common items
+        cache_key = f"category:{item_name.lower()}"
+        cached_category = get_cache(cache_key)
+        
+        if cached_category and cached_category in VALID_CATEGORIES:
+            return cached_category
+        
+        # Format the prompt for Gemini
+        prompt_parts = [
+            f"Categorize the food item '{item_name}' into exactly one of these categories: {', '.join(VALID_CATEGORIES)}.\n"
+            "Respond with only the category name, nothing else."
+        ]
+        
+        # Generate categorization using Gemini
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt_parts)
+        
+        # Process response
+        category = response.text.strip()
+        
+        # Validate and normalize category
+        if category not in VALID_CATEGORIES:
+            # Find closest match
+            for valid_cat in VALID_CATEGORIES:
+                if valid_cat.lower() in category.lower() or category.lower() in valid_cat.lower():
+                    category = valid_cat
+                    break
+            else:
+                # If no match found, use "Other"
+                category = "Other"
+        
+        # Cache the result for future use
+        set_cache(cache_key, category, 86400 * 7)  # Cache for 7 days
+        
+        return category
+    
+    except Exception as e:
+        print(f"Error categorizing item with Gemini: {e}")
+        return "Other"  # Default to "Other" if categorization fails
+
 # --- External API Integration for Barcode Scanning ---
 def get_product_from_barcode(barcode: str):
     """
@@ -69,11 +124,19 @@ def get_product_from_barcode(barcode: str):
         if data.get("status") == 1:
             product = data.get("product", {})
             
+            # Get product name
+            name = product.get("product_name", "Unknown Product")
+            
+            # Use Gemini to categorize if not provided or unknown
+            category = product.get("categories_tags", ["unknown"])[0] if product.get("categories_tags") else None
+            if not category or category == "unknown":
+                category = auto_categorize_item(name)
+            
             # Format the response
             return {
-                "name": product.get("product_name", "Unknown Product"),
+                "name": name,
                 "barcode": barcode,
-                "category": product.get("categories_tags", ["unknown"])[0] if product.get("categories_tags") else "unknown",
+                "category": category,
                 "nutritional_info": {
                     "calories": product.get("nutriments", {}).get("energy-kcal_100g"),
                     "fat": product.get("nutriments", {}).get("fat_100g"),
@@ -187,6 +250,10 @@ async def add_pantry_item(item: PantryItem, current_user: dict = Depends(get_aut
         item_id = str(uuid.uuid4())
         now = datetime.datetime.now().isoformat()
         
+        # Auto-categorize if category is not provided
+        if not item.category:
+            item.category = auto_categorize_item(item.name)
+        
         # Prepare the item document
         pantry_item = {
             "id": item_id,
@@ -203,10 +270,10 @@ async def add_pantry_item(item: PantryItem, current_user: dict = Depends(get_aut
         }
         
         # Save to database
-        user_pantry_collection.insert_one(pantry_item)
+        result = user_pantry_collection.insert_one(pantry_item)
         
         # Convert MongoDB ObjectId to string for JSON response
-        pantry_item["_id"] = str(pantry_item.get("_id", ""))
+        pantry_item["_id"] = str(result.inserted_id)
         
         # Invalidate user pantry cache
         delete_cache(f"user_pantry:{current_user['id']}")
@@ -297,6 +364,10 @@ async def update_pantry_item(item_id: str, item: PantryItem, current_user: dict 
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pantry item not found"
             )
+        
+        # Auto-categorize if category is not provided
+        if not item.category and item.name != existing_item.get("name"):
+            item.category = auto_categorize_item(item.name)
         
         # Prepare update document
         update_doc = {
@@ -399,4 +470,65 @@ async def recommend_meals(request: MealRecommendationRequest, current_user: dict
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate meal recommendations: {str(e)}"
+        )
+
+@router.post("/bulk-add")
+async def bulk_add_pantry_items(
+    items: List[PantryItem], 
+    current_user: dict = Depends(get_auth0_user)
+):
+    """Bulk add multiple items to the user's pantry"""
+    try:
+        # Validate and add each item
+        added_items = []
+        for item_data in items:
+            # Create a unique ID for the item
+            item_id = str(uuid.uuid4())
+            now = datetime.datetime.now().isoformat()
+            
+            # Auto-categorize if category is not provided
+            if not item_data.category:
+                item_data.category = auto_categorize_item(item_data.name)
+            
+            # Prepare the item document
+            pantry_item = {
+                "id": item_id,
+                "user_id": current_user["id"],
+                "name": item_data.name,
+                "quantity": item_data.quantity or 1,
+                "category": item_data.category,
+                "created_at": now,
+                "updated_at": now
+            }
+            
+            # Optional fields if available
+            if item_data.expiry_date:
+                pantry_item["expiry_date"] = item_data.expiry_date
+            if item_data.barcode:
+                pantry_item["barcode"] = item_data.barcode
+            if item_data.nutritional_info:
+                pantry_item["nutritional_info"] = item_data.nutritional_info
+            if item_data.image_url:
+                pantry_item["image_url"] = item_data.image_url
+            
+            # Insert the item
+            result = user_pantry_collection.insert_one(pantry_item)
+            
+            # Convert MongoDB ObjectId to string for serialization
+            pantry_item_response = {**pantry_item, "_id": str(result.inserted_id)}
+            
+            added_items.append(pantry_item_response)
+        
+        # Invalidate user pantry cache
+        delete_cache(f"user_pantry:{current_user['id']}")
+        
+        return {
+            "message": f"Successfully added {len(added_items)} items to pantry",
+            "items": added_items
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add pantry items: {str(e)}"
         )

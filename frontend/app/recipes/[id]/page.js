@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Save, Calendar, Check, X, Loader, ChevronRight } from "lucide-react";
+import { ChevronLeft, Save, Calendar, Loader, ChevronRight } from "lucide-react";
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
+import { Download, Check, X } from 'lucide-react';
 import { toast } from "react-hot-toast";
 
 export default function RecipePage() {
@@ -11,6 +12,7 @@ export default function RecipePage() {
   const router = useRouter();
   const mealId = params?.id || ""; 
   const { user, isLoading: userLoading } = useUser();
+  const [showIngredientConfirmation, setShowIngredientConfirmation] = useState(false);
 
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -27,6 +29,7 @@ export default function RecipePage() {
   const [availableWeeks, setAvailableWeeks] = useState([]);
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [displayDates, setDisplayDates] = useState([]);
+  const [addToPantry, setAddToPantry] = useState(false);
 
   useEffect(() => {
     if (!mealId) return; 
@@ -80,6 +83,45 @@ export default function RecipePage() {
 
     checkIfSaved();
   }, [user, recipe, mealId]);
+
+  // Add this function to your component
+  const addIngredientsToUserPantry = async () => {
+    if (!user) {
+      router.push('/auth/login?returnTo=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+  
+    try {
+      const accessToken = await getAccessToken({
+        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+      });
+  
+      // Prepare ingredients for adding to pantry
+      const ingredientsToAdd = recipe.ingredients.map(ingredient => ({
+        name: ingredient.name,
+        quantity: ingredient.quantity ? parseFloat(ingredient.quantity) : 1,
+      }));
+  
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/bulk-add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(ingredientsToAdd)  // Send the array directly, not wrapped in another object
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to add ingredients to pantry');
+      }
+  
+      toast.success(`Added ${ingredientsToAdd.length} ingredients to your pantry`);
+      setShowIngredientConfirmation(false);
+    } catch (error) {
+      console.error('Error adding ingredients:', error);
+      toast.error('Failed to add ingredients to pantry');
+    }
+  };
 
   // Handle saving recipe
   const handleSaveRecipe = async () => {
@@ -305,7 +347,7 @@ export default function RecipePage() {
       toast.error("Please select a plan, date, and meal type");
       return;
     }
-
+  
     try {
       setAddingToPlanner(true);
       
@@ -313,19 +355,16 @@ export default function RecipePage() {
         authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
       });
       
-      // Ensure we're working with a Date object
       const dateToUse = typeof selectedDate === 'string' 
         ? new Date(selectedDate) 
         : selectedDate;
       
-      // Adjust for local timezone and ensure we're using the exact date selected
       const formattedDate = `${dateToUse.getFullYear()}-${
         String(dateToUse.getMonth() + 1).padStart(2, '0')
       }-${
         String(dateToUse.getDate()).padStart(2, '0')
       }`;
       
-      // Check if this is today's date
       const today = new Date();
       const todayFormatted = `${today.getFullYear()}-${
         String(today.getMonth() + 1).padStart(2, '0')
@@ -334,61 +373,54 @@ export default function RecipePage() {
       }`;
       const isCurrentDay = formattedDate === todayFormatted;
       
-      // Get current meals for this plan to append the new meal
       const planToUpdate = userPlans.find(p => p.id === selectedPlan);
       if (!planToUpdate) {
         throw new Error("Selected plan not found");
       }
       
-      // Get existing meal items - ENSURE PROPER STRUCTURE
       const existingMealItems = (planToUpdate.meals || []).map(meal => {
-        // Keep the existing structure if it's already in the right format
         if (meal.mealId) {
           return {
             date: meal.date,
             mealType: meal.mealType,
             mealId: meal.mealId,
-            current_day: meal.date === todayFormatted  // Set current_day based on date
+            current_day: meal.date === todayFormatted
           };
         } else if (meal.meal && meal.meal.recipe_id) {
           return {
             date: meal.date,
             mealType: meal.mealType,
             mealId: meal.meal.recipe_id,
-            current_day: meal.date === todayFormatted  // Set current_day based on date
+            current_day: meal.date === todayFormatted
           };
         } else if (meal.meal && meal.meal.id) {
           return {
             date: meal.date,
             mealType: meal.mealType,
             mealId: meal.meal.id,
-            current_day: meal.date === todayFormatted  // Set current_day based on date
+            current_day: meal.date === todayFormatted
           };
         }
         
-        // Default fallback (should not happen)
         return {
           date: meal.date,
           mealType: meal.mealType,
-          mealId: "",  // Empty string as fallback
-          current_day: meal.date === todayFormatted  // Set current_day based on date
+          mealId: "",
+          current_day: meal.date === todayFormatted
         };
-      }).filter(item => item.mealId); // Filter out items with empty mealId
+      }).filter(item => item.mealId);
       
-      // Check if we're replacing an existing meal for this date and type
       const updatedMealItems = existingMealItems.filter(
         item => !(item.date === formattedDate && item.mealType === selectedMealType)
       );
       
-      // Add the new meal - USING THE CORRECT FORMAT
       updatedMealItems.push({
         date: formattedDate,
         mealType: selectedMealType,
         mealId: recipe.id || mealId,
-        current_day: isCurrentDay  // Set current_day flag
+        current_day: isCurrentDay
       });
       
-      // Update the plan
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/update`, {
         method: 'POST',
         headers: {
@@ -402,18 +434,43 @@ export default function RecipePage() {
           planName: planToUpdate.name
         })
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error("API error details:", errorData);
         throw new Error(`Failed to add to meal plan: ${response.status}`);
       }
-
+  
+      // Only add to pantry if checkbox is checked
+      if (addToPantry && recipe.ingredients && recipe.ingredients.length > 0) {
+        // Format the ingredients to match the PantryItem model
+        const ingredientsToAdd = recipe.ingredients.map(ingredient => ({
+          name: ingredient.name,
+          quantity: ingredient.quantity ? parseFloat(ingredient.quantity) : 1,
+        }));
+      
+        const pantryResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/bulk-add`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify(ingredientsToAdd)  
+        });
+  
+        if (!pantryResponse.ok) {
+          throw new Error('Failed to add ingredients to pantry');
+        }
+  
+        toast.success(`Added ${ingredientsToAdd.length} ingredients to your pantry`);
+      }
+  
       toast.success(`Added to ${selectedMealType} on ${new Date(formattedDate).toLocaleDateString()}`);
       setShowPlannerOverlay(false);
+      setAddToPantry(false);
     } catch (error) {
-      console.error("Error adding to meal plan:", error);
-      toast.error("Failed to add to meal plan");
+      console.error("Error adding to meal plan or pantry:", error);
+      toast.error("Failed to add to meal plan or pantry");
     } finally {
       setAddingToPlanner(false);
     }
@@ -565,6 +622,23 @@ export default function RecipePage() {
                 </div>
               )}
 
+              {/* Optional: Add to Pantry Checkbox */}
+              <div className="flex items-center mb-4">
+                <input
+                  type="checkbox"
+                  id="addToPantry"
+                  checked={addToPantry}
+                  onChange={() => setAddToPantry(!addToPantry)}
+                  className="mr-2 text-teal-500 focus:ring-teal-500 border-gray-300 rounded"
+                />
+                <label 
+                  htmlFor="addToPantry" 
+                  className="text-gray-700"
+                >
+                  Add ingredients to pantry
+                </label>
+              </div>
+
               {/* Add button */}
               <div className="pt-4">
                 <button
@@ -699,37 +773,40 @@ export default function RecipePage() {
             </div>
           </div>
           
-          {/* Full-width Action Button */}
-          {!userLoading && (
-            <div className="mb-6">
-              {isSaved ? (
-                <button
-                  onClick={togglePlannerOverlay}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-teal-500 text-white py-3 font-medium shadow-md hover:bg-teal-600 transition-colors mb-4" // Added mb-2 for margin-bottom
-                >
-                  Add to {recipe.meal_type ? capitalizeFirstLetter(recipe.meal_type) : "Meal Plan"}
-                </button>
-              ) : (
-                <button
-                  onClick={handleSaveRecipe}
-                  disabled={saving}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-teal-500 text-white py-3 font-medium shadow-md hover:bg-teal-600 transition-colors mb-2" // Added mb-2 for margin-bottom
-                >
-                  {saving ? (
-                    <>
-                      <Loader className="w-5 h-5 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      Save Recipe
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-        </div>       
+          {/* Action Buttons Section */}
+          <div className="mb-6">
+            {!userLoading && (
+              <>
+                {isSaved ? (
+                  <div className="relative">
+                    <button
+                      onClick={togglePlannerOverlay}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-teal-500 text-white py-3 font-medium shadow-md hover:bg-teal-600 transition-colors mb-4"
+                    >
+                      Add to {recipe.meal_type ? capitalizeFirstLetter(recipe.meal_type) : "Meal Plan"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleSaveRecipe}
+                    disabled={saving}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-teal-500 text-white py-3 font-medium shadow-md hover:bg-teal-600 transition-colors mb-2"
+                  >
+                    {saving ? (
+                      <>
+                        <Loader className="w-5 h-5 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Recipe"
+                    )}
+                  </button>
+                )}
+              </>
+            )}
+        </div> 
+      </div>       
+      
         
         {/* Ingredients Section - White background with gray cards */}
         <div className="px-6 pb-10">
