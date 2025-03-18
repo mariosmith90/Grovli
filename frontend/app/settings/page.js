@@ -312,7 +312,7 @@ export default function GlobalSettings() {
       {/* Info message that toggles based on state */}
       {showCalorieInfo && (
         <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded-md mb-3">
-          Changes to calorie targets will affect your meal generation results.
+          Changes to calorie target will affect your meal generation results.
         </div>
         )}
 
