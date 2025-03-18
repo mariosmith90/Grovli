@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Info } from 'lucide-react';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import Header from '../../components/header';
 import Footer from '../../components/footer';
@@ -22,6 +23,7 @@ export default function GlobalSettings() {
   const [fat, setFat] = useState(67);
   const [fiber, setFiber] = useState(34);
   const [sugar, setSugar] = useState(60);
+  const [showCalorieInfo, setShowCalorieInfo] = useState(false);
 
   // Fetch Subscription Status
   const fetchSubscriptionStatus = async () => {
@@ -236,7 +238,7 @@ export default function GlobalSettings() {
       
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex justify-between items-center mb-8">
             <h2 className="text-2xl font-semibold text-gray-800">
               Global Meal Settings
             </h2>
@@ -244,7 +246,7 @@ export default function GlobalSettings() {
 
           {/* Manual Mode Section */}
           <div className="mb-8">
-            <p className="text-base font-semibold text-gray-700 mb-3">
+            <p className="text-xl font-semibold text-gray-700 mb-3">
               Macro Calculation Mode
             </p>
 
@@ -294,17 +296,25 @@ export default function GlobalSettings() {
             )}
           </div>
 
-          {/* Macro Sliders Section */}
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold text-gray-700 mb-3">
-              Macronutrients
-            </h3>
-
         {/* Calories Slider */}
         <div className="mb-8">
-        <p className="text-base font-semibold text-gray-700 mb-3">
-            Calorie Target
+        <p className="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+          Calorie Target
+          <button 
+            onClick={() => setShowCalorieInfo(!showCalorieInfo)}
+            className="ml-2 text-gray-500 focus:outline-none"
+            aria-label="Show information about calorie targets"
+          >
+            <Info className="w-6 h-6" />
+          </button>
         </p>
+
+      {/* Info message that toggles based on state */}
+      {showCalorieInfo && (
+        <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded-md mb-3">
+          Changes to calorie targets will affect your meal generation results.
+        </div>
+        )}
 
         <div className="flex items-center space-x-4">
             <input 
@@ -339,6 +349,12 @@ export default function GlobalSettings() {
             </span>
         </div>
         </div>
+
+          {/* Macro Sliders Section */}
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold text-gray-700 mb-3">
+              Macronutrients
+            </h3>
 
             {/* Carbs Slider */}
             <div className="mb-4">
