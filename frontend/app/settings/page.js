@@ -6,7 +6,6 @@ import { Info } from 'lucide-react';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import Header from '../../components/header';
 import Footer from '../../components/footer';
-import SettingsIcon from '../../components/settings';
 
 export default function GlobalSettings() {
   const router = useRouter();
@@ -14,6 +13,8 @@ export default function GlobalSettings() {
   const [isPro, setIsPro] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Global Settings State
   const [calculationMode, setCalculationMode] = useState('auto');
@@ -23,6 +24,7 @@ export default function GlobalSettings() {
   const [fat, setFat] = useState(67);
   const [fiber, setFiber] = useState(34);
   const [sugar, setSugar] = useState(60);
+  const [dietaryPhilosophy, setDietaryPhilosophy] = useState('');
   const [showCalorieInfo, setShowCalorieInfo] = useState(false);
 
   // Fetch Subscription Status
@@ -94,6 +96,17 @@ export default function GlobalSettings() {
     };
   };
 
+  // Handle dietary philosophy change
+  const handleDietaryPhilosophyChange = (philosophy) => {
+    // If the same philosophy is clicked, remove it
+    if (dietaryPhilosophy === philosophy) {
+      setDietaryPhilosophy('');
+    } else {
+      // Otherwise, set the new philosophy
+      setDietaryPhilosophy(philosophy);
+    }
+  };
+
   // Macro Adjustment Function 
   const adjustMacrosForMealType = (caloriesValue) => {
     const proteinCalories = caloriesValue * 0.30; // 30% for protein
@@ -121,6 +134,7 @@ export default function GlobalSettings() {
       setFat(savedSettings.fat || 67);
       setFiber(savedSettings.fiber || 34);
       setSugar(savedSettings.sugar || 60);
+      setDietaryPhilosophy(savedSettings.dietaryPhilosophy || '');
     }
     
     // If user is authenticated, fetch their settings from server
@@ -140,6 +154,7 @@ export default function GlobalSettings() {
             setFat(serverSettings.fat); 
             setFiber(serverSettings.fiber);
             setSugar(serverSettings.sugar);
+            setDietaryPhilosophy(serverSettings.dietaryPhilosophy || '');
             
             // Also update localStorage with these settings
             localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
@@ -155,59 +170,72 @@ export default function GlobalSettings() {
 
   // Save settings to both localStorage and server
   const saveSettings = async () => {
-    setLoading(true);
-    
-    // Prepare the settings object
-    const settingsData = {
-      calculationMode,
-      calories,
-      carbs,
-      protein,
-      fat,
-      fiber,
-      sugar
-    };
-    
-    // Always save to localStorage
-    localStorage.setItem("globalMealSettings", JSON.stringify(settingsData));
-    
-    // If user is authenticated, save to server as well
-    if (user && user.sub) {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const token = await getAccessToken({
-          authorizationParams: {
-            audience: "https://grovli.citigrove.com/audience"
-          }
-        });
-        
-        const response = await fetch(`${apiUrl}/user-settings/${user.sub}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(settingsData)
-        });
-        
-        if (!response.ok) {
-          console.error("Failed to save settings to server");
-        } else {
-          console.log("Settings saved to server successfully");
-        }
-      } catch (error) {
-        console.error("Error saving settings to server:", error);
-      }
+    if (!user) {
+      setError("You must be logged in to save settings");
+      return;
     }
-    
-    // Show success message
-    setSaveSuccess(true);
-    
-    // Hide success message after 3 seconds
-    setTimeout(() => {
+  
+    try {
+      setIsSaving(true);
+      setError("");
       setSaveSuccess(false);
-      setLoading(false);
-    }, 3000);
+  
+      const token = await getAccessToken({
+        authorizationParams: {
+          audience: "https://grovli.citigrove.com/audience"
+        }
+      });
+  
+      // Validate the settings before sending to API
+      if (calories < 1000 || calories > 5000) {
+        setError("Calories must be between 1000 and 5000");
+        setIsSaving(false);
+        return;
+      }
+  
+      // Prepare the settings object - add dietaryPhilosophy
+      const settingsData = {
+        calculationMode,
+        calories,
+        carbs,
+        protein,
+        fat,
+        fiber,
+        sugar,
+        dietaryPhilosophy
+      };
+  
+      // Prepare API request
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/user-settings/${user.sub}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(settingsData),
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP error ${response.status}`);
+      }
+  
+      // Update localStorage with these settings
+      localStorage.setItem('globalMealSettings', JSON.stringify(settingsData));
+      
+      // Show success message
+      setSaveSuccess(true);
+      
+      // Hide success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
+      
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      setError(`Failed to save settings: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Calculate macros when calories change
@@ -295,6 +323,31 @@ export default function GlobalSettings() {
               </p>
             )}
           </div>
+
+        {/* Dietary Philosophy Section */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">
+            Your Eating Philosophy
+          </h3>
+          <p className="text-sm text-gray-600 mb-4">
+            This will be applied to all your meal plans.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
+              <button
+                key={option}
+                onClick={() => handleDietaryPhilosophyChange(option)}
+                className={`px-4 py-2 rounded-full border-2 ${
+                  dietaryPhilosophy === option
+                    ? "bg-teal-500 text-white border-white" 
+                    : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
+                } transition-all`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Calories Slider */}
         <div className="mb-8">
@@ -462,14 +515,21 @@ export default function GlobalSettings() {
             </div>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="mt-4 p-3 bg-red-100 text-red-700 rounded-lg text-center">
+              {error}
+            </div>
+          )}
+
           {/* Save Button */}
           <div className="flex justify-center mt-6">
             <button
               onClick={saveSettings}
-              disabled={loading}
+              disabled={isSaving}
               className="w-full max-w-md py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
             >
-              {loading ? "Saving..." : "Save Settings"}
+              {isSaving ? "Saving..." : "Save Settings"}
             </button>
           </div>
           

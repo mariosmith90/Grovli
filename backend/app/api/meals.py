@@ -15,6 +15,7 @@ import google.generativeai as genai
 from app.utils.tasks import generate_meal_plan as meal_plan_task
 from app.utils.tasks import notify_meal_plan_ready_task
 from app.utils.redis_client import get_cache, set_cache, delete_cache, MEAL_CACHE_TTL
+from app.api.user_settings import user_settings_collection
 import pickle
 
 # Configure logging
@@ -227,6 +228,32 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     user_id = request_obj.headers.get("user-id") or request_obj.headers.get("x-user-id")
     logger.info(f"Processing meal plan request for user_id: {user_id}")
     
+    # If user is logged in, try to get their dietary philosophy from settings
+    dietary_preferences = request.dietary_preferences.strip()
+    if user_id:
+        try:
+            # Check Redis cache first
+            settings_cache_key = f"user_settings:{user_id}"
+            cached_settings = get_cache(settings_cache_key)
+            
+            if cached_settings and cached_settings.get("dietaryPhilosophy"):
+                # If the user's preferences already include their philosophy, don't add it again
+                philosophy = cached_settings.get("dietaryPhilosophy")
+                if philosophy and philosophy not in dietary_preferences:
+                    dietary_preferences = f"{dietary_preferences} {philosophy}".strip()
+                    logger.info(f"Added dietary philosophy '{philosophy}' from user settings")
+            else:
+                # If not in Redis, check MongoDB
+                user_settings = user_settings_collection.find_one({"user_id": user_id})
+                if user_settings and user_settings.get("dietaryPhilosophy"):
+                    philosophy = user_settings.get("dietaryPhilosophy")
+                    if philosophy and philosophy not in dietary_preferences:
+                        dietary_preferences = f"{dietary_preferences} {philosophy}".strip()
+                        logger.info(f"Added dietary philosophy '{philosophy}' from database")
+        except Exception as e:
+            logger.error(f"Error getting user dietary philosophy: {str(e)}")
+            # Continue with original preferences if there's an error
+    
     # Step 1: Determine the correct number and types of meals needed
     if request.meal_type == "Full Day":
         meal_counts = {
@@ -243,7 +270,8 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     logger.info(f"🍽️ Generating meal plan with {total_meals_needed} total meals: {meal_counts}")
     
     # Step 2: Create a deterministic hash key that identifies this exact request
-    request_hash = f"{request.meal_type}_{request.dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
+    # Include the full dietary preferences (with philosophy) in the hash
+    request_hash = f"{request.meal_type}_{dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
     logger.info(f"🔑 Request hash: {request_hash}")
     
     # Step 3: Check Redis cache first
@@ -366,7 +394,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     
     # Convert the Pydantic model to a dictionary for Celery
     request_dict = {
-        "dietary_preferences": request.dietary_preferences,
+        "dietary_preferences": dietary_preferences,  # Use the combined preferences
         "meal_type": request.meal_type,
         "calories": request.calories,
         "protein": request.protein,

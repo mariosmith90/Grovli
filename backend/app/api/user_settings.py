@@ -30,6 +30,8 @@ class UserSettings(BaseModel):
     fat: int = Field(default=67, ge=0, description="Daily fat target in grams")
     fiber: int = Field(default=34, ge=0, description="Daily fiber target in grams")
     sugar: int = Field(default=60, ge=0, description="Daily sugar limit in grams")
+    dietaryPhilosophy: str = Field(default="", description="User's dietary philosophy (e.g., Vegan, Keto)")
+
 
 @user_settings_router.get("/{user_id}")
 async def get_user_settings(user_id: str):

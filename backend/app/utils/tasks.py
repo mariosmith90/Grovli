@@ -83,6 +83,36 @@ def generate_chat_response(session_id, dietary_preferences, meal_type, existing_
             role = "user" if msg["role"] == "user" else "model"
             conversation_history.append({"role": role, "parts": [msg["content"]]})
 
+        # Get user ID from chat session
+        chat_session = chat_collection.find_one({"session_id": session_id})
+        user_id = chat_session.get("user_id") if chat_session else None
+        
+        # Try to get dietary philosophy from user settings if available
+        user_dietary_philosophy = ""
+        if user_id:
+            try:
+                # Check Redis cache first
+                settings_cache_key = f"user_settings:{user_id}"
+                cached_settings = get_cache(settings_cache_key)
+                
+                if cached_settings and cached_settings.get("dietaryPhilosophy"):
+                    user_dietary_philosophy = cached_settings.get("dietaryPhilosophy")
+                else:
+                    # If not in Redis, check MongoDB using the db connection that's already available
+                    user_settings = db["user_settings"].find_one({"user_id": user_id})
+                    if user_settings and user_settings.get("dietaryPhilosophy"):
+                        user_dietary_philosophy = user_settings.get("dietaryPhilosophy")
+            except Exception as e:
+                logger.error(f"Error getting user dietary philosophy: {str(e)}")
+        
+        # Combine preferences with philosophy if not already included
+        combined_preferences = dietary_preferences or ""
+        if user_dietary_philosophy and user_dietary_philosophy not in combined_preferences:
+            if combined_preferences:
+                combined_preferences = f"{combined_preferences} {user_dietary_philosophy}"
+            else:
+                combined_preferences = user_dietary_philosophy
+        
         # Create fresh model instance
         model = genai.GenerativeModel("gemini-1.5-flash")
         chat = model.start_chat(history=conversation_history)
@@ -91,7 +121,7 @@ def generate_chat_response(session_id, dietary_preferences, meal_type, existing_
         nutrition_context = f"""
         You are a nutrition assistant chatting with a user while their {meal_type} meal plan generates.
         Keep responses friendly, conversational, and focused on nutrition/healthy eating.
-        Current dietary focus: {dietary_preferences or 'balanced nutrition'}
+        Current dietary focus: {combined_preferences or 'balanced nutrition'}
         
         Guidelines:
         - Be encouraging and supportive
@@ -535,6 +565,8 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     This is called when a meal plan has been generated.
     """
     try:
+        logger.info(f"Starting notification task for session {session_id}, meal plan {meal_plan_id}")
+        
         # Check Redis cache for notification history
         notification_cache_key = f"notification:{session_id}:{meal_plan_id}"
         previously_notified = get_cache(notification_cache_key)
@@ -547,6 +579,8 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
         if not chat_session:
             logger.warning(f"⚠️ Chat session not found: {session_id}")
             return {"status": "error", "message": f"Chat session not found: {session_id}"}
+        
+        logger.info(f"Found chat session: {session_id}")
         
         # Check if notification has already been sent
         existing_messages = chat_session.get("messages", [])
@@ -563,17 +597,19 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
         current_time = datetime.datetime.now()
         notification_message = {
             "role": "assistant",
-            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button. Let me know if you have any questions about your recipes or meal options!",
+            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
             "timestamp": current_time,
             "meal_plan_id": meal_plan_id,
             "is_notification": True
         }
         
+        logger.info(f"Adding notification message for meal plan {meal_plan_id}")
+        
         # Add to conversation history
         existing_messages.append(notification_message)
         
         # Update the chat session in MongoDB
-        chat_collection.update_one(
+        update_result = chat_collection.update_one(
             {"session_id": session_id},
             {
                 "$set": {
@@ -584,6 +620,8 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
                 }
             }
         )
+        
+        logger.info(f"Update result: modified={update_result.modified_count}")
         
         # Cache notification status to prevent duplicates
         set_cache(notification_cache_key, True, 86400)  # 24 hours TTL
