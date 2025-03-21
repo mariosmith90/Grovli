@@ -121,8 +121,7 @@ def generate_chat_response(session_id, dietary_preferences, meal_type, existing_
         nutrition_context = f"""
         You are a nutrition assistant chatting with a user while their {meal_type} meal plan generates.
         Keep responses friendly, conversational, and focused on nutrition/healthy eating.
-        Current dietary focus: {combined_preferences or 'balanced nutrition'}
-        
+                
         Guidelines:
         - Be encouraging and supportive
         - Share practical tips (1-2 sentences)

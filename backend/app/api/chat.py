@@ -75,7 +75,7 @@ async def start_chat_session(request: ChatRequest):
         initial_context = f"""
         Hey {first_name}!
 
-        While your {request.dietary_preferences or 'customized'} {request.meal_type.lower() or 'meal'} plan generates, I'm here to chat. Is this eating style new for you? Feel free to ask me any nutrition questions while your plan is being prepared.
+        While your meal plan generates, I'm here to chat. Feel free to ask me any nutrition questions while your plan is being prepared.
         """
         
         # Store the conversation in MongoDB

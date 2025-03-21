@@ -257,7 +257,7 @@ const ChatbotWindow = ({
     text.split('\n')
       .filter(p => p.trim() !== '')
       .map((paragraph, index) => (
-        <p key={index} className="mb-2">{paragraph}</p>
+        <p key={index} className="mb-2 leading-relaxed">{paragraph}</p>
       ));
 
   // Prevent rendering if not visible
@@ -265,25 +265,26 @@ const ChatbotWindow = ({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-4xl px-4">
-      <div className="bg-white rounded-xl shadow-xl w-full h-[500px] flex flex-col border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full h-[500px] flex flex-col border border-gray-100 overflow-hidden font-sans">
         {/* Chat Header */}
-        <div className="bg-teal-600 text-white p-3 rounded-t-xl flex justify-between items-center">
+        <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-t-2xl flex justify-between items-center">
           <div className="flex items-center">
-            <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center mr-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mr-3 shadow-md">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2a10 10 0 0 1 10 10c0 5.5-4.5 10-10 10S2 17.5 2 12a10 10 0 0 1 10-10Z"/>
                 <path d="M8 9h8"/>
                 <path d="M8 15h5"/>
                 <path d="M16 15h.01"/>
               </svg>
             </div>
-            <h2 className="text-xl font-semibold">Grovli Assistant</h2>
+            <h2 className="text-xl font-bold tracking-tight">Grovli Assistant</h2>
           </div>
           <button 
             onClick={onClose} 
-            className="p-2 hover:bg-teal-700 rounded-full text-white transition-colors"
+            className="p-2 hover:bg-white/20 rounded-full text-white transition-all duration-200"
+            aria-label="Close chat"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18"/>
               <path d="m6 6 12 12"/>
             </svg>
@@ -291,24 +292,29 @@ const ChatbotWindow = ({
         </div>
 
         {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-5 bg-gradient-to-b from-gray-50 to-white">
           {messages.map((message) => (
             <div 
               key={message.messageId} 
-              className={`mb-4 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`mb-5 flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div 
-                className={`rounded-2xl px-4 py-3 max-w-[80%] ${
+                className={`rounded-2xl px-5 py-3.5 max-w-[85%] shadow-sm ${
                   message.role === 'user' 
-                    ? 'bg-teal-600 text-white rounded-tr-none' 
+                    ? 'bg-gradient-to-br from-teal-500 to-teal-600 text-white rounded-tr-none shadow-teal-100' 
                     : message.is_notification
-                      ? 'bg-orange-100 border-2 border-orange-500 text-gray-800 rounded-tl-none'
-                      : 'bg-white text-gray-800 shadow-md rounded-tl-none'
+                      ? 'bg-gradient-to-br from-orange-50 to-amber-50 border-l-4 border-orange-400 text-gray-800 rounded-tl-none'
+                      : 'bg-white text-gray-800 rounded-tl-none shadow-gray-100 border border-gray-100'
                 }`}
+                style={{
+                  fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+                  fontSize: message.role === 'user' ? '15px' : '15px',
+                  letterSpacing: '0.01em',
+                }}
               >
                 {message.is_notification && (
-                  <div className="flex items-center mb-2 text-orange-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                  <div className="flex items-center mb-2 text-orange-500 font-medium">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
                       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                       <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                     </svg>
@@ -317,10 +323,10 @@ const ChatbotWindow = ({
                 )}
                 {formatMessage(message.content)}
                 {message.is_notification && (
-                  <div className="mt-3">
+                  <div className="mt-4">
                     <button
                       onClick={onChatComplete}
-                      className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
+                      className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all duration-200 shadow-md hover:shadow-lg"
                     >
                       View Meal Plan
                     </button>
@@ -337,7 +343,7 @@ const ChatbotWindow = ({
                 <button
                   key={index}
                   onClick={() => sendMessage(response)}
-                  className="bg-teal-50 border border-teal-300 text-teal-700 px-3 py-2 rounded-full text-sm hover:bg-teal-100 transition-colors"
+                  className="bg-teal-50 border border-teal-200 text-teal-700 px-4 py-2 rounded-full text-sm hover:bg-teal-100 transition-all duration-200 hover:shadow-sm font-medium"
                 >
                   {response}
                 </button>
@@ -350,28 +356,32 @@ const ChatbotWindow = ({
         </div>
 
         {/* Chat Input */}
-        <div className="p-3 border-t border-gray-200 bg-white">
+        <div className="p-4 border-t border-gray-100 bg-white">
           <form 
             onSubmit={(e) => {
               e.preventDefault();
               sendMessage(input);
             }} 
-            className="flex items-center gap-2"
+            className="flex items-center gap-3"
           >
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type your message..."
-              className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-teal-600"
+              className="flex-1 border border-gray-200 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-gray-700 font-medium transition-all duration-200 shadow-sm"
               disabled={isLoading}
+              style={{
+                fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+                fontSize: '15px',
+              }}
             />
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="bg-teal-600 text-white p-2 rounded-full hover:bg-teal-700 transition-colors disabled:opacity-50"
+              className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-3 rounded-full hover:shadow-md transition-all duration-200 disabled:opacity-50 active:scale-95"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m22 2-7 20-4-9-9-4Z"/>
                 <path d="M22 2 11 13"/>
               </svg>
