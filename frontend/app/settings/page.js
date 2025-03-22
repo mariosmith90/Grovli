@@ -26,6 +26,9 @@ export default function GlobalSettings() {
   const [sugar, setSugar] = useState(60);
   const [dietaryPhilosophy, setDietaryPhilosophy] = useState('');
   const [showCalorieInfo, setShowCalorieInfo] = useState(false);
+  const [showPhilosophyInfo, setShowPhilosophyInfo] = useState(false);
+  const [resetOnboarding, setResetOnboarding] = useState(false);
+  const [showResetInfo, setShowResetInfo] = useState(false);
 
   // Fetch Subscription Status
   const fetchSubscriptionStatus = async () => {
@@ -122,6 +125,38 @@ export default function GlobalSettings() {
     };
   };
 
+  // Reset onboarding status
+  const resetOnboardingStatus = async () => {
+    if (!user) return false;
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const token = await getAccessToken({
+        authorizationParams: {
+          audience: "https://grovli.citigrove.com/audience"
+        }
+      });
+      
+      const response = await fetch(`${apiUrl}/user-profile/reset-onboarding/${user.sub}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reset onboarding status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      return data.success;
+    } catch (error) {
+      console.error("Error resetting onboarding status:", error);
+      return false;
+    }
+  };
+
   // Load settings from localStorage and server
   useEffect(() => {
     // First load default settings from localStorage as a fallback
@@ -168,7 +203,6 @@ export default function GlobalSettings() {
     }
   }, [user]);
 
-  // Save settings to both localStorage and server
   const saveSettings = async () => {
     if (!user) {
       setError("You must be logged in to save settings");
@@ -180,11 +214,16 @@ export default function GlobalSettings() {
       setError("");
       setSaveSuccess(false);
   
+      // Get the access token
       const token = await getAccessToken({
         authorizationParams: {
           audience: "https://grovli.citigrove.com/audience"
         }
       });
+  
+      if (!token) {
+        throw new Error("Failed to get access token");
+      }
   
       // Validate the settings before sending to API
       if (calories < 1000 || calories > 5000) {
@@ -193,7 +232,7 @@ export default function GlobalSettings() {
         return;
       }
   
-      // Prepare the settings object - add dietaryPhilosophy
+      // Prepare the settings object
       const settingsData = {
         calculationMode,
         calories,
@@ -205,8 +244,11 @@ export default function GlobalSettings() {
         dietaryPhilosophy
       };
   
-      // Prepare API request
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      console.log("API URL:", apiUrl);
+      
+      // Step 1: Save the user settings
+      console.log("Saving user settings...");
       const response = await fetch(`${apiUrl}/user-settings/${user.sub}`, {
         method: 'POST',
         headers: {
@@ -221,17 +263,95 @@ export default function GlobalSettings() {
         throw new Error(errorData.detail || `HTTP error ${response.status}`);
       }
   
+      console.log("Settings saved successfully!");
+      
       // Update localStorage with these settings
       localStorage.setItem('globalMealSettings', JSON.stringify(settingsData));
       
       // Show success message
       setSaveSuccess(true);
       
-      // Hide success message after 3 seconds
+      // Step 2: If reset onboarding is selected, call the reset endpoint
+      if (resetOnboarding) {
+        console.log("Reset onboarding flag is ON, attempting to reset...");
+        
+        // The full URL to the reset-onboarding endpoint
+        const resetUrl = `${apiUrl}/user-profile/reset-onboarding/${user.sub}`;
+        console.log("Reset endpoint URL:", resetUrl);
+        
+        try {
+          const resetResponse = await fetch(resetUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          // Log the response for debugging
+          console.log("Reset response status:", resetResponse.status);
+          
+          if (resetResponse.ok) {
+            const resetData = await resetResponse.json();
+            console.log("Reset successful:", resetData);
+            
+            // Clear any cached onboarding state data
+            localStorage.removeItem('onboardingStatus');
+            localStorage.removeItem('onboardingCompleted');
+            localStorage.removeItem('onboardingData');
+            
+            // Show success message before redirecting
+            setSaveSuccess(true);
+            
+            // Set a flag to indicate we're coming from reset
+            localStorage.setItem('comingFromReset', 'true');
+            
+            // Use a short delay to show the success message
+            setTimeout(() => {
+              console.log("Executing redirect to onboarding...");
+              
+              // Force a hard refresh to the onboarding page with a query parameter
+              // This ensures we get fresh data from the server instead of using cached data
+              window.location.href = `${window.location.origin}/onboarding?reset=true&t=${Date.now()}`;
+            }, 1000);
+          } else {
+            console.error("Reset endpoint returned error:", resetResponse.status);
+            
+            // Try to log more details about the error
+            try {
+              const errorText = await resetResponse.text();
+              console.error("Error details:", errorText);
+            } catch (e) {
+              console.error("Could not get error details", e);
+            }
+            
+            // Still try to redirect even if there's an error
+            setSaveSuccess(true);
+            setTimeout(() => {
+              console.log("Redirecting to onboarding despite reset error...");
+              window.location.href = '/onboarding?reset=true';
+            }, 1000);
+          }
+        } catch (resetError) {
+          console.error("Error calling reset endpoint:", resetError);
+          
+          // Still try to redirect even if there's an exception
+          setSaveSuccess(true);
+          setTimeout(() => {
+            console.log("Redirecting to onboarding despite exception...");
+            window.location.href = '/onboarding?reset=true';
+          }, 1000);
+        }
+        
+        // Important: return early to prevent further execution
+        return;
+      }
+      
+      // Only hide success message after 3 seconds if not redirecting
       setTimeout(() => setSaveSuccess(false), 3000);
       
     } catch (error) {
-      console.error("Error saving settings:", error);
+      console.error("Error in saveSettings:", error);
       setError(`Failed to save settings: ${error.message}`);
     } finally {
       setIsSaving(false);
@@ -326,12 +446,24 @@ export default function GlobalSettings() {
 
         {/* Dietary Philosophy Section */}
         <div className="mb-8">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center">
             Your Eating Philosophy
+            <button 
+              onClick={() => setShowPhilosophyInfo(!showPhilosophyInfo)}
+              className="ml-2 text-gray-500 focus:outline-none"
+              aria-label="Show information about eating philosophy"
+            >
+              <Info className="w-6 h-6" />
+            </button>
           </h3>
-          <p className="text-sm text-gray-600 mb-4">
-            This will be applied to all your meal plans.
-          </p>
+          
+          {/* Info message that toggles based on state */}
+          {showPhilosophyInfo && (
+            <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded-md mb-3">
+              This will be applied to all your meal plans.
+            </div>
+          )}
+          
           <div className="flex flex-wrap gap-2">
             {["Clean", "Keto", "Paleo", "Vegan", "Vegetarian"].map((option) => (
               <button
@@ -349,6 +481,7 @@ export default function GlobalSettings() {
           </div>
         </div>
 
+
         {/* Calories Slider */}
         <div className="mb-8">
         <p className="text-xl font-semibold text-gray-700 mb-3 flex items-center">
@@ -362,40 +495,40 @@ export default function GlobalSettings() {
           </button>
         </p>
 
-      {/* Info message that toggles based on state */}
-      {showCalorieInfo && (
-        <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded-md mb-3">
-          Changes to calorie target will affect your meal generation results.
-        </div>
+        {/* Info message that toggles based on state */}
+        {showCalorieInfo && (
+          <div className="text-sm text-gray-600 bg-gray-100 p-2 rounded-md mb-3">
+            Changes to calorie target will affect your meal generation results.
+          </div>
         )}
 
         <div className="flex items-center space-x-4">
             <input 
-            type="range" 
-            min={getCalorieRange().min} 
-            max={getCalorieRange().max} 
-            step={getCalorieRange().step} 
-            value={calories} 
-            disabled={false} // Always enable calorie adjustment
-            onChange={(e) => {
-                const newCalories = Number(e.target.value);
-                setCalories(newCalories);
-                
-                // In auto mode, macros will be adjusted automatically via the useEffect
-                // In manual mode for pro users, we adjust here
-                if (calculationMode === 'manual' && isPro) {
-                const { protein, carbs, fat, fiber, sugar } = adjustMacrosForMealType(
-                    newCalories
-                );
-                
-                setProtein(protein);
-                setCarbs(carbs);
-                setFat(fat);
-                setFiber(fiber);
-                setSugar(sugar);
-                }
-            }}
-            className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-300"
+              type="range" 
+              min={getCalorieRange().min} 
+              max={getCalorieRange().max} 
+              step={getCalorieRange().step} 
+              value={calories} 
+              disabled={false} // Always enable calorie adjustment
+              onChange={(e) => {
+                  const newCalories = Number(e.target.value);
+                  setCalories(newCalories);
+                  
+                  // In auto mode, macros will be adjusted automatically via the useEffect
+                  // In manual mode for pro users, we adjust here
+                  if (calculationMode === 'manual' && isPro) {
+                  const { protein, carbs, fat, fiber, sugar } = adjustMacrosForMealType(
+                      newCalories
+                  );
+                  
+                  setProtein(protein);
+                  setCarbs(carbs);
+                  setFat(fat);
+                  setFiber(fiber);
+                  setSugar(sugar);
+                  }
+              }}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-300"
             />
             <span className="text-lg font-semibold text-gray-800 min-w-16 text-right">
             {calories} kcal
@@ -515,6 +648,45 @@ export default function GlobalSettings() {
             </div>
           </div>
 
+          {/* Reset Onboarding Toggle Section */}
+          <div className="mb-8 border-t pt-6 border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                Reset Onboarding
+                <button 
+                  onClick={() => setShowResetInfo(!showResetInfo)}
+                  className="ml-2 text-gray-500 focus:outline-none"
+                  aria-label="Show information about resetting onboarding"
+                >
+                  <Info className="w-6 h-6" />
+                </button>
+              </h3>
+              
+              <label className="inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={resetOnboarding}
+                  onChange={() => setResetOnboarding(!resetOnboarding)}
+                  className="sr-only peer" 
+                />
+                <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+              </label>
+            </div>
+            
+            {/* Info message that toggles based on state */}
+            {showResetInfo && (
+              <div className="text-sm text-gray-600 bg-gray-100 p-3 rounded-md mb-3">
+                Turning this on will reset your onboarding status. After saving your settings, you will be redirected to complete the onboarding process again. This is useful if you want to change your meal preferences or health goals.
+              </div>
+            )}
+            
+            {resetOnboarding && (
+              <p className="text-sm text-orange-600 mt-2">
+                <strong>Note:</strong> When you save your settings, you will be redirected to complete the onboarding process again.
+              </p>
+            )}
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="mt-4 p-3 bg-red-100 text-red-700 rounded-lg text-center">
@@ -529,14 +701,16 @@ export default function GlobalSettings() {
               disabled={isSaving}
               className="w-full max-w-md py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
             >
-              {isSaving ? "Saving..." : "Save Settings"}
+              {isSaving ? "Saving..." : resetOnboarding ? "Save & Restart Onboarding" : "Save Settings"}
             </button>
           </div>
           
           {/* Success Message */}
           {saveSuccess && (
             <div className="mt-4 p-3 bg-green-100 text-green-700 rounded-lg text-center">
-              Settings saved successfully!
+              {resetOnboarding 
+                ? "Settings saved successfully! Redirecting to onboarding..."
+                : "Settings saved successfully!"}
             </div>
           )}
           

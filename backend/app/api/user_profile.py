@@ -222,3 +222,60 @@ async def check_onboarding_status(user_id: str):
             status_code=500,
             detail=f"Failed to check onboarding status: {str(e)}"
         )
+    
+@user_profile_router.post("/reset-onboarding/{user_id}")
+async def reset_onboarding(user_id: str):
+    """
+    Reset a user's onboarding status.
+    
+    This endpoint marks the user as not having completed onboarding,
+    allowing them to go through the onboarding process again.
+    
+    Args:
+        user_id (str): The user's unique identifier (e.g., Auth0 ID).
+        
+    Returns:
+        dict: A response indicating whether the reset was successful.
+        
+    Raises:
+        HTTPException: If there is an error updating the database.
+    """
+    try:
+        logger.info(f"Resetting onboarding status for user: {user_id}")
+        
+        # Update the user record to mark onboarding as incomplete
+        result = user_collection.update_one(
+            {"auth0_id": user_id},
+            {
+                "$set": {
+                    "onboarding_completed": False,
+                    "onboarding_reset_at": datetime.datetime.now(),
+                    "updated_at": datetime.datetime.now()
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            logger.warning(f"No user found with ID {user_id} to reset onboarding status")
+            return {
+                "success": False,
+                "message": "User not found."
+            }
+            
+        # Clear the Redis cache for this user's profile to ensure fresh data
+        cache_key = f"user_profile:{user_id}"
+        delete_cache(cache_key)
+        
+        logger.info(f"Successfully reset onboarding status for user {user_id}")
+        
+        return {
+            "success": True,
+            "message": "Onboarding status has been reset successfully."
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting onboarding status for user {user_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset onboarding status: {str(e)}"
+        )
