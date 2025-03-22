@@ -503,15 +503,11 @@ function MealCard({ meal, onClick }) {
         className="bg-white rounded-lg overflow-hidden shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all transform hover:translate-y-[-2px] cursor-pointer"
         >
       <div className="relative h-40 overflow-hidden">
-        <img 
-          src={meal.imageUrl || '/fallback-meal-image.jpg'} 
-          alt={meal.title}
-          className="w-full h-full object-cover transition-transform hover:scale-105"
-          onError={(e) => {
-            e.target.onerror = null;
-            e.target.src = "/fallback-meal-image.jpg";
-          }}
-        />
+      <img 
+        src={meal.imageUrl} 
+        alt={meal.title}
+        className="w-full h-full object-cover transition-transform hover:scale-105"
+      />
         {meal.meal_type && (
           <div className="absolute top-2 left-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/80 backdrop-blur-sm text-gray-800 capitalize">
