@@ -44,6 +44,8 @@ export default function RecipePage() {
         }
         
         const data = await response.json();
+        console.log("Recipe data from fetch:", data);
+        console.log("Image URL:", data.imageUrl);
         setRecipe(data);
       } catch (error) {
         console.error("Error fetching recipe:", error);
@@ -703,18 +705,13 @@ export default function RecipePage() {
           </h1>
         </div>
         
-        {/* Main Content - Image first, then macros below */}
         <div className="px-6 pb-6">
           {/* Recipe Image - Full width above macros */}
           <div className="mb-4">
             <div className="relative rounded-3xl overflow-hidden h-72">
-              <img 
-                src={recipe.imageUrl || "/fallback-meal-image.jpg"} 
+              <img
+                src={recipe.imageUrl}
                 alt={recipe.title}
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = "/fallback-meal-image.jpg";
-                }}
                 className="w-full h-full object-cover"
               />
             </div>
