@@ -304,7 +304,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
         formatted_meals = []
         
         for meal in cached_meal_plan[:total_meals_needed]:
-            image_url = meal.get("image_url", "/fallback-meal-image.jpg")
+            image_url = meal.get("image_url")
             logger.info(f"📋 DEBUG: Redis cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
             formatted_meal = {
                 "id": meal["meal_id"],
@@ -333,7 +333,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
         logger.info(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals in MongoDB")
         formatted_meals = []
         for meal in existing_meal_plan[:total_meals_needed]:
-            image_url = meal.get("image_url", "/fallback-meal-image.jpg")
+            image_url = meal.get("image_url")
             logger.info(f"📋 DEBUG: MongoDB meal: {meal.get('meal_name')} - Image URL: {image_url}")
             formatted_meal = {
                 "id": meal["meal_id"],
@@ -535,7 +535,7 @@ async def get_meal_by_id(meal_id: str):
             "ingredients": cached_meal["ingredients"],
             "instructions": cached_meal["meal_text"],
             "meal_type": cached_meal.get("meal_type"),
-            "imageUrl": cached_meal.get("image_url", "/fallback-meal-image.jpg"),
+            "imageUrl": cached_meal.get("image_url"),
             "cache_source": "redis"
         }
     
@@ -564,7 +564,7 @@ async def get_meal_by_id(meal_id: str):
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
         "meal_type": meal.get("meal_type"),
-        "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg"),
+        "imageUrl": meal.get("image_url"),
         "cache_source": "mongodb"
     }
 
@@ -589,7 +589,7 @@ async def get_meal_plan_by_id(meal_plan_id: str):
                     "nutrition": meal["macros"],
                     "ingredients": meal["ingredients"],
                     "instructions": meal["meal_text"],
-                    "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
+                    "imageUrl": meal.get("image_url")
                 }
                 formatted_meals.append(formatted_meal)
             
@@ -614,7 +614,7 @@ async def get_meal_plan_by_id(meal_plan_id: str):
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "imageUrl": meal.get("image_url", "/fallback-meal-image.jpg")
+                "imageUrl": meal.get("image_url")
             }
             formatted_meals.append(formatted_meal)
         
@@ -769,7 +769,6 @@ async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
     Uploads it to Google Cloud Storage, and returns a persistent URL.
     If an image exists in the database, return that instead of generating a new one.
     """
-    fallback_image = "/fallback-meal-image.jpg"
     # Check if image already exists in MongoDB
     existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
     if existing_meal and existing_meal.get("image_url"):
@@ -828,7 +827,7 @@ async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
                     os.remove(creds_temp_file)
                 except Exception as json_error:
                     print(f"Error with JSON credentials: {str(json_error)}")
-                    return fallback_image
+
             elif credentials_json:
                 # It's a path to a file
                 try:
@@ -836,23 +835,19 @@ async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
                     storage_client = storage.Client(credentials=credentials)
                 except Exception as file_error:
                     print(f"Error with credentials file: {str(file_error)}")
-                    return fallback_image
             else:
                 # Try default credentials
                 try:
                     storage_client = storage.Client()
                 except Exception as default_error:
                     print(f"Error with default credentials: {str(default_error)}")
-                    return fallback_image
             
             if not storage_client:
                 print("Failed to initialize storage client")
-                return fallback_image
                 
             bucket_name = os.getenv("GCS_BUCKET_NAME")
             if not bucket_name:
                 print("No bucket name specified")
-                return fallback_image
                 
             try:
                 bucket = storage_client.bucket(bucket_name)
@@ -884,11 +879,8 @@ async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
                 return gcs_image_url
             except Exception as storage_error:
                 print(f"Error in storage operations: {str(storage_error)}")
-                return fallback_image
         else:
             print("No images were generated")
-            return fallback_image
             
     except Exception as e:
         print(f"Error generating image: {str(e)}")
-        return fallback_image
