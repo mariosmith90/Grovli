@@ -557,7 +557,7 @@ def generate_meal_plan(
         
         return {"status": "error", "message": str(e)}
 
-@celery_app.task(name="notify_meal_plan_ready")
+@celery_app.task(name="notify_meal_plan_ready_task")
 def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     """
     Sends a notification to the user that their meal plan is ready.
@@ -566,67 +566,101 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     try:
         logger.info(f"Starting notification task for session {session_id}, meal plan {meal_plan_id}")
         
-        # Check Redis cache for notification history
-        notification_cache_key = f"notification:{session_id}:{meal_plan_id}"
-        previously_notified = get_cache(notification_cache_key)
-        if previously_notified:
-            logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping")
-            return {"status": "already_notified"}
+        # Use a consistent notification lock key in Redis
+        notification_lock_key = f"notification_lock:{session_id}:{meal_plan_id}"
+        
+        # Try to acquire a lock using Redis SETNX operation (atomic)
+        # This ensures only one process can send the notification
+        lock_acquired = False
+        
+        try:
+            # Check if notification was already sent using a dedicated flag in Redis
+            cache_key = f"notification_sent:{session_id}:{meal_plan_id}"
+            already_notified = get_cache(cache_key)
             
-        # Look up existing chat session
-        chat_session = chat_collection.find_one({"session_id": session_id})
-        if not chat_session:
-            logger.warning(f"⚠️ Chat session not found: {session_id}")
-            return {"status": "error", "message": f"Chat session not found: {session_id}"}
-        
-        logger.info(f"Found chat session: {session_id}")
-        
-        # Check if notification has already been sent
-        existing_messages = chat_session.get("messages", [])
-        for msg in existing_messages:
-            if (msg.get("is_notification") and 
-                msg.get("meal_plan_id") == meal_plan_id and
-                "meal plan is now ready" in msg.get("content", "")):
-                logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping")
-                # Cache this result to avoid future checks
-                set_cache(notification_cache_key, True, 86400)  # 24 hours
-                return {"status": "already_notified"}
-        
-        # Create notification message
-        current_time = datetime.datetime.now()
-        notification_message = {
-            "role": "assistant",
-            "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
-            "timestamp": current_time,
-            "meal_plan_id": meal_plan_id,
-            "is_notification": True
-        }
-        
-        logger.info(f"Adding notification message for meal plan {meal_plan_id}")
-        
-        # Add to conversation history
-        existing_messages.append(notification_message)
-        
-        # Update the chat session in MongoDB
-        update_result = chat_collection.update_one(
-            {"session_id": session_id},
-            {
-                "$set": {
-                    "messages": existing_messages,
-                    "updated_at": current_time,
-                    "meal_plan_ready": True,
-                    "meal_plan_id": meal_plan_id
-                }
+            if already_notified:
+                logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping (Redis)")
+                return {"status": "already_notified", "source": "redis_cache"}
+                
+            # Create a Redis lock with 60 second expiry to prevent concurrent notifications
+            # Use your Redis client to set the key only if it doesn't exist
+            # This is a simple implementation - a real Redis lock would be more robust
+            if not get_cache(notification_lock_key):
+                set_cache(notification_lock_key, True, 60)  # 60 second TTL for the lock
+                lock_acquired = True
+            else:
+                logger.info(f"Another process is already sending notification for {meal_plan_id}, skipping")
+                return {"status": "locked", "message": "Another process is handling this notification"}
+                
+            # Look up existing chat session
+            chat_session = chat_collection.find_one({"session_id": session_id})
+            if not chat_session:
+                logger.warning(f"⚠️ Chat session not found: {session_id}")
+                return {"status": "error", "message": f"Chat session not found: {session_id}"}
+            
+            logger.info(f"Found chat session: {session_id}")
+            
+            # Check if notification has already been sent by checking for a dedicated flag
+            if chat_session.get("notification_sent_for", {}).get(meal_plan_id):
+                logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping (MongoDB)")
+                # Mark as sent in Redis too for future fast checks
+                set_cache(cache_key, True, 86400)  # 24 hours
+                return {"status": "already_notified", "source": "mongodb_flag"}
+            
+            # Also check messages as a backup
+            existing_messages = chat_session.get("messages", [])
+            for msg in existing_messages:
+                if (msg.get("is_notification") and 
+                    msg.get("meal_plan_id") == meal_plan_id):
+                    logger.info(f"Notification for meal plan {meal_plan_id} already in messages, skipping")
+                    # Mark as sent in Redis and MongoDB
+                    set_cache(cache_key, True, 86400)  # 24 hours
+                    chat_collection.update_one(
+                        {"session_id": session_id},
+                        {"$set": {f"notification_sent_for.{meal_plan_id}": True}}
+                    )
+                    return {"status": "already_notified", "source": "message_check"}
+            
+            # Create notification message
+            current_time = datetime.datetime.now()
+            notification_message = {
+                "role": "assistant",
+                "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
+                "timestamp": current_time,
+                "meal_plan_id": meal_plan_id,
+                "is_notification": True,
+                "notification_id": f"notification_{meal_plan_id}_{current_time.timestamp()}"  # Add unique ID
             }
-        )
-        
-        logger.info(f"Update result: modified={update_result.modified_count}")
-        
-        # Cache notification status to prevent duplicates
-        set_cache(notification_cache_key, True, 86400)  # 24 hours TTL
-        
-        logger.info(f"✅ Successfully sent meal plan ready notification to chat session {session_id}")
-        return {"status": "success"}
+            
+            logger.info(f"Adding notification message for meal plan {meal_plan_id}")
+            
+            # Update the chat session in MongoDB with BOTH the new message and a dedicated flag
+            update_result = chat_collection.update_one(
+                {"session_id": session_id},
+                {
+                    "$push": {"messages": notification_message},
+                    "$set": {
+                        "updated_at": current_time,
+                        "meal_plan_ready": True,
+                        "meal_plan_id": meal_plan_id,
+                        "meal_plan_processing": False,
+                        f"notification_sent_for.{meal_plan_id}": True  # Dedicated flag for this meal plan
+                    }
+                }
+            )
+            
+            logger.info(f"Update result: modified={update_result.modified_count}")
+            
+            # Cache notification status to prevent duplicates
+            set_cache(cache_key, True, 86400)  # 24 hours TTL
+            
+            logger.info(f"✅ Successfully sent meal plan ready notification to chat session {session_id}")
+            return {"status": "success"}
+        finally:
+            # Release the lock if we acquired it
+            if lock_acquired:
+                delete_cache(notification_lock_key)
+                logger.info(f"Released notification lock for {meal_plan_id}")
         
     except Exception as e:
         logger.error(f"❌ Error sending meal plan ready notification: {str(e)}")

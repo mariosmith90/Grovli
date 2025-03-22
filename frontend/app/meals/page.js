@@ -534,6 +534,38 @@ export default function Home() {
     }    
   };
 
+  // Add this to useEffect in page.js
+  useEffect(() => {
+    // Check for ready meal plans if we have a user
+    if (user && user.sub && !mealPlanReady && showChatbot) {
+      const checkMealPlanStatus = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
+            headers: { 'user-id': user.sub }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (data.meal_plan_ready && data.meal_plan_id) {
+              console.log("Found ready meal plan:", data.meal_plan_id);
+              setMealPlanReady(true);
+              setCurrentMealPlanId(data.meal_plan_id);
+            }
+          }
+        } catch (error) {
+          console.error("Error checking meal plan status:", error);
+        }
+      };
+      
+      // Check immediately and set up polling
+      checkMealPlanStatus();
+      const intervalId = setInterval(checkMealPlanStatus, 5000);
+      return () => clearInterval(intervalId);
+    }
+  }, [user, mealPlanReady, showChatbot]);
+
   // Subscription Status Effect
   useEffect(() => {
     // Only fetch subscription status when user is loaded and authenticated

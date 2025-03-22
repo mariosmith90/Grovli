@@ -302,6 +302,7 @@ async def notify_meal_plan_ready(request: NotificationRequest):
 async def get_chat_session(session_id: str):
     """
     Retrieve a specific chat session by its ID.
+    Also handles notification recovery by checking if a meal plan is ready but no notification is present.
     """
     try:
         # Look up the chat session in MongoDB
@@ -312,6 +313,46 @@ async def get_chat_session(session_id: str):
                 status_code=404,
                 detail=f"Chat session not found: {session_id}"
             )
+        
+        # Check if we need to recover a missing notification
+        if chat_session.get("meal_plan_ready") and chat_session.get("meal_plan_id"):
+            meal_plan_id = chat_session.get("meal_plan_id")
+            
+            # Check if notification message exists
+            has_notification = False
+            for msg in chat_session.get("messages", []):
+                if msg.get("is_notification") and msg.get("meal_plan_id") == meal_plan_id:
+                    has_notification = True
+                    break
+            
+            # If meal plan is ready but no notification message, add one
+            if not has_notification:
+                logger.info(f"Missing notification detected for ready meal plan {meal_plan_id}, adding it now")
+                
+                # Create notification message
+                current_time = datetime.datetime.now()
+                notification_message = {
+                    "role": "assistant",
+                    "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
+                    "timestamp": current_time,
+                    "meal_plan_id": meal_plan_id,
+                    "is_notification": True,
+                    "notification_id": f"recovery_{meal_plan_id}_{current_time.timestamp()}"
+                }
+                
+                # Add notification to messages
+                chat_session["messages"].append(notification_message)
+                
+                # Save changes to MongoDB (async)
+                await chat_collection.update_one(
+                    {"session_id": session_id},
+                    {
+                        "$push": {"messages": notification_message},
+                        "$set": {f"notification_sent_for.{meal_plan_id}": True}
+                    }
+                )
+                
+                logger.info(f"Added recovery notification for meal plan {meal_plan_id}")
         
         # Convert MongoDB document to a format suitable for API response
         return {

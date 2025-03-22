@@ -207,7 +207,27 @@ def try_notify_meal_plan_ready(session_id, user_id, meal_plan_id):
     Sends a notification to the chat service that the meal plan is ready.
     Now simply delegates to the Celery task.
     """
+    # First, immediately mark the session as having a meal plan ready
+    # This ensures the UI can pick up the status change even if notification hasn't been processed
+    try:
+        chat_collection.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "meal_plan_ready": True,
+                    "meal_plan_id": meal_plan_id,
+                    "meal_plan_processing": False,
+                    "updated_at": datetime.datetime.now()
+                }
+            }
+        )
+        logger.info(f"Updated chat session {session_id} status: meal plan ready")
+    except Exception as e:
+        logger.error(f"Failed to update chat session status: {str(e)}")
+    
+    # Then queue the notification task
     notify_meal_plan_ready_task.delay(session_id, user_id, meal_plan_id)
+    logger.info(f"Queued notification task for session {session_id}, meal plan {meal_plan_id}")
     return True
     
 @router.post("/")
@@ -449,6 +469,53 @@ def get_active_session_id(user_id):
     
     return None
 
+@router.get("/get_latest_session")
+async def get_latest_meal_session(request: Request):
+    """
+    Retrieves information about the latest meal plan session for a user.
+    """
+    try:
+        # Get user_id from headers
+        user_id = request.headers.get("user-id") or request.headers.get("x-user-id")
+        
+        if not user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="user-id header is required"
+            )
+        
+        # Find the active session
+        session_id = get_active_session_id(user_id)
+        if not session_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No active session found for user: {user_id}"
+            )
+            
+        # Get the session details
+        chat_session = chat_collection.find_one({"session_id": session_id})
+        if not chat_session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session not found: {session_id}"
+            )
+        
+        # Return meal plan status information
+        return {
+            "session_id": session_id,
+            "meal_plan_ready": chat_session.get("meal_plan_ready", False),
+            "meal_plan_id": chat_session.get("meal_plan_id"),
+            "meal_plan_processing": chat_session.get("meal_plan_processing", False)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving latest meal session: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve latest meal session: {str(e)}"
+        )
+
 @router.get("/{meal_id}")
 async def get_meal_by_id(meal_id: str):
     """
@@ -559,49 +626,6 @@ async def get_meal_plan_by_id(meal_plan_id: str):
             detail=f"Failed to retrieve meal plan: {str(e)}"
         )
 
-# In chat.py
-@router.get("/get_latest_session")
-async def get_latest_chat_session(request: Request):
-    """
-    Retrieves the most recent chat session for a user.
-    """
-    try:
-        # Get user_id from headers
-        user_id = request.headers.get("user-id") or request.headers.get("x-user-id")
-        
-        if not user_id:
-            raise HTTPException(
-                status_code=400,
-                detail="user-id header is required"
-            )
-        
-        # Find the most recent chat session for this user
-        recent_chat = chat_collection.find_one(
-            {"user_id": user_id},
-            sort=[("created_at", -1)]
-        )
-        
-        if not recent_chat:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No chat sessions found for user: {user_id}"
-            )
-        
-        # Return the session with relevant fields
-        return {
-            "session_id": recent_chat.get("session_id"),
-            "meal_plan_ready": recent_chat.get("meal_plan_ready", False),
-            "meal_plan_id": recent_chat.get("meal_plan_id"),
-            "meal_plan_processing": recent_chat.get("meal_plan_processing", False)
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving latest chat session: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve latest chat session: {str(e)}"
-        )
 
 def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
     """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""
