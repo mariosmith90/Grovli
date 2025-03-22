@@ -15,6 +15,7 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - MONGO_URI=${MONGO_URI}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - PYTHONPATH=/app
     networks:
       - mealplan-network
