@@ -2,21 +2,16 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 import os, json, uuid
 import requests
-import re, random, json, datetime
+import re, random, datetime
 from typing import List, Set
 from pymongo import MongoClient
-from google.cloud import aiplatform, storage
-from google.oauth2 import service_account
-import vertexai
-from vertexai.preview.vision_models import ImageGenerationModel
-from io import BytesIO
-import base64, logging
-import google.generativeai as genai
-from app.utils.tasks import generate_meal_plan as meal_plan_task
-from app.utils.tasks import notify_meal_plan_ready_task
-from app.utils.redis_client import get_cache, set_cache, delete_cache, MEAL_CACHE_TTL
+import logging
+from app.utils.tasks import (
+    generate_meal_plan as meal_plan_task,
+    notify_meal_plan_ready_task
+    )
+from app.utils.redis_client import get_cache, set_cache, MEAL_CACHE_TTL
 from app.api.user_settings import user_settings_collection
-import pickle
 
 # Configure logging
 logging.basicConfig(
@@ -26,9 +21,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mealplan", tags=["Meal Plan"])
-
-# USDA FoodData Central API URL
-USDA_API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 
 # Connect to MongoDB
 client = MongoClient(os.getenv("MONGO_URI"))
@@ -78,38 +70,6 @@ MEAL_TYPE_COUNTS = {
 def extract_recipe_titles(content: str) -> List[str]:
     """Extract recipe titles from the meal plan text."""
     return re.findall(r'### MEAL: (.+?)(?=\n|$)', content)
-
-def fetch_ingredient_macros(ingredient: str):
-    """Fetches macros for a given ingredient using the USDA API."""
-    api_key = os.getenv("USDA_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="USDA API key not configured")
-
-    params = {"query": ingredient, "api_key": api_key}
-    response = requests.get(USDA_API_URL, params=params)
-
-    if response.status_code != 200:
-        return None
-
-    data = response.json()
-    if not data.get("foods"):
-        return None
-
-    food_item = data["foods"][0]
-
-    nutrient_mapping = {
-        208: "calories",
-        203: "protein",
-        205: "carbs",
-        204: "fat",
-        269: "sugar",
-        291: "fiber"
-    }
-
-    macros = {nutrient_mapping[nutrient["nutrientId"]]: nutrient["value"]
-              for nutrient in food_item["foodNutrients"] if nutrient["nutrientId"] in nutrient_mapping}
-
-    return macros
 
 @router.post("/archive_meal_plan/")
 async def archive_meal_plan(request: MealPlanText):
@@ -625,262 +585,3 @@ async def get_meal_plan_by_id(meal_plan_id: str):
             status_code=500,
             detail=f"Failed to retrieve meal plan: {str(e)}"
         )
-
-
-def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
-    """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""
-    # Check for duplicate before saving
-    existing_meal = meals_collection.find_one({
-        "meal_name": meal_name,
-        "request_hash": request_hash
-    })
-    if existing_meal:
-        return existing_meal  # Return the existing meal instead of None
-    
-    # USDA validation
-    validated_ingredients = []
-    usda_macros = {
-        "calories": 0,
-        "protein": 0,
-        "carbs": 0,
-        "fat": 0,
-        "sugar": 0,
-        "fiber": 0
-    }
-    validation_count = 0
-    
-    # Process ingredients if available in expected format
-    if isinstance(ingredients, list) and ingredients:
-        for ingredient in ingredients:
-            if not isinstance(ingredient, dict) or "name" not in ingredient:
-                validated_ingredients.append(ingredient)
-                continue
-            
-            try:
-                # Clean ingredient name for better USDA matching
-                clean_name = re.sub(r'^\d+\s*[\d/]*\s*(?:cup|tbsp|tsp|oz|g|lb|ml|l)s?\s*', '', ingredient["name"], flags=re.IGNORECASE)
-                clean_name = re.sub(r'diced|chopped|minced|sliced|cooked|raw|fresh|frozen|canned', '', clean_name, flags=re.IGNORECASE)
-                clean_name = clean_name.strip()
-                
-                # Get USDA data
-                usda_data = fetch_ingredient_macros(clean_name)
-                
-                if usda_data:
-                    # Keep track of USDA validation and attach data to ingredient
-                    ingredient["usda_validated"] = True
-                    ingredient["usda_macros"] = usda_data
-                    validation_count += 1
-                    
-                    # Try to extract quantity
-                    quantity_str = ingredient.get("quantity", "")
-                    grams = 0
-                    
-                    # Simple quantity extraction
-                    if "g" in quantity_str:
-                        match = re.search(r'(\d+(?:\.\d+)?)\s*g', quantity_str)
-                        if match:
-                            grams = float(match.group(1))
-                    elif "cup" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 240  # ~240g per cup
-                    elif "tbsp" in quantity_str.lower() or "tablespoon" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 15  # ~15g per tbsp  
-                    elif "oz" in quantity_str.lower():
-                        match = re.search(r'(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1)) * 28.35  # ~28.35g per oz
-                    else:
-                        # Try to extract just the number
-                        match = re.search(r'^(\d+(?:\.\d+)?)', quantity_str)
-                        if match:
-                            grams = float(match.group(1))
-                        else:
-                            grams = 100  # Default if no quantity found
-                    
-                    # Calculate nutrition based on quantity
-                    factor = grams / 100.0  # USDA data is per 100g
-                    for key in usda_macros:
-                        if key in usda_data:
-                            usda_macros[key] += usda_data[key] * factor
-                else:
-                    ingredient["usda_validated"] = False
-                
-                validated_ingredients.append(ingredient)
-                
-            except Exception as e:
-                print(f"Error validating ingredient '{ingredient.get('name', 'unknown')}': {str(e)}")
-                ingredient["usda_validated"] = False
-                validated_ingredients.append(ingredient)
-    
-    # Determine if we should use USDA validated macros
-    validation_success = False
-    if ingredients and validation_count >= len(ingredients) * 0.5:
-        # Round values and use USDA macros if enough ingredients validated
-        usda_macros = {k: round(v, 1) for k, v in usda_macros.items()}
-        validation_success = True
-        print(f"✅ USDA validation successful: {validation_count}/{len(ingredients)} ingredients validated")
-        print(f"Original macros: {macros}")
-        print(f"USDA macros: {usda_macros}")
-    
-    # Use the appropriate macros
-    final_macros = usda_macros if validation_success else macros
-    
-    # Add validation metadata
-    final_macros["usda_validated"] = validation_success
-    
-    # Build meal data
-    meal_data = {
-        "meal_id": meal_id,  # Use the provided meal_id directly
-        "meal_plan_id": meal_plan_id,
-        "meal_name": meal_name,
-        "meal_text": meal_text,
-        "ingredients": validated_ingredients,
-        "dietary_type": dietary_type,
-        "meal_type": meal_type,
-        "macros": final_macros,
-        "original_macros": macros if validation_success else None,
-        "request_hash": request_hash,
-        "created_at": datetime.datetime.now()
-    }
-
-    # Save to database
-    meals_collection.insert_one(meal_data)
-    return meal_data
-
-# Ensure the GOOGLE_APPLICATION_CREDENTIALS environment variable is set
-credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if credentials_json:
-    creds_dict = json.loads(credentials_json)
-    credentials = service_account.Credentials.from_service_account_info(creds_dict)
-    project_id = creds_dict["project_id"]
-else:
-    raise EnvironmentError("GOOGLE_APPLICATION_CREDENTIALS environment variable not set or invalid.")
-
-# Initialize Vertex AI with the credentials
-region = "us-central1"
-vertexai.init(project=project_id, location=region, credentials=credentials)
-
-async def generate_and_cache_meal_image(meal_name, meal_id, meals_collection):
-    """
-    Generates a realistic food image for a meal using Google Cloud's Vertex AI.
-    Uploads it to Google Cloud Storage, and returns a persistent URL.
-    If an image exists in the database, return that instead of generating a new one.
-    """
-    # Check if image already exists in MongoDB
-    existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
-    if existing_meal and existing_meal.get("image_url"):
-        return existing_meal["image_url"]
-    
-    try:
-        # Enhanced prompt for realistic food photography
-        prompt = (
-            f"Highly photorealistic food photography of {meal_name} without any AI artifacts. "
-            "Professional food styling with realistic textures, natural lighting from the side, "
-            "and detailed texture. Shot on a Canon 5D Mark IV with 100mm macro lens, f/2.8, natural window light. "
-            "Include realistic imperfections, proper food shadows and reflections. "
-            "A photo that could be published in Bon Appetit magazine."
-        )
-        
-        # Load the pre-trained image generation model
-        model = ImageGenerationModel.from_pretrained("imagegeneration@002")
-        
-        # Generate the image
-        images = model.generate_images(
-            prompt=prompt,
-            number_of_images=1,
-            seed=1,  # Fixed seed for reproducibility
-            add_watermark=False,
-        )
-        
-        if images:
-            # Create a temporary directory to save the image
-            import tempfile
-            import os
-            import json
-            
-            # Create temp directory if it doesn't exist
-            temp_dir = tempfile.gettempdir()
-            image_path = os.path.join(temp_dir, f"{meal_id}.jpg")
-            
-            # Save the image to the temporary file path
-            images[0].save(image_path)     
-            
-            # Get credentials from environment
-            credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-            storage_client = None
-            
-            # Check if the credentials are a JSON string rather than a file path
-            if credentials_json and (credentials_json.startswith('{') or credentials_json.startswith('{"')):
-                try:
-                    # It's a JSON string, create a temporary file
-                    creds_temp_file = os.path.join(temp_dir, f"google_creds_{uuid.uuid4()}.json")
-                    with open(creds_temp_file, 'w') as f:
-                        f.write(credentials_json)
-                    
-                    credentials = service_account.Credentials.from_service_account_file(creds_temp_file)
-                    storage_client = storage.Client(credentials=credentials)
-                    
-                    # Clean up temporary credentials file
-                    os.remove(creds_temp_file)
-                except Exception as json_error:
-                    print(f"Error with JSON credentials: {str(json_error)}")
-
-            elif credentials_json:
-                # It's a path to a file
-                try:
-                    credentials = service_account.Credentials.from_service_account_file(credentials_json)
-                    storage_client = storage.Client(credentials=credentials)
-                except Exception as file_error:
-                    print(f"Error with credentials file: {str(file_error)}")
-            else:
-                # Try default credentials
-                try:
-                    storage_client = storage.Client()
-                except Exception as default_error:
-                    print(f"Error with default credentials: {str(default_error)}")
-            
-            if not storage_client:
-                print("Failed to initialize storage client")
-                
-            bucket_name = os.getenv("GCS_BUCKET_NAME")
-            if not bucket_name:
-                print("No bucket name specified")
-                
-            try:
-                bucket = storage_client.bucket(bucket_name)
-                
-                # Generate a unique filename for the image in GCS
-                filename = f"meal_images/{meal_id}_{uuid.uuid4()}.jpg"
-                blob = bucket.blob(filename)
-                
-                # Upload the image to Google Cloud Storage
-                blob.upload_from_filename(image_path, content_type="image/jpeg")
-                
-                # Get the public URL
-                gcs_image_url = blob.public_url
-                
-                # Clean up the temporary file
-                os.remove(image_path)
-                
-                # Cache the generated image URL in MongoDB
-                meals_collection.update_one(
-                    {"meal_id": meal_id},
-                    {"$set": {
-                        "image_url": gcs_image_url,
-                        "image_updated_at": datetime.datetime.now(),
-                        "image_source": "vertex_ai"
-                    }},
-                    upsert=True
-                )
-                
-                return gcs_image_url
-            except Exception as storage_error:
-                print(f"Error in storage operations: {str(storage_error)}")
-        else:
-            print("No images were generated")
-            
-    except Exception as e:
-        print(f"Error generating image: {str(e)}")
