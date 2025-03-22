@@ -713,6 +713,10 @@ export default function RecipePage() {
                 src={recipe.imageUrl}
                 alt={recipe.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.log("Image failed to load:", recipe.imageUrl);
+                  e.target.style.display = 'none';
+                }}
               />
             </div>
           </div>
