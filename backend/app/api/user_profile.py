@@ -167,12 +167,13 @@ async def save_user_profile(user_id: str, profile_data: UserProfileData):
         )
 
 @user_profile_router.get("/check-onboarding/{user_id}")
-async def check_onboarding_status(user_id: str):
+async def check_onboarding_status(user_id: str, request: Request):
     """
     Check if a user has completed onboarding.
 
     Args:
         user_id (str): The user's unique identifier (e.g., Auth0 ID).
+        request (Request): The FastAPI request object to access query parameters.
 
     Returns:
         dict: A dictionary containing:
@@ -185,6 +186,17 @@ async def check_onboarding_status(user_id: str):
     """
     try:
         logger.info(f"Checking onboarding status for user: {user_id}")
+
+        # Check for force reset parameter in URL
+        force_reset = request.query_params.get("forceReset", "").lower() == "true"
+        if force_reset:
+            logger.info(f"Force reset detected for user {user_id}")
+            return {
+                "onboarded": False,
+                "profile_exists": True,  # We still acknowledge the profile exists
+                "force_reset": True,
+                "message": "Forced reset of onboarding status."
+            }
 
         # Check if the user exists in the `users` collection
         user = user_collection.find_one({"auth0_id": user_id})
@@ -202,12 +214,19 @@ async def check_onboarding_status(user_id: str):
         # Check if a user profile exists in the `user_profiles` collection
         profile_exists = user_profile_collection.find_one({"user_id": user_id}) is not None
 
-        # Determine if the user is considered "onboarded"
-        onboarded = onboarding_completed or profile_exists
+        # If onboarding_completed is explicitly set to False (after a reset), 
+        # consider the user not onboarded regardless of profile existence
+        if "onboarding_completed" in user and user["onboarding_completed"] is False:
+            onboarded = False
+            logger.info(f"User {user_id} has explicitly reset onboarding status.")
+        else:
+            # Otherwise use the traditional logic
+            onboarded = onboarding_completed or profile_exists
 
         logger.info(
             f"Onboarding status for user {user_id}: "
-            f"onboarded={onboarded}, profile_exists={profile_exists}"
+            f"onboarded={onboarded}, profile_exists={profile_exists}, "
+            f"explicit_completed={onboarding_completed}"
         )
 
         return {
