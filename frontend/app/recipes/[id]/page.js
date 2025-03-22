@@ -163,7 +163,7 @@ export default function RecipePage() {
     }
   };
 
-  // Fetch user meal plans
+  // Replace your fetchUserMealPlans function with this one
   const fetchUserMealPlans = async () => {
     if (!user) return;
     
@@ -192,55 +192,43 @@ export default function RecipePage() {
         setUserPlans(plans);
         setSelectedPlan(plans[0].id);
         
-        // Extract all unique dates from all plans
-        const allDates = new Set();
-        plans.forEach(plan => {
-          const meals = plan.meals || [];
-          meals.forEach(meal => {
-            if (meal.date) {
-              allDates.add(meal.date);
-            }
-          });
-        });
+        // Create a date object for today that ignores time
+        const currentDate = new Date();
+        // Force the time to be midnight to avoid timezone issues
+        currentDate.setHours(0, 0, 0, 0);
         
-        // Convert to array, sort, and organize into weeks
-        let sortedDates = Array.from(allDates).sort();
+        console.log("Current date (Midnight local time):", currentDate.toString());
         
-        // Ensure we have at least 7 days - add future dates if needed
-        if (sortedDates.length < 7) {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0); // Reset time to start of day
-          
-          for (let i = 0; i < 7; i++) {
-            const futureDate = new Date(today);
-            futureDate.setDate(today.getDate() + i);
-            
-            // Format date manually to avoid timezone issues
-            const dateStr = `${futureDate.getFullYear()}-${
-              String(futureDate.getMonth() + 1).padStart(2, '0')
-            }-${
-              String(futureDate.getDate()).padStart(2, '0')
-            }`;
-            
-            if (!allDates.has(dateStr)) {
-              sortedDates.push(dateStr);
-            }
-          }
-          sortedDates.sort();
+        // Create the YYYY-MM-DD formatted string for today
+        const todayStr = currentDate.toISOString().split('T')[0];
+        console.log("Today formatted as YYYY-MM-DD:", todayStr);
+
+        // Generate an array of future dates starting from today (including today)
+        const futureDates = [];
+        for (let i = 0; i < 21; i++) { // 3 weeks
+          const futureDate = new Date(currentDate);
+          futureDate.setDate(currentDate.getDate() + i);
+          // Format as YYYY-MM-DD
+          const dateStr = futureDate.toISOString().split('T')[0];
+          futureDates.push(dateStr);
         }
         
-        // Organize dates into weeks
+        // Log the first few dates to check correctness
+        console.log("First few dates:", futureDates.slice(0, 3));
+        
+        // Organize dates into weeks (7 days per week)
         const weeks = [];
-        for (let i = 0; i < sortedDates.length; i += 7) {
-          weeks.push(sortedDates.slice(i, i + 7));
+        for (let i = 0; i < futureDates.length; i += 7) {
+          weeks.push(futureDates.slice(i, Math.min(i + 7, futureDates.length)));
         }
         
         setAvailableWeeks(weeks);
+        setCurrentWeekIndex(0);
         
         // Set the display dates to the first week
         if (weeks.length > 0) {
           setDisplayDates(weeks[0]);
-          setSelectedDate(weeks[0][0]);
+          setSelectedDate(weeks[0][0]); // Today is the first date
         }
       }
     } catch (error) {
@@ -251,52 +239,29 @@ export default function RecipePage() {
     }
   };
 
-  // When plan selection changes, update available dates
+  // Replace your handlePlanChange function with this one
   const handlePlanChange = (planId) => {
     setSelectedPlan(planId);
     
-    // Find the selected plan
-    const plan = userPlans.find(p => p.id === planId);
-    if (!plan) return;
+    // Create a date object for today that ignores time
+    const currentDate = new Date();
+    // Force the time to be midnight to avoid timezone issues
+    currentDate.setHours(0, 0, 0, 0);
     
-    // Extract unique dates from this plan
-    const dateSet = new Set();
-    (plan.meals || []).forEach(meal => {
-      if (meal.date) {
-        dateSet.add(meal.date);
-      }
-    });
-    
-    // Convert to array and sort dates
-    const sortedDates = Array.from(dateSet).sort();
-    
-    // Ensure we have at least 7 days - add future dates if needed
-    if (sortedDates.length < 7) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Reset time to start of day
-      
-      for (let i = 0; i < 7; i++) {
-        const futureDate = new Date(today);
-        futureDate.setDate(today.getDate() + i);
-        
-        // Format date manually to avoid timezone issues
-        const dateStr = `${futureDate.getFullYear()}-${
-          String(futureDate.getMonth() + 1).padStart(2, '0')
-        }-${
-          String(futureDate.getDate()).padStart(2, '0')
-        }`;
-        
-        if (!dateSet.has(dateStr)) {
-          sortedDates.push(dateStr);
-        }
-      }
-      sortedDates.sort();
+    // Generate an array of future dates starting from today (including today)
+    const futureDates = [];
+    for (let i = 0; i < 21; i++) { // 3 weeks
+      const futureDate = new Date(currentDate);
+      futureDate.setDate(currentDate.getDate() + i);
+      // Format as YYYY-MM-DD
+      const dateStr = futureDate.toISOString().split('T')[0];
+      futureDates.push(dateStr);
     }
     
-    // Organize into weeks
+    // Organize dates into weeks (7 days per week)
     const weeks = [];
-    for (let i = 0; i < sortedDates.length; i += 7) {
-      weeks.push(sortedDates.slice(i, i + 7));
+    for (let i = 0; i < futureDates.length; i += 7) {
+      weeks.push(futureDates.slice(i, Math.min(i + 7, futureDates.length)));
     }
     
     setAvailableWeeks(weeks);
@@ -305,11 +270,39 @@ export default function RecipePage() {
     // Set the display dates to the first week
     if (weeks.length > 0) {
       setDisplayDates(weeks[0]);
-      setSelectedDate(weeks[0][0]);
+      setSelectedDate(weeks[0][0]); // Today is the first date
     } else {
       setDisplayDates([]);
       setSelectedDate("");
     }
+  };
+
+  // Replace your formatDateForDisplay function with this one
+  const formatDateForDisplay = (dateString) => {
+    // Create a date object for today that ignores time
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // Check if the date is today
+    const isToday = dateString === todayStr;
+    
+    // Parse the date string
+    const date = new Date(dateString + 'T00:00:00');
+    
+    // Format the date
+    let formattedDate = date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short', 
+      day: 'numeric'
+    });
+    
+    // Add "Today" indicator if it's today
+    if (isToday) {
+      formattedDate = `Today, ${formattedDate}`;
+    }
+    
+    return formattedDate;
   };
 
   // Add functions to navigate between weeks
@@ -329,16 +322,6 @@ export default function RecipePage() {
       setDisplayDates(availableWeeks[newIndex]);
       setSelectedDate(availableWeeks[newIndex][0]);
     }
-  };
-
-  // Format date for display
-  const formatDateForDisplay = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
   // Add recipe to meal plan
