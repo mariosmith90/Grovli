@@ -858,7 +858,6 @@ def generate_and_cache_meal_image(meal_name, meal_id):
     Uploads it to Google Cloud Storage, and returns a persistent URL.
     If an image exists in the database, return that instead of generating a new one.
     """
-    fallback_image = "/fallback-meal-image.jpg"
     
     # Check if image already exists in MongoDB
     existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
@@ -878,7 +877,6 @@ def generate_and_cache_meal_image(meal_name, meal_id):
 # Check if Vertex AI is initialized
         if not project_id:
             logger.warning("Google Cloud project ID not available, cannot generate image")
-            return fallback_image
             
         # Load the pre-trained image generation model
         try:
@@ -919,7 +917,7 @@ def generate_and_cache_meal_image(meal_name, meal_id):
                         os.remove(creds_temp_file)
                     except Exception as json_error:
                         logger.error(f"Error with JSON credentials: {str(json_error)}")
-                        return fallback_image
+
                 elif credentials_json:
                     # It's a path to a file
                     try:
@@ -927,23 +925,19 @@ def generate_and_cache_meal_image(meal_name, meal_id):
                         storage_client = storage.Client(credentials=credentials)
                     except Exception as file_error:
                         logger.error(f"Error with credentials file: {str(file_error)}")
-                        return fallback_image
                 else:
                     # Try default credentials
                     try:
                         storage_client = storage.Client()
                     except Exception as default_error:
                         logger.error(f"Error with default credentials: {str(default_error)}")
-                        return fallback_image
                 
                 if not storage_client:
                     logger.error("Failed to initialize storage client")
-                    return fallback_image
                     
                 bucket_name = os.getenv("GCS_BUCKET_NAME")
                 if not bucket_name:
                     logger.error("No bucket name specified")
-                    return fallback_image
                     
                 try:
                     bucket = storage_client.bucket(bucket_name)
@@ -975,15 +969,11 @@ def generate_and_cache_meal_image(meal_name, meal_id):
                     return gcs_image_url
                 except Exception as storage_error:
                     logger.error(f"Error in storage operations: {str(storage_error)}")
-                    return fallback_image
             else:
                 logger.warning("No images were generated")
-                return fallback_image
                 
         except Exception as vertex_error:
             logger.error(f"Error with Vertex AI: {str(vertex_error)}")
-            return fallback_image
             
     except Exception as e:
         logger.error(f"Error generating image: {str(e)}")
-        return fallback_image
