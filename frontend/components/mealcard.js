@@ -54,15 +54,11 @@ export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected,
       
       {/* Meal Image */}
       <div className="w-full h-48 bg-gray-100">
-      <img 
-        src={imageUrl || "/fallback-meal-image.jpg"} 
-        alt={title}
-        onError={(e) => {
-          e.target.onerror = null; // Prevent infinite loop
-          e.target.src = "/fallback-meal-image.jpg";
-        }}
-        className="w-full h-full object-cover"
-      />
+        <img
+          src={imageUrl}
+          alt={title}
+          className="w-full h-full object-cover"
+        />
       </div>
 
       <div className="p-6 relative z-10 flex flex-col flex-grow">
