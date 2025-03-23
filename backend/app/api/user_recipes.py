@@ -37,7 +37,8 @@ class SavedRecipeResponse(BaseModel):
     meal_type: str = None
     nutrition: dict = None
     ingredients: List[dict] = None
-    instructions: str = None 
+    instructions: str = None
+    imageUrl: str = None  
 
 class SavedMealPlanResponse(BaseModel):
     id: str
@@ -109,6 +110,14 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             detail="No recipes provided"
         )
     
+    # Safely extract user ID
+    user_id = current_user.get('id') or current_user.get('auth0_id')
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found in user data"
+        )
+    
     # Create a meal plan to group these recipes
     plan_id = str(uuid.uuid4())
     plan_name = request.plan_name or f"Meal Plan - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -125,6 +134,11 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             
             if cached_meal:
                 mongo_recipe = cached_meal
+                
+                # Since image_url is removed from Redis cache, check MongoDB for it
+                db_meal = meals_collection.find_one({"meal_id": recipe_id})
+                if db_meal and "image_url" in db_meal:
+                    mongo_recipe["image_url"] = db_meal["image_url"]
             else:
                 # If not in cache, check MongoDB
                 mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
@@ -133,8 +147,6 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
                     if "_id" in mongo_recipe:
                         mongo_recipe_clean = {k: v for k, v in mongo_recipe.items() if k != "_id"}
                         set_cache(meal_cache_key, mongo_recipe_clean, PROFILE_CACHE_TTL)
-                    else:
-                        set_cache(meal_cache_key, mongo_recipe, PROFILE_CACHE_TTL)
         else:
             mongo_recipe = None
         
@@ -163,7 +175,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
     # Create the meal plan document
     meal_plan = {
         "id": plan_id,
-        "user_id": current_user["id"],
+        "user_id": user_id,
         "name": plan_name,
         "created_at": datetime.datetime.now(),
         "recipes": saved_recipes
@@ -173,7 +185,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
     saved_meal_plans_collection.insert_one(meal_plan)
     
     # Invalidate user's saved recipes cache
-    user_saved_recipes_key = f"user_saved_recipes:{current_user['id']}"
+    user_saved_recipes_key = f"user_saved_recipes:{user_id}"
     delete_cache(user_saved_recipes_key)
     
     # Return the created plan
@@ -190,15 +202,15 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
                 "nutrition": recipe["nutrition"],
                 "ingredients": recipe["ingredients"],
                 "instructions": recipe["instructions"],
-                "imageUrl": recipe.get("imageUrl", "")  
+                "imageUrl": recipe.get("imageUrl")  
             }
             for recipe in saved_recipes
         ]
     }
     
-    # Cache this new plan
-    saved_plan_key = f"saved_plan:{plan_id}"
-    set_cache(saved_plan_key, response_data, PROFILE_CACHE_TTL)
+    # Cache this new plan (including imageUrl)
+    cache_data = response_data.copy()
+    set_cache(f"saved_plan:{plan_id}", cache_data, PROFILE_CACHE_TTL)
     
     return response_data
 
@@ -209,16 +221,39 @@ async def get_saved_recipes(
     current_user: dict = Depends(get_auth0_user)
 ):
     """Get all saved meal plans for the current user"""
+    # Safely extract user ID
+    user_id = current_user.get('id') or current_user.get('auth0_id')
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found in user data"
+        )
+    
     # Check Redis cache first
-    cache_key = f"user_saved_recipes:{current_user['id']}:{skip}:{limit}"
+    cache_key = f"user_saved_recipes:{user_id}:{skip}:{limit}"
     cached_plans = get_cache(cache_key)
     
     if cached_plans:
-        return cached_plans
+        # We have cached plans but they lack imageUrls
+        # Query MongoDB to get the complete data
+        cursor = saved_meal_plans_collection.find(
+            {"user_id": user_id}
+        ).sort("created_at", -1).skip(skip).limit(limit)
+        
+        meal_plans = []
+        for doc in cursor:
+            # Convert ObjectId to string to make it JSON serializable
+            if "_id" in doc:
+                doc["_id"] = str(doc["_id"])
+            
+            doc["created_at"] = doc["created_at"].isoformat()
+            meal_plans.append(doc)
+            
+        return meal_plans
     
     # If not in cache, query MongoDB
     cursor = saved_meal_plans_collection.find(
-        {"user_id": current_user["id"]}
+        {"user_id": user_id}
     ).sort("created_at", -1).skip(skip).limit(limit)
     
     meal_plans = []
@@ -230,30 +265,57 @@ async def get_saved_recipes(
         doc["created_at"] = doc["created_at"].isoformat()
         meal_plans.append(doc)
     
-    # Cache the results
-    set_cache(cache_key, meal_plans, PROFILE_CACHE_TTL)
+    # Cache the results (including imageUrl)
+    cache_meal_plans = []
+    for plan in meal_plans:
+        cache_plan = plan.copy()
+        cache_meal_plans.append(cache_plan)
+    set_cache(cache_key, cache_meal_plans, PROFILE_CACHE_TTL)
     
     return meal_plans
 
 @router.get("/saved-recipes/{plan_id}")
-async def get_saved_meal_plan(
-    plan_id: str, 
-    current_user: dict = Depends(get_auth0_user)
-):
+async def get_saved_meal_plan(plan_id: str, current_user: dict = Depends(get_auth0_user)):
     """Get a specific saved meal plan by ID"""
+    # Safely extract user ID
+    user_id = current_user.get('id') or current_user.get('auth0_id')
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found in user data"
+        )
+    
     # Check Redis cache first
     cache_key = f"saved_plan:{plan_id}"
     cached_plan = get_cache(cache_key)
     
     if cached_plan:
         # Verify this plan belongs to the current user
-        if cached_plan.get("user_id") == current_user["id"]:
-            return cached_plan
-    
+        if cached_plan.get("user_id") == user_id:
+            # Need to reload the plan to get the imageUrls
+            meal_plan = saved_meal_plans_collection.find_one({
+                "id": plan_id,
+                "user_id": user_id
+            })
+            
+            if not meal_plan:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Meal plan not found"
+                )
+            
+            # Format the response
+            if "_id" in meal_plan:
+                meal_plan = {k: v for k, v in meal_plan.items() if k != "_id"}
+            
+            meal_plan["created_at"] = meal_plan["created_at"].isoformat()
+            
+            return meal_plan
+            
     # If not in cache or not owned by this user, query MongoDB
     meal_plan = saved_meal_plans_collection.find_one({
         "id": plan_id,
-        "user_id": current_user["id"]
+        "user_id": user_id
     })
     
     if not meal_plan:
@@ -268,8 +330,9 @@ async def get_saved_meal_plan(
     
     meal_plan["created_at"] = meal_plan["created_at"].isoformat()
     
-    # Cache the result
-    set_cache(cache_key, meal_plan, PROFILE_CACHE_TTL)
+    # Cache the result (including imageUrl)
+    cache_plan = meal_plan.copy()
+    set_cache(cache_key, cache_plan, PROFILE_CACHE_TTL)
     
     return meal_plan
 
@@ -279,9 +342,17 @@ async def delete_saved_meal_plan(
     current_user: dict = Depends(get_auth0_user)
 ):
     """Delete a saved meal plan"""
+    # Safely extract user ID
+    user_id = current_user.get('id') or current_user.get('auth0_id')
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found in user data"
+        )
+    
     result = saved_meal_plans_collection.delete_one({
         "id": plan_id,
-        "user_id": current_user["id"]
+        "user_id": user_id
     })
     
     if result.deleted_count == 0:
@@ -292,7 +363,7 @@ async def delete_saved_meal_plan(
     
     # Invalidate caches
     delete_cache(f"saved_plan:{plan_id}")
-    delete_cache(f"user_saved_recipes:{current_user['id']}*")  # Use wildcard to clear all user's saved recipes caches
+    delete_cache(f"user_saved_recipes:{user_id}*")  
     
     return {"message": "Meal plan deleted successfully"}
 
@@ -407,15 +478,23 @@ async def is_recipe_saved(
 ):
     """Check if a specific recipe is saved by the user"""
     try:
+        # Safely extract user ID
+        user_id = current_user.get('id') or current_user.get('auth0_id')
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID not found in user data"
+            )
+        
         # Check Redis cache first
-        cache_key = f"is_saved:{current_user['id']}:{recipe_id}"
+        cache_key = f"is_saved:{user_id}:{recipe_id}"
         cached_result = get_cache(cache_key)
         
         if cached_result is not None:  # Check explicitly against None since False is a valid result
             return {"isSaved": cached_result}
         
         # If not in cache, find all saved meal plans for this user
-        saved_plans = saved_meal_plans_collection.find({"user_id": current_user["id"]})
+        saved_plans = saved_meal_plans_collection.find({"user_id": user_id})
         
         # Check if the recipe exists in any plan
         for plan in saved_plans:
