@@ -509,7 +509,7 @@ export default function RecipePage() {
             <div className="text-center py-6">
               <p className="text-gray-600 mb-4">You don't have any meal plans yet.</p>
               <button
-                onClick={() => router.push('/meal-planner')}
+                onClick={() => router.push('/planner')}
                 className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors"
               >
                 Create a Meal Plan
