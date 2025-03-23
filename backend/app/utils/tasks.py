@@ -451,7 +451,7 @@ def generate_meal_plan(
                 "nutrition": meal["nutrition"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["instructions"],
-                "imageUrl": image_url
+                "imageUrl": image_url  # Fixed: Use camelCase
             })
 
         # Cache the complete meal plan in Redis by both request hash and meal plan ID
@@ -833,6 +833,9 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     # Add validation metadata
     final_macros["usda_validated"] = validation_success
     
+    # Generate image URL if not already present
+    image_url = generate_and_cache_meal_image(meal_name, meal_id)
+    
     # Build meal data
     meal_data = {
         "meal_id": meal_id,  # Use the provided meal_id directly
@@ -845,11 +848,17 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
         "macros": final_macros,
         "original_macros": macros if validation_success else None,
         "request_hash": request_hash,
-        "created_at": datetime.datetime.now()
+        "created_at": datetime.datetime.now(),
+        "imageUrl": image_url  # Ensure imageUrl is always present
     }
 
     # Save to database
     meals_collection.insert_one(meal_data)
+    
+    # Cache the meal in Redis
+    meal_cache_key = f"meal:{meal_id}"
+    set_cache(meal_cache_key, meal_data, MEAL_CACHE_TTL)
+    
     return meal_data
 
 def generate_and_cache_meal_image(meal_name, meal_id):
@@ -860,9 +869,9 @@ def generate_and_cache_meal_image(meal_name, meal_id):
     """
     
     # Check if image already exists in MongoDB
-    existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
-    if existing_meal and existing_meal.get("image_url"):
-        return existing_meal["image_url"]
+    existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"imageUrl": 1})
+    if existing_meal and existing_meal.get("imageUrl"):
+        return existing_meal["imageUrl"]
     
     try:
         # Enhanced prompt for realistic food photography
@@ -959,8 +968,7 @@ def generate_and_cache_meal_image(meal_name, meal_id):
                     meals_collection.update_one(
                         {"meal_id": meal_id},
                         {"$set": {
-                            "image_url": gcs_image_url,
-                            "imageUrl": gcs_image_url,
+                            "imageUrl": gcs_image_url,  # Fixed: Use camelCase
                             "image_updated_at": datetime.datetime.now(),
                             "image_source": "vertex_ai"
                         }},

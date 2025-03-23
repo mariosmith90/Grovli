@@ -157,7 +157,8 @@ def find_meal_by_meal_plan_id(meal_plan_id: str):
             "title": meal["meal_name"],
             "nutrition": meal["macros"],
             "ingredients": meal["ingredients"],
-            "instructions": meal["meal_text"]
+            "instructions": meal["meal_text"],
+            "imageUrl": meal["imageUrl"]  # Standardized field
         }
         for meal in matching_meals
     ]
@@ -264,8 +265,8 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
         formatted_meals = []
         
         for meal in cached_meal_plan[:total_meals_needed]:
-            image_url = meal.get("imageUrl") or meal.get("image_url")
-            logger.info(f"📋 DEBUG: Redis cached meal: {meal.get('meal_name')} - Image URL: {image_url}")
+            imageUrl = meal.get("imageUrl")  # Standardized field
+            logger.info(f"📋 DEBUG: Redis cached meal: {meal.get('meal_name')} - Image URL: {imageUrl}")
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
@@ -273,7 +274,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "imageUrl": image_url
+                "imageUrl": imageUrl  # Standardized field
             }
             formatted_meals.append(formatted_meal)
         
@@ -293,8 +294,8 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
         logger.info(f"📋 DEBUG: Found {len(existing_meal_plan)} cached meals in MongoDB")
         formatted_meals = []
         for meal in existing_meal_plan[:total_meals_needed]:
-            image_url = meal.get("imageUrl") or meal.get("image_url")
-            logger.info(f"📋 DEBUG: MongoDB meal: {meal.get('meal_name')} - Image URL: {image_url}")
+            imageUrl = meal.get("imageUrl")  # Standardized field
+            logger.info(f"📋 DEBUG: MongoDB meal: {meal.get('meal_name')} - Image URL: {imageUrl}")
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal["meal_name"],
@@ -302,7 +303,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "imageUrl": image_url
+                "imageUrl": imageUrl  # Standardized field
             }
             formatted_meals.append(formatted_meal)
             
@@ -495,7 +496,7 @@ async def get_meal_by_id(meal_id: str):
             "ingredients": cached_meal["ingredients"],
             "instructions": cached_meal["meal_text"],
             "meal_type": cached_meal.get("meal_type"),
-            "imageUrl": cached_meal.get("imageUrl") or cached_meal.get("image_url"),  # Fix here: use cached_meal instead of meal
+            "imageUrl": cached_meal.get("imageUrl"),  # Standardized field
             "cache_source": "redis"
         }
     
@@ -524,7 +525,7 @@ async def get_meal_by_id(meal_id: str):
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
         "meal_type": meal.get("meal_type"),
-        "imageUrl": meal.get("imageUrl") or meal.get("image_url"),
+        "imageUrl": meal.get("imageUrl"),  # Standardized field
         "cache_source": "mongodb"
     }
 
@@ -549,7 +550,7 @@ async def get_meal_plan_by_id(meal_plan_id: str):
                     "nutrition": meal["macros"],
                     "ingredients": meal["ingredients"],
                     "instructions": meal["meal_text"],
-                    "imageUrl": meal.get("imageUrl") or meal.get("image_url")
+                    "imageUrl": meal.get("imageUrl")  # Standardized field
                 }
                 formatted_meals.append(formatted_meal)
             
@@ -574,7 +575,7 @@ async def get_meal_plan_by_id(meal_plan_id: str):
                 "nutrition": meal["macros"],
                 "ingredients": meal["ingredients"],
                 "instructions": meal["meal_text"],
-                "imageUrl": meal.get("imageUrl") or meal.get("image_url")
+                "imageUrl": meal.get("imageUrl")  # Standardized field
             }
             formatted_meals.append(formatted_meal)
         

@@ -33,7 +33,7 @@ class PantryItem(BaseModel):
     expiry_date: Optional[str] = None
     category: Optional[str] = None
     nutritional_info: Optional[Dict] = None
-    image_url: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 class PantryItemResponse(BaseModel):
     id: str
@@ -43,7 +43,7 @@ class PantryItemResponse(BaseModel):
     expiry_date: Optional[str] = None
     category: Optional[str] = None
     nutritional_info: Optional[Dict] = None
-    image_url: Optional[str] = None
+    imageUrl: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -145,7 +145,7 @@ def get_product_from_barcode(barcode: str):
                     "fiber": product.get("nutriments", {}).get("fiber_100g"),
                     "sugar": product.get("nutriments", {}).get("sugars_100g")
                 },
-                "image_url": product.get("image_url")
+                "imageUrl": product.get("imageUrl")
             }
         return None
     except Exception as e:
@@ -264,7 +264,7 @@ async def add_pantry_item(item: PantryItem, current_user: dict = Depends(get_aut
             "expiry_date": item.expiry_date,
             "category": item.category,
             "nutritional_info": item.nutritional_info,
-            "image_url": item.image_url,
+            "imageUrl": item.imageUrl,
             "created_at": now,
             "updated_at": now
         }
@@ -385,8 +385,8 @@ async def update_pantry_item(item_id: str, item: PantryItem, current_user: dict 
             update_doc["category"] = item.category
         if item.nutritional_info is not None:
             update_doc["nutritional_info"] = item.nutritional_info
-        if item.image_url is not None:
-            update_doc["image_url"] = item.image_url
+        if item.imageUrl is not None:
+            update_doc["imageUrl"] = item.imageUrl
         
         # Update the item
         user_pantry_collection.update_one(
@@ -508,8 +508,8 @@ async def bulk_add_pantry_items(
                 pantry_item["barcode"] = item_data.barcode
             if item_data.nutritional_info:
                 pantry_item["nutritional_info"] = item_data.nutritional_info
-            if item_data.image_url:
-                pantry_item["image_url"] = item_data.image_url
+            if item_data.imageUrl:
+                pantry_item["imageUrl"] = item_data.imageUrl
             
             # Insert the item
             result = user_pantry_collection.insert_one(pantry_item)

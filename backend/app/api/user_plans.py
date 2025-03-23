@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pymongo import MongoClient
-from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import datetime
 import os
 import uuid
+from pydantic import BaseModel 
 from app.utils.celery_config import celery_app
 from app.utils.redis_client import get_cache, set_cache, delete_cache, PROFILE_CACHE_TTL
 
@@ -102,7 +102,7 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                     "nutrition": cached_meal["macros"],
                     "ingredients": cached_meal["ingredients"],
                     "instructions": cached_meal["meal_text"],
-                    "imageUrl": cached_meal.get("image_url", ""),
+                    "imageUrl": cached_meal.get("imageUrl", ""),  # Fixed: Use camelCase
                     "calories": cached_meal["macros"].get("calories", 0)
                 }
             else:
@@ -136,7 +136,7 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                             "nutrition": meal_doc["macros"],
                             "ingredients": meal_doc["ingredients"],
                             "instructions": meal_doc["meal_text"],
-                            "imageUrl": meal_doc.get("image_url", ""),
+                            "imageUrl": meal_doc.get("imageUrl", ""),  # Fixed: Use camelCase
                             "calories": calories_value
                         }
                         
@@ -285,7 +285,7 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
                     "nutrition": cached_meal["macros"],
                     "ingredients": cached_meal["ingredients"],
                     "instructions": cached_meal["meal_text"],
-                    "imageUrl": cached_meal.get("image_url", ""),
+                    "imageUrl": cached_meal.get("imageUrl", ""),  # Fixed: Use camelCase
                     "calories": cached_meal["macros"].get("calories", 0)
                 }
             else:
@@ -317,7 +317,7 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
                             "nutrition": meal_doc["macros"],
                             "ingredients": meal_doc["ingredients"],
                             "instructions": meal_doc["meal_text"],
-                            "imageUrl": meal_doc.get("image_url", ""),
+                            "imageUrl": meal_doc.get("imageUrl", ""),  # Fixed: Use camelCase
                             "calories": meal_doc["macros"].get("calories", 0)
                         }
                         

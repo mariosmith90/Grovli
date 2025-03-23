@@ -712,11 +712,11 @@ export default function RecipePage() {
           <div className="mb-4">
             <div className="relative rounded-3xl overflow-hidden h-72">
             <img
-              src={recipe.imageUrl || recipe.image_url}
+              src={recipe.imageUrl}
               alt={recipe.title}
               className="w-full h-full object-cover"
               onError={(e) => {
-                console.log("Image failed to load:", recipe.imageUrl || recipe.image_url);
+                console.log("Image failed to load:", recipe.imageUrl);
                 e.target.style.display = 'none';
               }}
             />

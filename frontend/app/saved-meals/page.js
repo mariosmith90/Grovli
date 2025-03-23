@@ -62,8 +62,7 @@ export default function SavedMealsArchive() {
     return letterGroups;
   }, [filteredMeals, alphabet]);
   
-  // Calculate available letters based on allMeals, not filteredMeals
-// Calculate available letters based on search and tag filtered meals, but not letter filter
+  // Calculate available letters based on search and tag filtered meals, but not letter filter
 const getAvailableLetters = useCallback(() => {
     const letterCounts = {};
     
@@ -209,7 +208,7 @@ const getAvailableLetters = useCallback(() => {
                 nutrition: recipe.nutrition || {},
                 ingredients: recipe.ingredients || [],
                 instructions: recipe.instructions || '',
-                imageUrl: recipe.imageUrl || '',
+                imageUrl: recipe.imageUrl || '',  // Standardized field
                 planName: plan.name,
                 planId: plan.id,
                 saved_at: plan.created_at
@@ -504,7 +503,7 @@ function MealCard({ meal, onClick }) {
         >
       <div className="relative h-40 overflow-hidden">
       <img 
-        src={meal.imageUrl} 
+        src={meal.imageUrl}  // Standardized field
         alt={meal.title}
         className="w-full h-full object-cover transition-transform hover:scale-105"
       />

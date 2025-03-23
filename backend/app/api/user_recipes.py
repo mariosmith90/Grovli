@@ -38,7 +38,7 @@ class SavedRecipeResponse(BaseModel):
     nutrition: dict = None
     ingredients: List[dict] = None
     instructions: str = None
-    imageUrl: str = None  
+    imageUrl: str = None  # Standardized field
 
 class SavedMealPlanResponse(BaseModel):
     id: str
@@ -137,7 +137,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             else:
                 mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
                 if mongo_recipe:
-                    # Clean and cache the meal WITH image_url
+                    # Clean and cache the meal WITH imageUrl
                     mongo_recipe_clean = {k: v for k, v in mongo_recipe.items() if k != "_id"}
                     set_cache(meal_cache_key, mongo_recipe_clean, PROFILE_CACHE_TTL)
         else:
@@ -161,7 +161,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             "nutrition": mongo_recipe.get("macros") if mongo_recipe else recipe.get("nutrition", {}),
             "ingredients": mongo_recipe.get("ingredients") if mongo_recipe else recipe.get("ingredients", []),
             "instructions": mongo_recipe.get("meal_text") if mongo_recipe else recipe.get("instructions", ""),
-            "imageUrl": mongo_recipe.get("image_url") if mongo_recipe else recipe.get("imageUrl", "")
+            "imageUrl": mongo_recipe.get("imageUrl") if mongo_recipe else recipe.get("imageUrl", "")  # Standardized field
         }
         saved_recipes.append(saved_recipe)
     
@@ -195,7 +195,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
                 "nutrition": recipe["nutrition"],
                 "ingredients": recipe["ingredients"],
                 "instructions": recipe["instructions"],
-                "imageUrl": recipe.get("imageUrl")  
+                "imageUrl": recipe.get("imageUrl")  # Standardized field
             }
             for recipe in saved_recipes
         ]
