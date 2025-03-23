@@ -134,19 +134,12 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
             
             if cached_meal:
                 mongo_recipe = cached_meal
-                
-                # Since image_url is removed from Redis cache, check MongoDB for it
-                db_meal = meals_collection.find_one({"meal_id": recipe_id})
-                if db_meal and "image_url" in db_meal:
-                    mongo_recipe["image_url"] = db_meal["image_url"]
             else:
-                # If not in cache, check MongoDB
                 mongo_recipe = meals_collection.find_one({"meal_id": recipe_id})
                 if mongo_recipe:
-                    # Cache the meal for future use
-                    if "_id" in mongo_recipe:
-                        mongo_recipe_clean = {k: v for k, v in mongo_recipe.items() if k != "_id"}
-                        set_cache(meal_cache_key, mongo_recipe_clean, PROFILE_CACHE_TTL)
+                    # Clean and cache the meal WITH image_url
+                    mongo_recipe_clean = {k: v for k, v in mongo_recipe.items() if k != "_id"}
+                    set_cache(meal_cache_key, mongo_recipe_clean, PROFILE_CACHE_TTL)
         else:
             mongo_recipe = None
         
@@ -234,22 +227,8 @@ async def get_saved_recipes(
     cached_plans = get_cache(cache_key)
     
     if cached_plans:
-        # We have cached plans but they lack imageUrls
-        # Query MongoDB to get the complete data
-        cursor = saved_meal_plans_collection.find(
-            {"user_id": user_id}
-        ).sort("created_at", -1).skip(skip).limit(limit)
-        
-        meal_plans = []
-        for doc in cursor:
-            # Convert ObjectId to string to make it JSON serializable
-            if "_id" in doc:
-                doc["_id"] = str(doc["_id"])
-            
-            doc["created_at"] = doc["created_at"].isoformat()
-            meal_plans.append(doc)
-            
-        return meal_plans
+        # ✅ Return cached data directly
+        return cached_plans
     
     # If not in cache, query MongoDB
     cursor = saved_meal_plans_collection.find(
@@ -290,27 +269,9 @@ async def get_saved_meal_plan(plan_id: str, current_user: dict = Depends(get_aut
     cached_plan = get_cache(cache_key)
     
     if cached_plan:
-        # Verify this plan belongs to the current user
         if cached_plan.get("user_id") == user_id:
-            # Need to reload the plan to get the imageUrls
-            meal_plan = saved_meal_plans_collection.find_one({
-                "id": plan_id,
-                "user_id": user_id
-            })
-            
-            if not meal_plan:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Meal plan not found"
-                )
-            
-            # Format the response
-            if "_id" in meal_plan:
-                meal_plan = {k: v for k, v in meal_plan.items() if k != "_id"}
-            
-            meal_plan["created_at"] = meal_plan["created_at"].isoformat()
-            
-            return meal_plan
+            # ✅ Return cached data directly
+            return cached_plan
             
     # If not in cache or not owned by this user, query MongoDB
     meal_plan = saved_meal_plans_collection.find_one({

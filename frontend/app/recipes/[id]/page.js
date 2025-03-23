@@ -30,6 +30,7 @@ export default function RecipePage() {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [displayDates, setDisplayDates] = useState([]);
   const [addToPantry, setAddToPantry] = useState(false);
+  const [regeneratingImage, setRegeneratingImage] = useState(false);
 
   useEffect(() => {
     if (!mealId) return; 
@@ -46,6 +47,8 @@ export default function RecipePage() {
         const data = await response.json();
         console.log("Recipe data from fetch:", data);
         console.log("Image URL:", data.imageUrl);
+        
+        // Don't modify the image URL, just use it as is
         setRecipe(data);
       } catch (error) {
         console.error("Error fetching recipe:", error);
@@ -54,7 +57,7 @@ export default function RecipePage() {
         setLoading(false);
       }
     };
-
+  
     fetchRecipe();
   }, [mealId]);
 
@@ -85,6 +88,38 @@ export default function RecipePage() {
 
     checkIfSaved();
   }, [user, recipe, mealId]);
+
+  // Add function to handle image regeneration
+  const handleRegenerateImage = async () => {
+    if (regeneratingImage) return;
+    
+    try {
+      setRegeneratingImage(true);
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/regenerate_image/${mealId}`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to regenerate image');
+      }
+      
+      const newImageData = await response.json();
+      
+      // Update the recipe state with the new image URL
+      setRecipe(prev => ({
+        ...prev,
+        imageUrl: newImageData.imageUrl
+      }));
+      
+      toast.success('Image regenerated successfully!');
+    } catch (error) {
+      console.error('Error regenerating image:', error);
+      toast.error('Failed to regenerate image');
+    } finally {
+      setRegeneratingImage(false);
+    }
+  };
 
   // Add this function to your component
   const addIngredientsToUserPantry = async () => {
@@ -707,21 +742,41 @@ export default function RecipePage() {
           </h1>
         </div>
         
-        <div className="px-6 pb-6">
-          {/* Recipe Image - Full width above macros */}
-          <div className="mb-4">
-            <div className="relative rounded-3xl overflow-hidden h-72">
-            <img
-              src={recipe.imageUrl || recipe.image_url}
-              alt={recipe.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                console.log("Image failed to load:", recipe.imageUrl || recipe.image_url);
-                e.target.style.display = 'none';
-              }}
-            />
+        <div className="hidden">
+          {console.log("Rendering image with URL:", recipe.imageUrl)}
+          {console.log("Full recipe object:", recipe)}
+        </div>
+
+          <div className="px-6 pb-6">
+            {/* Recipe Image - Full width above macros */}
+            <div className="mb-4">
+              <div className="relative rounded-3xl overflow-hidden h-72">
+                {regeneratingImage ? (
+                  <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                    <div className="text-center">
+                      <Loader className="w-10 h-10 text-teal-500 animate-spin mx-auto mb-2" />
+                      <p className="text-gray-600">Regenerating image...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <img
+                    src={recipe.imageUrl}
+                    alt={recipe.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      console.error("Image failed to load:", recipe.imageUrl);
+                      console.error("Recipe state at error time:", recipe);
+                      
+                      // Automatically regenerate the image
+                      handleRegenerateImage();
+                      
+                      // Hide the broken image while regenerating
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                )}
+              </div>
             </div>
-          </div>
               
           {/* Nutrition information with colored pills */}
           <div className="mb-6">

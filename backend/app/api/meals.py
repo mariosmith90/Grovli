@@ -488,6 +488,9 @@ async def get_meal_by_id(meal_id: str):
     cached_meal = get_cache(cache_key)
     if cached_meal:
         print(f"✅ Found meal in Redis cache: {cached_meal.get('meal_name')}")
+        # Ensure imageUrl is populated (MealCard expects this property)
+        image_url = cached_meal.get("image_url")
+        
         return {
             "id": cached_meal["meal_id"],
             "title": cached_meal["meal_name"],
@@ -495,7 +498,7 @@ async def get_meal_by_id(meal_id: str):
             "ingredients": cached_meal["ingredients"],
             "instructions": cached_meal["meal_text"],
             "meal_type": cached_meal.get("meal_type"),
-            "imageUrl": cached_meal.get("imageUrl") or cached_meal.get("image_url"),  # Fix here: use cached_meal instead of meal
+            "imageUrl": cached_meal.get("imageUrl") or image_url,  # Use same format as MealCard component
             "cache_source": "redis"
         }
     
@@ -517,14 +520,17 @@ async def get_meal_by_id(meal_id: str):
     # Cache the result in Redis
     set_cache(cache_key, meal, MEAL_CACHE_TTL)
     
+    # Ensure imageUrl is populated (MealCard expects this property)
+    image_url = meal.get("image_url")
+    
     return {
         "id": meal["meal_id"],
-        "title": meal["meal_name"],
+        "title": meal["meal_name"], 
         "nutrition": meal["macros"],
         "ingredients": meal["ingredients"],
         "instructions": meal["meal_text"],
         "meal_type": meal.get("meal_type"),
-        "imageUrl": meal.get("imageUrl") or meal.get("image_url"),
+        "imageUrl": meal.get("imageUrl") or image_url,
         "cache_source": "mongodb"
     }
 
@@ -584,4 +590,42 @@ async def get_meal_plan_by_id(meal_plan_id: str):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to retrieve meal plan: {str(e)}"
+        )
+
+@router.post("/regenerate_image/{meal_id}")
+async def regenerate_meal_image(meal_id: str):
+    """
+    Regenerates an image for a meal that has a missing or invalid image.
+    """
+    print(f"🔄 Regenerating image for meal ID: {meal_id}")
+    
+    # First check if the meal exists
+    meal = meals_collection.find_one({"meal_id": meal_id})
+    if not meal:
+        raise HTTPException(status_code=404, detail=f"Meal not found with ID: {meal_id}")
+    
+    # Import the image generation function 
+    from app.utils.tasks import generate_and_cache_meal_image
+    
+    # Generate a new image URL
+    try:
+        new_image_url = generate_and_cache_meal_image(meal["meal_name"], meal_id, force_regenerate=True)
+        
+        if not new_image_url:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate new image"
+            )
+        
+        # Return the new image URL
+        return {
+            "meal_id": meal_id,
+            "imageUrl": new_image_url,
+            "title": meal["meal_name"]
+        }
+    except Exception as e:
+        print(f"❌ Error regenerating image: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to regenerate image: {str(e)}"
         )
