@@ -9,8 +9,7 @@ import {
   Loader,
   Tag,
   ArrowUpRight,
-  BookOpen,
-  RefreshCw
+  BookOpen
 } from 'lucide-react';
 import Header from '../../components/header';
 import Footer from '../../components/footer';
@@ -30,7 +29,6 @@ export default function SavedMealsArchive() {
   const [selectedTags, setSelectedTags] = useState([]);
   const [activeFilters, setActiveFilters] = useState(false);
   const [availableTags, setAvailableTags] = useState([]);
-  const [regeneratingMealId, setRegeneratingMealId] = useState(null); // Added for image regeneration
   
   // Alphabet for letter navigation
   const alphabet = '#ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -64,8 +62,9 @@ export default function SavedMealsArchive() {
     return letterGroups;
   }, [filteredMeals, alphabet]);
   
-  // Calculate available letters based on search and tag filtered meals, but not letter filter
-  const getAvailableLetters = useCallback(() => {
+  // Calculate available letters based on allMeals, not filteredMeals
+// Calculate available letters based on search and tag filtered meals, but not letter filter
+const getAvailableLetters = useCallback(() => {
     const letterCounts = {};
     
     // Initialize counts for all letters
@@ -166,58 +165,6 @@ export default function SavedMealsArchive() {
       setAvailableTags(tags);
     }
   }, [allMeals]);
-  
-  // Function to update meal image in state
-  const updateMealImage = (mealId, newImageUrl) => {
-    // Update in allMeals
-    setAllMeals(prevMeals => 
-      prevMeals.map(meal => {
-        if ((meal.recipe_id && meal.recipe_id === mealId) || meal.id === mealId) {
-          return { ...meal, imageUrl: newImageUrl };
-        }
-        return meal;
-      })
-    );
-    
-    // Also update in filteredMeals to keep UI consistent
-    setFilteredMeals(prevMeals => 
-      prevMeals.map(meal => {
-        if ((meal.recipe_id && meal.recipe_id === mealId) || meal.id === mealId) {
-          return { ...meal, imageUrl: newImageUrl };
-        }
-        return meal;
-      })
-    );
-  };
-  
-  // Function to handle image regeneration
-  const regenerateMealImage = async (meal) => {
-    if (!meal || (!meal.id && !meal.recipe_id)) return;
-    
-    const mealId = meal.recipe_id || meal.id;
-    setRegeneratingMealId(mealId);
-    
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/regenerate_image/${mealId}`, {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to regenerate image');
-      }
-      
-      const newImageData = await response.json();
-      
-      // Update the meal image in state
-      updateMealImage(mealId, newImageData.imageUrl);
-      toast.success('Image regenerated successfully!');
-    } catch (error) {
-      console.error('Error regenerating image:', error);
-      toast.error('Failed to regenerate image');
-    } finally {
-      setRegeneratingMealId(null);
-    }
-  };
   
   // Fetch saved meals from the API
   const fetchSavedMeals = async () => {
@@ -506,9 +453,7 @@ export default function SavedMealsArchive() {
                           <MealCard 
                             key={meal.id} 
                             meal={meal} 
-                            onClick={() => viewMealDetails(meal.recipe_id || meal.id)}
-                            onRegenerateImage={regenerateMealImage}
-                            isRegenerating={regeneratingMealId === (meal.recipe_id || meal.id)}
+                            onClick={() => viewMealDetails(meal.recipe_id || meal.id)} 
                           />
                         ))}
                       </div>
@@ -529,9 +474,7 @@ export default function SavedMealsArchive() {
                       <MealCard 
                         key={meal.id} 
                         meal={meal} 
-                        onClick={() => viewMealDetails(meal.recipe_id || meal.id)}
-                        onRegenerateImage={regenerateMealImage}
-                        isRegenerating={regeneratingMealId === (meal.recipe_id || meal.id)}
+                        onClick={() => viewMealDetails(meal.recipe_id || meal.id)} 
                       />
                     ))}
                   </div>
@@ -546,60 +489,25 @@ export default function SavedMealsArchive() {
   );
 }
 
-function MealCard({ meal, onClick, onRegenerateImage, isRegenerating }) {
+// Meal Card Component
+function MealCard({ meal, onClick }) {
   const formattedCalories = typeof meal.nutrition?.calories === 'number' 
     ? meal.nutrition.calories 
     : typeof meal.calories === 'number'
       ? meal.calories
       : 'N/A';
   
-  // Handle regenerate button click
-  const handleRegenerateImage = (e) => {
-    if (e) {
-      e.stopPropagation(); // Prevent the card click event
-    }
-    onRegenerateImage(meal);
-  };
-  
   return (
-    <div 
-      onClick={onClick}
-      className="bg-white rounded-lg overflow-hidden shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all transform hover:translate-y-[-2px] cursor-pointer"
-    >
+        <div 
+        onClick={onClick}
+        className="bg-white rounded-lg overflow-hidden shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all transform hover:translate-y-[-2px] cursor-pointer"
+        >
       <div className="relative h-40 overflow-hidden">
-        {isRegenerating ? (
-          <div className="w-full h-full flex items-center justify-center bg-gray-100">
-            <div className="text-center">
-              <Loader className="w-6 h-6 text-teal-500 animate-spin mx-auto mb-1" />
-              <p className="text-xs text-gray-600">Regenerating image...</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <img 
-              src={meal.imageUrl} 
-              alt={meal.title}
-              className="w-full h-full object-cover transition-transform hover:scale-105"
-              onError={(e) => {
-                console.error("Image failed to load:", meal.imageUrl);
-                
-                // Hide the broken image
-                e.target.style.display = 'none';
-                
-                // Automatically regenerate on error
-                handleRegenerateImage();
-              }}
-            />
-            {/* Regenerate button */}
-            <button 
-              onClick={handleRegenerateImage}
-              className="absolute bottom-2 right-2 p-1.5 rounded-full bg-white/80 backdrop-blur-sm text-gray-700 hover:bg-white hover:text-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors"
-              title="Regenerate image"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </>
-        )}
+      <img 
+        src={meal.imageUrl} 
+        alt={meal.title}
+        className="w-full h-full object-cover transition-transform hover:scale-105"
+      />
         {meal.meal_type && (
           <div className="absolute top-2 left-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/80 backdrop-blur-sm text-gray-800 capitalize">
@@ -623,7 +531,7 @@ function MealCard({ meal, onClick, onRegenerateImage, isRegenerating }) {
           <div className="text-teal-600 text-sm font-medium flex items-center">
             See Recipe
             <ArrowUpRight className="w-3 h-3 ml-1" />
-          </div>
+        </div>
         </div>
       </div>
     </div>

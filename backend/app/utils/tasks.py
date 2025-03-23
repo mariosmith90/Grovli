@@ -852,21 +852,17 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     meals_collection.insert_one(meal_data)
     return meal_data
 
-def generate_and_cache_meal_image(meal_name, meal_id, force_regenerate=False):
+def generate_and_cache_meal_image(meal_name, meal_id):
     """
     Generates a realistic food image for a meal using Google Cloud's Vertex AI.
     Uploads it to Google Cloud Storage, and returns a persistent URL.
     If an image exists in the database, return that instead of generating a new one.
     """
     
-    # Check if image already exists in MongoDB (skip this check if force_regenerate is True)
-    if not force_regenerate:
-        existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1, "imageUrl": 1})
-        if existing_meal:
-            image_url = existing_meal.get("imageUrl") or existing_meal.get("image_url")
-            if image_url:
-                logger.info(f"Found existing image URL in database: {image_url}")
-                return image_url
+    # Check if image already exists in MongoDB
+    existing_meal = meals_collection.find_one({"meal_id": meal_id}, {"image_url": 1})
+    if existing_meal and existing_meal.get("image_url"):
+        return existing_meal["image_url"]
     
     try:
         # Enhanced prompt for realistic food photography
@@ -970,7 +966,7 @@ def generate_and_cache_meal_image(meal_name, meal_id, force_regenerate=False):
                         }},
                         upsert=True
                     )
-                    logger.info(f"Generated new image URL: {gcs_image_url}")
+                    
                     return gcs_image_url
                 except Exception as storage_error:
                     logger.error(f"Error in storage operations: {str(storage_error)}")

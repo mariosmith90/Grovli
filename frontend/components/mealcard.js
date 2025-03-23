@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckIcon, Flame, Activity, RefreshCw, Loader } from "lucide-react";
-import { toast } from "react-hot-toast";
+import { CheckIcon, Flame, Activity } from "lucide-react";
 
 // **Nutrient Display Component**
 function NutrientMetric({ icon, value, unit, label, highlight = false }) {
@@ -25,49 +23,9 @@ function NutrientMetric({ icon, value, unit, label, highlight = false }) {
 // Define MealCard component and export it
 export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected, mealType, dayNumber }) {
   const router = useRouter();
-  const [regeneratingImage, setRegeneratingImage] = useState(false);
-  
-  // Function to handle image regeneration
-  const handleRegenerateImage = async (e) => {
-    if (e) {
-      e.stopPropagation(); // Prevent triggering selection
-    }
-    
-    if (regeneratingImage) return;
-    
-    try {
-      setRegeneratingImage(true);
-      
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/regenerate_image/${id}`, {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to regenerate image');
-      }
-      
-      const newImageData = await response.json();
-      
-      // You would typically update the parent state here
-      // But for now, we'll just update the DOM directly
-      const imageElement = document.querySelector(`#meal-card-${id} img`);
-      if (imageElement) {
-        imageElement.src = newImageData.imageUrl;
-        imageElement.style.display = ''; // Make image visible again
-      }
-      
-      toast.success('Image regenerated successfully!');
-    } catch (error) {
-      console.error('Error regenerating image:', error);
-      toast.error('Failed to regenerate image');
-    } finally {
-      setRegeneratingImage(false);
-    }
-  };
   
   return (
     <div 
-      id={`meal-card-${id}`}
       className={`relative bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 group flex flex-col cursor-pointer
         ${isSelected 
           ? "ring-2 ring-teal-500 translate-y-[-2px]" 
@@ -95,40 +53,12 @@ export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected,
       {isSelected && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-400 to-teal-600" />}
       
       {/* Meal Image */}
-      <div className="w-full h-48 bg-gray-100 relative">
-        {regeneratingImage ? (
-          <div className="w-full h-full flex items-center justify-center bg-gray-100">
-            <div className="text-center">
-              <Loader className="w-6 h-6 text-teal-500 animate-spin mx-auto mb-1" />
-              <p className="text-xs text-gray-600">Regenerating image...</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <img
-              src={imageUrl}
-              alt={title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                console.error("Image failed to load:", imageUrl);
-                
-                // Hide the broken image
-                e.target.style.display = 'none';
-                
-                // Automatically regenerate the image
-                handleRegenerateImage();
-              }}
-            />
-            {/* Regenerate Button */}
-            <button 
-              onClick={handleRegenerateImage}
-              className="absolute bottom-2 right-2 p-1.5 rounded-full bg-white/80 backdrop-blur-sm text-gray-700 hover:bg-white hover:text-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-colors z-30"
-              title="Regenerate image"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </>
-        )}
+      <div className="w-full h-48 bg-gray-100">
+        <img
+          src={imageUrl}
+          alt={title}
+          className="w-full h-full object-cover"
+        />
       </div>
 
       <div className="p-6 relative z-10 flex flex-col flex-grow">
@@ -195,7 +125,7 @@ export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected,
   );
 }
 
-// The rest of your MealPlanDisplay component remains the same
+// MealPlanDisplay component
 export function MealPlanDisplay({ 
   mealPlan, 
   mealType, 
