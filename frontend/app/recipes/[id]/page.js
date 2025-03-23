@@ -425,6 +425,8 @@ export default function RecipePage() {
         console.error("API error details:", errorData);
         throw new Error(`Failed to add to meal plan: ${response.status}`);
       }
+
+      localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
   
       // Only add to pantry if checkbox is checked
       if (addToPantry && recipe.ingredients && recipe.ingredients.length > 0) {

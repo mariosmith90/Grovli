@@ -56,6 +56,8 @@ export default function MealPlannerCalendar() {
   const [sourceDateForDuplicate, setSourceDateForDuplicate] = useState(null);
   const [targetDateForDuplicate, setTargetDateForDuplicate] = useState(null);
 
+  const lastLoadedRef = useRef(null);
+
   // Add this new function to handle duplication of a day's meals
   const duplicateDayMeals = () => {
     if (!sourceDateForDuplicate || !targetDateForDuplicate) return;
@@ -118,10 +120,20 @@ export default function MealPlannerCalendar() {
   // Fetch saved meals when authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      fetchSavedMeals();
-      fetchUserMealPlans();
+      // Check if there's been an update from another component
+      const lastUpdated = localStorage.getItem('mealPlanLastUpdated');
+      
+      // If the data was updated after we last loaded it, or we haven't loaded yet
+      if (lastUpdated && (!lastLoadedRef.current || new Date(lastUpdated) > new Date(lastLoadedRef.current))) {
+        fetchUserMealPlans();
+        // Update our last loaded timestamp
+        lastLoadedRef.current = new Date().toISOString();
+      } else {
+        fetchSavedMeals();
+        fetchUserMealPlans();
+      }
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading]);  
 
   // Close slider when clicking outside
   useEffect(() => {

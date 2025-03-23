@@ -257,7 +257,7 @@ async def add_pantry_item(item: PantryItem, current_user: dict = Depends(get_aut
         # Prepare the item document
         pantry_item = {
             "id": item_id,
-            "user_id": current_user["id"],
+            "user_id": current_user.get("sub"),
             "name": item.name,
             "barcode": item.barcode,
             "quantity": item.quantity or 1,
@@ -276,7 +276,7 @@ async def add_pantry_item(item: PantryItem, current_user: dict = Depends(get_aut
         pantry_item["_id"] = str(result.inserted_id)
         
         # Invalidate user pantry cache
-        delete_cache(f"user_pantry:{current_user['id']}")
+        delete_cache(f"user_pantry:{current_user.get('sub')}")
         
         return pantry_item
     
@@ -291,14 +291,14 @@ async def get_pantry_items(current_user: dict = Depends(get_auth0_user)):
     """Get all pantry items for the current user"""
     try:
         # Check Redis cache first
-        cache_key = f"user_pantry:{current_user['id']}"
+        cache_key = f"user_pantry:{current_user.get('sub')}"
         cached_items = get_cache(cache_key)
         
         if cached_items:
             return {"items": cached_items}
         
         # If not in cache, query MongoDB
-        items = list(user_pantry_collection.find({"user_id": current_user["id"]}))
+        items = list(user_pantry_collection.find({"user_id": current_user.get("sub")}))
         
         # Convert ObjectId to string for each item
         for item in items:
@@ -327,7 +327,7 @@ async def delete_pantry_item(item_id: str, current_user: dict = Depends(get_auth
     try:
         result = user_pantry_collection.delete_one({
             "id": item_id,
-            "user_id": current_user["id"]
+            "user_id": current_user.get("sub")
         })
         
         if result.deleted_count == 0:
@@ -337,7 +337,7 @@ async def delete_pantry_item(item_id: str, current_user: dict = Depends(get_auth
             )
         
         # Invalidate cache
-        delete_cache(f"user_pantry:{current_user['id']}")
+        delete_cache(f"user_pantry:{current_user.get('sub')}")
         
         return {"message": "Pantry item deleted successfully"}
     
@@ -356,7 +356,7 @@ async def update_pantry_item(item_id: str, item: PantryItem, current_user: dict 
         # Get the existing item to make sure it belongs to the user
         existing_item = user_pantry_collection.find_one({
             "id": item_id,
-            "user_id": current_user["id"]
+            "user_id": current_user.get("sub")
         })
         
         if not existing_item:
@@ -390,12 +390,12 @@ async def update_pantry_item(item_id: str, item: PantryItem, current_user: dict 
         
         # Update the item
         user_pantry_collection.update_one(
-            {"id": item_id, "user_id": current_user["id"]},
+            {"id": item_id, "user_id": current_user.get("sub")},
             {"$set": update_doc}
         )
         
         # Invalidate cache
-        delete_cache(f"user_pantry:{current_user['id']}")
+        delete_cache(f"user_pantry:{current_user.get('sub')}")
         
         # Get the updated item
         updated_item = user_pantry_collection.find_one({"id": item_id})
@@ -441,7 +441,7 @@ async def recommend_meals(request: MealRecommendationRequest, current_user: dict
     try:
         # If no ingredients provided, try to use all ingredients from the user's pantry
         if not request.ingredients or len(request.ingredients) == 0:
-            pantry_items = user_pantry_collection.find({"user_id": current_user["id"]})
+            pantry_items = user_pantry_collection.find({"user_id": current_user.get("sub")})
             ingredients = [item["name"] for item in pantry_items]
             
             if not ingredients:
@@ -455,7 +455,7 @@ async def recommend_meals(request: MealRecommendationRequest, current_user: dict
         # Get dietary preferences from user profile if not provided
         dietary_preferences = request.dietary_preferences
         if not dietary_preferences:
-            user_profile = user_collection.find_one({"id": current_user["id"]})
+            user_profile = user_collection.find_one({"id": current_user.get("sub")})
             if user_profile and "dietary_preferences" in user_profile:
                 dietary_preferences = " ".join(user_profile["dietary_preferences"])
         
@@ -493,7 +493,7 @@ async def bulk_add_pantry_items(
             # Prepare the item document
             pantry_item = {
                 "id": item_id,
-                "user_id": current_user["id"],
+                "user_id": current_user.get("sub"),
                 "name": item_data.name,
                 "quantity": item_data.quantity or 1,
                 "category": item_data.category,
@@ -520,7 +520,7 @@ async def bulk_add_pantry_items(
             added_items.append(pantry_item_response)
         
         # Invalidate user pantry cache
-        delete_cache(f"user_pantry:{current_user['id']}")
+        delete_cache(f"user_pantry:{current_user.get('sub')}")
         
         return {
             "message": f"Successfully added {len(added_items)} items to pantry",
@@ -528,6 +528,10 @@ async def bulk_add_pantry_items(
         }
     
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Failed to add pantry items: {str(e)}")
+        print(f"Error trace: {error_trace}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add pantry items: {str(e)}"

@@ -960,6 +960,7 @@ def generate_and_cache_meal_image(meal_name, meal_id):
                         {"meal_id": meal_id},
                         {"$set": {
                             "image_url": gcs_image_url,
+                            "imageUrl": gcs_image_url,
                             "image_updated_at": datetime.datetime.now(),
                             "image_source": "vertex_ai"
                         }},
