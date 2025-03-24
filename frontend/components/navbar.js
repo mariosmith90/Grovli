@@ -376,9 +376,6 @@ function NavButton({ icon, label, path, isActive, onClick }) {
     >
       <div className={`relative ${isActive ? 'scale-110 transition-transform' : ''}`}>
         {icon}
-        {isActive && (
-          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-teal-600 rounded-full"></span>
-        )}
       </div>
       <span className={`text-sm mt-1.5 ${isActive ? 'font-medium' : ''}`}>{label}</span>
     </button>
