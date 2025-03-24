@@ -204,7 +204,7 @@ export default function BottomNavbar({ children }) {
               <button
                 onClick={handleFabClick}
                 disabled={isGenerating}
-                className={`${getFabColor()} text-white w-18 h-18 rounded-full flex items-center justify-center shadow-lg transition-all`}
+                className={`${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all`}
               >
                 {getFabIcon()}
               </button>
@@ -238,9 +238,9 @@ export default function BottomNavbar({ children }) {
                   <NavButton 
                     icon={<Utensils className="w-8 h-8" />} 
                     label="Meals" 
-                    path="/meals" 
-                    isActive={isActive('/meals')}
-                    onClick={() => router.push('/meals')}
+                    path="/saved-meals" 
+                    isActive={isActive('/saved-meals')}
+                    onClick={() => router.push('/saved-meals')}
                   />
                   
                   <NavButton 
