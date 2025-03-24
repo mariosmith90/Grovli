@@ -3,7 +3,6 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
 import { Download, ArrowRight } from 'lucide-react';
-import Header from '../components/header';
 
 const HomePage = () => {
   const router = useRouter();
@@ -94,9 +93,6 @@ const HomePage = () => {
         <div className="absolute top-0 left-0 w-1/2 h-1/2 bg-gradient-to-br from-teal-500 to-blue-600 rounded-full blur-3xl"></div>
         <div className="absolute bottom-0 right-0 w-1/3 h-1/3 bg-purple-500 rounded-full blur-3xl"></div>
       </div>
-      
-      {/* Header Component */}
-      <Header />
       
       {/* Main Content */}
       <main className="relative z-10 flex items-center justify-center min-h-screen w-full px-4">

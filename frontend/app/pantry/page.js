@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import Header from '../../components/header';
 import BarcodeScanner from '../../components/barcode';
 import { Plus, Scan, Camera, Search, X, ShoppingBag, ExternalLink, Trash2, ChevronDown, ChevronUp, Edit, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -326,7 +325,6 @@ export default function PantryPage() {
   
   return (
     <div className="min-h-screen bg-white">
-    <Header />
     
     {/* App Content - Below Header */}
     <div className="pt-24 px-4 pb-16 max-w-4xl mx-auto">

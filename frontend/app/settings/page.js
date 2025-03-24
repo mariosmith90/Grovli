@@ -11,10 +11,10 @@ import {
   Pizza as PizzaIcon, 
   Scale as ScaleIcon, 
   CircleCheck as CircleCheckIcon, 
-  CircleAlert as CircleAlertIcon
+  CircleAlert as CircleAlertIcon,
+  LogOut
 } from 'lucide-react';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import Header from '../../components/header';
 
 export default function GlobalSettingsComprehensive() {
   const router = useRouter();
@@ -288,6 +288,11 @@ export default function GlobalSettingsComprehensive() {
       // Fallback redirect
       window.location.href = '/onboarding?forceReset=true';
     }
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    router.push('/auth/logout');
   };
 
   // Render macro sliders
@@ -650,7 +655,6 @@ export default function GlobalSettingsComprehensive() {
 
   return (
     <>
-      <Header />
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-4xl flex-grow flex flex-col">
@@ -685,15 +689,24 @@ export default function GlobalSettingsComprehensive() {
             <div className="md:col-span-3">
               {renderSectionContent()}
               
-              {/* Save Button */}
+              {/* Save and Logout Buttons */}
               {activeSection !== 'reset' && (
-                <div className="mt-6">
+                <div className="mt-6 space-y-3">
                   <button
                     onClick={saveSettings}
                     disabled={isSaving}
                     className="w-full py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors"
                   >
                     {isSaving ? 'Saving...' : 'Save Settings'}
+                  </button>
+                  
+                  {/* Logout Button */}
+                  <button
+                    onClick={handleLogout}
+                    className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
                   </button>
                 </div>
               )}

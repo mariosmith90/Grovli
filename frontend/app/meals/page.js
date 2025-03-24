@@ -4,9 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import MealCard, { MealPlanDisplay } from '../../components/mealcard';
-import Header from '../../components/header';
 import ChatbotWindow from '../../components/chatbot';
-import SettingsIcon from '../../components/settings';
 
 export default function Home() {
   const router = useRouter();
@@ -638,9 +636,6 @@ export default function Home() {
 
   return ( 
     <>
-      <Header>
-        <SettingsIcon onClick={() => router.push('/settings')} />
-      </Header>
   
       {/* Full-screen white background */}
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>

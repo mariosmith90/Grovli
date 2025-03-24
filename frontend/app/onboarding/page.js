@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import Header from '../../components/header';
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -417,9 +416,7 @@ export default function OnboardingWizard() {
   };
 
   return (
-    <>
-      <Header />
-      
+    <>      
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-4xl flex-grow flex flex-col">
           <h2 className="text-2xl font-semibold text-gray-800 mb-6">

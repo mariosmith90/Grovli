@@ -11,7 +11,6 @@ import {
   ArrowUpRight,
   BookOpen
 } from 'lucide-react';
-import Header from '../../components/header';
 import { toast } from 'react-hot-toast';
 
 export default function SavedMealsArchive() {
@@ -267,7 +266,6 @@ const getAvailableLetters = useCallback(() => {
   
   return (
     <>
-      <Header />
       
       {/* Full-screen white background */}
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>

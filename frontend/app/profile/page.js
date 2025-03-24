@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon, Calendar } from 'lucide-react';
-import Header from '../../components/header';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -576,7 +575,6 @@ export default function ProfilePage() {
 
   return (
     <>
-      <Header />
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
        <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
           <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 border-none w-full max-w-4xl flex-grow flex flex-col">
