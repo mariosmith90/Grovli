@@ -217,7 +217,7 @@ export default function BottomNavbar({ children }) {
                 {/* Four buttons with even spacing */}
                 <div className="flex justify-around w-full">
                   <NavButton 
-                    icon={<Calendar className="w-8 h-8" />} 
+                    icon={<Calendar className="w-6 h-6" />} 
                     label="Planner" 
                     path="/planner" 
                     isActive={isActive('/planner')}
@@ -225,7 +225,7 @@ export default function BottomNavbar({ children }) {
                   />
                   
                   <NavButton 
-                    icon={<ShoppingBag className="w-8 h-8" />} 
+                    icon={<ShoppingBag className="w-6 h-6" />} 
                     label="Pantry" 
                     path="/pantry" 
                     isActive={isActive('/pantry')}
@@ -236,7 +236,7 @@ export default function BottomNavbar({ children }) {
                   <div className="w-16 flex-shrink-0"></div>
                   
                   <NavButton 
-                    icon={<Utensils className="w-8 h-8" />} 
+                    icon={<Utensils className="w-6 h-6" />} 
                     label="Meals" 
                     path="/saved-meals" 
                     isActive={isActive('/saved-meals')}
@@ -244,7 +244,7 @@ export default function BottomNavbar({ children }) {
                   />
                   
                   <NavButton 
-                    icon={<User className="w-8 h-8" />} 
+                    icon={<User className="w-6 h-6" />} 
                     label="Profile" 
                     path="/profile" 
                     isActive={isActive('/profile')}
