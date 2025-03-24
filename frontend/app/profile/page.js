@@ -603,7 +603,7 @@ export default function ProfilePage() {
           {!isLoadingPlans && isDataReady && (
             <>
               {/* Next Meal Section */}
-              <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+              <section className="mb-6 bg-white p-4">
                 <h2 className="text-2xl font-semibold mb-3 flex items-center">
                   {(() => {
                     const Icon = { breakfast: Coffee, lunch: Utensils, snack: Apple, dinner: Moon }[nextMeal.type];
@@ -631,7 +631,7 @@ export default function ProfilePage() {
               
               {/* Conditional Rendering for Timeline or Saved Meals */}
               {activeSection === 'timeline' ? (
-                <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+                <section className="mb-6 bg-white p-4">
                   <h2 className="text-lg font-semibold mb-3">Your Meal Timeline</h2>
                   <MealTimeline 
                     meals={mealPlan} 
@@ -640,7 +640,7 @@ export default function ProfilePage() {
                   />
                 </section>
               ) : (
-                <section className="mb-6 bg-white rounded-lg shadow-md p-4">
+                <section className="mb-6 bg-white p-4">
                   <div className="flex justify-between items-center mb-3">
                     <h2 className="text-lg font-semibold">Saved Meals</h2>
                     <button 
@@ -684,7 +684,7 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreat
         <div className="mt-4">
           <button 
             onClick={handleCreateNewMeals}
-            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-lg transition-all"
+            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold transition-all"
           >
             Create new meals
           </button>
@@ -701,12 +701,12 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreat
           <div 
             key={meal.id}
             onClick={() => onSelectMeal(meal)}
-            className="flex items-center p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+            className="flex items-center p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition"
           >
             <img 
               src={meal.image || ''} 
               alt={meal.name} 
-              className="w-16 h-16 rounded-md object-cover"
+              className="w-16 h-16 object-cover"
             />
             <div className="ml-3">
               <h4 className="font-medium">{meal.name}</h4>
@@ -768,12 +768,12 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
               </div>
               
               <div className="ml-4 flex-1">
-                <div className={`p-4 rounded-lg ${
+                <div className={`p-4 ${
                   isCompleted 
-                    ? "bg-teal-50 border border-teal-200" 
+                    ? "bg-teal-50 border border-white" 
                     : isCurrentMeal 
-                      ? "bg-white border-2 border-teal-200 shadow-sm" 
-                      : "bg-gray-50"
+                      ? "bg-white border-2 border-white" 
+                      : "bg-white"
                 }`}>
                   <div className="flex justify-between items-center">
                     <h3 className={`font-medium capitalize ${isCompleted || isCurrentMeal ? "text-teal-800" : ""}`}>
@@ -792,7 +792,7 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
                             <img 
                               src={meal.image} 
                               alt={meal.name} 
-                              className="w-12 h-12 rounded-md object-cover mr-3 cursor-pointer hover:ring-2 hover:ring-teal-500 hover:ring-offset-2 transition-all"
+                              className="w-12 h-12 object-cover mr-3 cursor-pointer hover:ring-2 hover:ring-teal-500 hover:ring-offset-2 transition-all"
                               onClick={(e) => {
                                 e.stopPropagation(); // Prevent event bubbling
                                 router.push(`/recipes/${meal.id}`); // Navigate to recipe page
@@ -873,8 +873,8 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
   return (
     <div className="flex flex-col gap-2 max-w-3xl mx-auto">
       <div
-        className={`flex flex-col md:flex-row gap-4 bg-gray-50 rounded-lg overflow-hidden relative
-          ${isSelected ? "ring-2 ring-teal-500" : ""}`}
+        className={`flex flex-col md:flex-row gap-4 overflow-hidden relative
+          ${isSelected ? "ring-2 ring-white" : ""}`}
       >
         {/* Clickable Image Section */}
         <div
@@ -932,7 +932,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
           {meal.id && (
             <button
               onClick={() => router.push(`/mealplan/${meal.id}`)}
-              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all"
+              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold transition-all"
             >
               See Recipe →
             </button>
@@ -945,7 +945,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
                 onJustAte();
                 setIsSelected(false);
               }}
-              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-lg transition-all flex items-center justify-center"
+              className="w-full mt-3 py-2 bg-teal-500 hover:bg-teal-600 text-white font-bold transition-all flex items-center justify-center"
             >
               <CheckIcon className="w-4 h-4 mr-2" />
               Mark as Completed
@@ -957,7 +957,7 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
       {/* Create New Meals Button */}
       <button
         onClick={handleCreateNewMeals}
-        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all">
+        className="w-full py-2 px-4 mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all">
         Create New Meals
       </button>
     </div>
