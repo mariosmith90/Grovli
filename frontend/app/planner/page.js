@@ -753,7 +753,7 @@ const saveMealPlan = async () => {
         
         {/* Main Content Container */}
         <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-5xl flex-grow flex flex-col">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-5xl flex-grow flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800 flex items-center">
                 Grovli Planner
