@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
+import { Download, ArrowRight } from 'lucide-react';
 import Header from '../components/header';
 
 const HomePage = () => {
@@ -9,7 +10,6 @@ const HomePage = () => {
   const { user, isLoading } = useUser();
   const [deferredPrompt, setDeferredPrompt] = useState(null);
 
-  // PWA Install Prompt Setup
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
@@ -23,15 +23,14 @@ const HomePage = () => {
     };
   }, []);
 
-  // Existing authentication checks
   const isAuthenticated = !!user;
   
   if (typeof window === "undefined") return null;
   
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-500 to-blue-600">
+        <div className="animate-pulse w-16 h-16 bg-white/30 rounded-full"></div>
       </div>
     );
   }
@@ -90,35 +89,45 @@ const HomePage = () => {
         <div className="absolute inset-0 bg-black/50" />
       </div>
       
+      {/* Subtle Geometric Overlay */}
+      <div className="absolute inset-0 opacity-10">
+        <div className="absolute top-0 left-0 w-1/2 h-1/2 bg-gradient-to-br from-teal-500 to-blue-600 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 right-0 w-1/3 h-1/3 bg-purple-500 rounded-full blur-3xl"></div>
+      </div>
+      
       {/* Header Component */}
       <Header />
       
       {/* Main Content */}
-      <main className="relative z-10 flex items-center justify-center min-h-screen w-full overflow-hidden">
-        <div className="max-w-3xl mx-auto text-center px-6 bg-white/10 backdrop-blur-md rounded-lg shadow-lg p-8">
-          <h1 className="text-5xl font-bold text-white mb-6">Smart Meal Planning</h1>
-          <p className="text-xl text-gray-200 mb-8">
-            Grovli helps you take the guesswork out of meal planning with personalized, balanced
-            meal plans tailored to your lifestyle. Enjoy stress-free eating while staying on
-            track with your nutrition goals—one delicious meal at a time!
-          </p>
+      <main className="relative z-10 flex items-center justify-center min-h-screen w-full px-4">
+        <div className="max-w-md w-full text-center space-y-6 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 p-8 shadow-2xl">
+          <div className="space-y-4">
+            <h1 className="text-3xl font-semibold text-white tracking-tight">Grovli</h1>
+            <p className="text-gray-400 text-sm">Intelligent Meal Planning</p>
+          </div>
           
-          {/* Get Started Button */}
-          <div className="flex flex-col items-center space-y-4">
+          <div className="space-y-4">
             <button
               onClick={handleGetStarted}
-              className="px-8 py-3 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors text-lg font-medium"
+              className="w-full flex items-center justify-center gap-2 bg-white/10 text-white py-3 rounded-xl hover:bg-white/20 transition-all duration-300 ease-in-out group"
             >
               Get Started
+              <ArrowRight 
+                className="transform group-hover:translate-x-1 transition-transform" 
+                size={20} 
+              />
             </button>
 
-            {/* Conditional Download Button */}
             {deferredPrompt && (
               <button
                 onClick={handleInstallClick}
-                className="px-8 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium"
+                className="w-full flex items-center justify-center gap-2 border border-white/10 text-white/70 py-3 rounded-xl hover:bg-white/5 transition-all duration-300 ease-in-out group"
               >
-                Download App
+                <Download 
+                  className="text-teal-400 group-hover:rotate-6 transition-transform" 
+                  size={20} 
+                />
+                Install App
               </button>
             )}
           </div>
