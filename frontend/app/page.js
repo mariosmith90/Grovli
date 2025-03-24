@@ -1,5 +1,5 @@
 "use client"
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
 import Header from '../components/header';
@@ -8,13 +8,27 @@ import Footer from '../components/footer';
 const HomePage = () => {
   const router = useRouter();
   const { user, isLoading } = useUser();
-  // ✅ Convert user to authentication state
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+
+  // PWA Install Prompt Setup
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Existing authentication checks
   const isAuthenticated = !!user;
   
-  // ✅ Prevent SSR issues
   if (typeof window === "undefined") return null;
   
-  // ✅ Handle Loading State
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -25,34 +39,39 @@ const HomePage = () => {
 
   const handleGetStarted = async () => {
     if (!user) {
-      // If the user is not authenticated, redirect to login with a returnTo parameter
       router.push("/auth/login?returnTo=/onboarding");
       return;
     }
 
     try {
-      // Check if the user has already completed onboarding
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
       
       if (response.ok) {
         const data = await response.json();
         if (data.onboarded) {
-          // If onboarding is complete, redirect to the meal planner
           router.push("/meals");
         } else {
-          // If onboarding is not complete, redirect to onboarding
           router.push("/onboarding");
         }
       } else {
         console.error("Failed to fetch onboarding status:", response.status);
-        // Fallback: Redirect to onboarding if the API call fails
         router.push("/onboarding");
       }
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      // Fallback: Redirect to onboarding if there's an error
       router.push("/onboarding");
+    }
+  };
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        console.log('App installed');
+      }
+      setDeferredPrompt(null);
     }
   };
 
@@ -86,12 +105,24 @@ const HomePage = () => {
           </p>
           
           {/* Get Started Button */}
-          <button
-            onClick={handleGetStarted}
-            className="px-8 py-3 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors text-lg font-medium"
-          >
-            Get Started
-          </button>
+          <div className="flex flex-col items-center space-y-4">
+            <button
+              onClick={handleGetStarted}
+              className="px-8 py-3 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transition-colors text-lg font-medium"
+            >
+              Get Started
+            </button>
+
+            {/* Conditional Download Button */}
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="px-8 py-3 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium"
+              >
+                Download App
+              </button>
+            )}
+          </div>
         </div>
       </main>
       
