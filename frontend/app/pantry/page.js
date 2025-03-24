@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import Header from '../../components/header';
-import Footer from '../../components/footer';
 import BarcodeScanner from '../../components/barcode';
 import { Plus, Scan, Camera, Search, X, ShoppingBag, ExternalLink, Trash2, ChevronDown, ChevronUp, Edit, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -804,7 +803,6 @@ export default function PantryPage() {
         </div>
       )}
       
-      <Footer />
     </div>
   );
 }

@@ -3,7 +3,6 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
 import Header from '../components/header';
-import Footer from '../components/footer';
 
 const HomePage = () => {
   const router = useRouter();
@@ -125,9 +124,6 @@ const HomePage = () => {
           </div>
         </div>
       </main>
-      
-      {/* Footer Component */}
-      <Footer />
     </div>
   );
 };

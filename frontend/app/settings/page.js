@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import Header from '../../components/header';
-import Footer from '../../components/footer';
 
 export default function GlobalSettingsComprehensive() {
   const router = useRouter();
@@ -709,7 +708,6 @@ export default function GlobalSettingsComprehensive() {
           </div>
         </div>
       </main>
-      <Footer />
     </>
   );
 }

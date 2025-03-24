@@ -12,7 +12,6 @@ import {
   BookOpen
 } from 'lucide-react';
 import Header from '../../components/header';
-import Footer from '../../components/footer';
 import { toast } from 'react-hot-toast';
 
 export default function SavedMealsArchive() {
@@ -483,7 +482,6 @@ const getAvailableLetters = useCallback(() => {
           )}
         </div>
       </main>
-      <Footer />
     </>
   );
 }

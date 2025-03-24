@@ -18,7 +18,6 @@ import {
   Loader 
 } from 'lucide-react';
 import Header from '../../components/header';
-import Footer from '../../components/footer';
 import { toast } from 'react-hot-toast'; // Import toast for notifications
 
 
@@ -1146,8 +1145,6 @@ const saveMealPlan = async () => {
           </div>
         </div>
       )}
-
-        <Footer />
       </>
     );
   }

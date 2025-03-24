@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import Header from '../../components/header';
-import Footer from '../../components/footer';
 import ChatbotWindow from '../../components/chatbot';
 import SettingsIcon from '../../components/settings';
 
@@ -862,7 +861,6 @@ export default function Home() {
         />
       )}
     </main>
-    <Footer />
   </>
   );
 }
