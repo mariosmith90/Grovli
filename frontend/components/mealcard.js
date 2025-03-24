@@ -26,7 +26,7 @@ export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected,
   
   return (
     <div 
-      className={`relative bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 group flex flex-col cursor-pointer
+      className={`relative bg-white rounded-xlborder-noneoverflow-hidden transition-all duration-300 group flex flex-col cursor-pointer
         ${isSelected 
           ? "ring-2 ring-teal-500 translate-y-[-2px]" 
           : "hover:translate-y-[-4px] hover:shadow-xl"}`}

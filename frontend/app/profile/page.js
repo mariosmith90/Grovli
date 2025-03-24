@@ -578,8 +578,8 @@ export default function ProfilePage() {
     <>
       <Header />
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
-      <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 border-none w-full max-w-4xl flex-grow flex flex-col">
           
           {/* Plan Header */}
           <div className="mb-4 flex justify-between items-center">

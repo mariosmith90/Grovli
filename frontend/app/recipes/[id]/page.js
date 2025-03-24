@@ -659,7 +659,7 @@ export default function RecipePage() {
 
   if (loading) return (
     <div className="container mx-auto p-6 max-w-4xl">
-      <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+      <div className="bg-white rounded-xlborder-nonep-8 text-center">
         <p className="text-xl">Loading recipe...</p>
       </div>
     </div>
@@ -667,7 +667,7 @@ export default function RecipePage() {
   
   if (error) return (
     <div className="container mx-auto p-6 max-w-4xl">
-      <div className="bg-white rounded-xl shadow-lg p-8">
+      <div className="bg-white rounded-xlborder-nonep-8">
         <button 
           onClick={() => router.back()}
           className="mb-6 flex items-center text-teal-600 hover:text-teal-800"

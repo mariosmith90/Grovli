@@ -274,7 +274,7 @@ const getAvailableLetters = useCallback(() => {
       
       {/* Main Content Container */}
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-5xl flex-grow flex flex-col">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-5xl flex-grow flex flex-col">
           {/* Page Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>

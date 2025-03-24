@@ -421,7 +421,7 @@ export default function OnboardingWizard() {
       <Header />
       
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-4xl flex-grow flex flex-col">
           <h2 className="text-2xl font-semibold text-gray-800 mb-6">
             Let's Personalize Your Experience
           </h2>

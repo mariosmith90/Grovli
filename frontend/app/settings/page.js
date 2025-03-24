@@ -653,7 +653,7 @@ export default function GlobalSettingsComprehensive() {
       <Header />
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
-        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 shadow-lg w-full max-w-4xl flex-grow flex flex-col">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6border-nonew-full max-w-4xl flex-grow flex flex-col">
           {/* Page Title Section */}
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-xl font-semibold text-gray-800">Account Settings</h1>
