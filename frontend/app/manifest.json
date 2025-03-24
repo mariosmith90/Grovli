@@ -1,6 +1,6 @@
 {
   "name": "Meal Plan App",
-  "short_name": "MealPlan",
+  "short_name": "Grovli",
   "description": "Your AI-powered meal planning assistant",
   "start_url": "/",
   "display": "standalone",
