@@ -165,17 +165,17 @@ export default function BottomNavbar({ children }) {
     if (isGenerating) {
       // Show loading spinner when generating
       return (
-        <svg className="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <svg className="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       );
     } else if (pathname === '/meals') {
       // Checkmark when on meals page
-      return <Check className="w-7 h-7" />;
+      return <Check className="w-8 h-8" />;
     } else {
       // Plus icon for other pages
-      return <Plus className="w-7 h-7" />;
+      return <Plus className="w-8 h-8" />;
     }
   };
 
@@ -191,7 +191,7 @@ export default function BottomNavbar({ children }) {
   return (
     <>
       {/* Render any children (props) passed to this component */}
-      <div className={shouldShowNavbar() ? "mb-20" : ""}>
+      <div className={shouldShowNavbar() ? "mb-24" : ""}>
         {children}
       </div>
       
@@ -204,7 +204,7 @@ export default function BottomNavbar({ children }) {
               <button
                 onClick={handleFabClick}
                 disabled={isGenerating}
-                className={`${getFabColor()} text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all`}
+                className={`${getFabColor()} text-white w-18 h-18 rounded-full flex items-center justify-center shadow-lg transition-all`}
               >
                 {getFabIcon()}
               </button>
@@ -213,50 +213,49 @@ export default function BottomNavbar({ children }) {
           
           <div className="max-w-screen-xl mx-auto px-4">
             {isAuthenticated ? (
-              <div className="flex justify-around items-center h-16">
-                {/* Meals Button */}
-                <NavButton 
-                  icon={<Utensils className="w-6 h-6" />} 
-                  label="Meals" 
-                  path="/meals" 
-                  isActive={isActive('/meals')}
-                  onClick={() => router.push('/meals')}
-                />
-                
-                {/* Planner Button */}
-                <NavButton 
-                  icon={<Calendar className="w-6 h-6" />} 
-                  label="Planner" 
-                  path="/planner" 
-                  isActive={isActive('/planner')}
-                  onClick={() => router.push('/planner')}
-                />
-                
-                {/* Empty space for FAB */}
-                <div className="w-12 h-full"></div>
-                
-                {/* Pantry Button */}
-                <NavButton 
-                  icon={<ShoppingBag className="w-6 h-6" />} 
-                  label="Pantry" 
-                  path="/pantry" 
-                  isActive={isActive('/pantry')}
-                  onClick={() => router.push('/pantry')}
-                />
-                
-                {/* Profile Button */}
-                <NavButton 
-                  icon={<User className="w-6 h-6" />} 
-                  label="Profile" 
-                  path="/profile" 
-                  isActive={isActive('/profile') || isActive('/saved-meals')}
-                  onClick={() => router.push('/profile')}
-                />
+              <div className="flex items-center h-20">
+                {/* Four buttons with even spacing */}
+                <div className="flex justify-around w-full">
+                  <NavButton 
+                    icon={<Calendar className="w-8 h-8" />} 
+                    label="Planner" 
+                    path="/planner" 
+                    isActive={isActive('/planner')}
+                    onClick={() => router.push('/planner')}
+                  />
+                  
+                  <NavButton 
+                    icon={<ShoppingBag className="w-8 h-8" />} 
+                    label="Pantry" 
+                    path="/pantry" 
+                    isActive={isActive('/pantry')}
+                    onClick={() => router.push('/pantry')}
+                  />
+                  
+                  {/* Center space for FAB - invisible but takes up space */}
+                  <div className="w-16 flex-shrink-0"></div>
+                  
+                  <NavButton 
+                    icon={<Utensils className="w-8 h-8" />} 
+                    label="Meals" 
+                    path="/meals" 
+                    isActive={isActive('/meals')}
+                    onClick={() => router.push('/meals')}
+                  />
+                  
+                  <NavButton 
+                    icon={<User className="w-8 h-8" />} 
+                    label="Profile" 
+                    path="/profile" 
+                    isActive={isActive('/profile')}
+                    onClick={() => router.push('/profile')}
+                  />
+                </div>
               </div>
             ) : (
               <div className="flex justify-around items-center h-16">
                 <NavButton 
-                  icon={<Home className="w-6 h-6" />} 
+                  icon={<Home className="w-8 h-8" />} 
                   label="Home" 
                   path="/" 
                   isActive={isActive('/')}
@@ -264,7 +263,7 @@ export default function BottomNavbar({ children }) {
                 />
                 
                 <NavButton 
-                  icon={<User className="w-6 h-6" />} 
+                  icon={<User className="w-8 h-8" />} 
                   label="Login" 
                   path="/auth/login" 
                   isActive={isActive('/auth/login')}
@@ -299,15 +298,15 @@ export default function BottomNavbar({ children }) {
                     <>
                       <button
                         onClick={() => {
-                          router.push('/saved-meals');
+                          router.push('/meals');
                           setMenuOpen(false);
                         }}
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
                         <div className="w-12 h-12 flex items-center justify-center bg-teal-100 text-teal-600 rounded-full mb-2">
-                          <BookOpen className="w-6 h-6" />
+                          <Utensils className="w-8 h-8" />
                         </div>
-                        <span className="text-sm font-medium text-gray-700">Saved Meals</span>
+                        <span className="text-sm font-medium text-gray-700">Meals</span>
                       </button>
 
                       <button
@@ -318,7 +317,7 @@ export default function BottomNavbar({ children }) {
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
                         <div className="w-12 h-12 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full mb-2">
-                          <Settings className="w-6 h-6" />
+                          <Settings className="w-8 h-8" />
                         </div>
                         <span className="text-sm font-medium text-gray-700">Settings</span>
                       </button>
@@ -331,7 +330,7 @@ export default function BottomNavbar({ children }) {
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
                         <div className="w-12 h-12 flex items-center justify-center bg-red-100 text-red-600 rounded-full mb-2">
-                          <LogOut className="w-6 h-6" />
+                          <LogOut className="w-8 h-8" />
                         </div>
                         <span className="text-sm font-medium text-gray-700">Logout</span>
                       </button>
@@ -346,7 +345,7 @@ export default function BottomNavbar({ children }) {
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
                         <div className="w-12 h-12 flex items-center justify-center bg-green-100 text-green-600 rounded-full mb-2">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                           </svg>
                         </div>
@@ -369,7 +368,7 @@ function NavButton({ icon, label, path, isActive, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center w-full h-full focus:outline-none transition-colors ${
+      className={`flex flex-col items-center justify-center px-3 h-full focus:outline-none transition-colors ${
         isActive 
           ? 'text-teal-600' 
           : 'text-gray-500 hover:text-teal-600'
@@ -378,10 +377,10 @@ function NavButton({ icon, label, path, isActive, onClick }) {
       <div className={`relative ${isActive ? 'scale-110 transition-transform' : ''}`}>
         {icon}
         {isActive && (
-          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 bg-teal-600 rounded-full"></span>
+          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-teal-600 rounded-full"></span>
         )}
       </div>
-      <span className={`text-xs mt-1 ${isActive ? 'font-medium' : ''}`}>{label}</span>
+      <span className={`text-sm mt-1.5 ${isActive ? 'font-medium' : ''}`}>{label}</span>
     </button>
   );
 }
