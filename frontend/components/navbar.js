@@ -14,7 +14,8 @@ import {
   Utensils,
   Plus,
   Settings,
-  LogOut
+  LogOut,
+  Check
 } from 'lucide-react';
 
 export default function BottomNavbar({ children }) {
@@ -23,43 +24,71 @@ export default function BottomNavbar({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { user } = useUser();
   const isAuthenticated = !!user;
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Track if we've been to the meals page to preserve function access
+  const [visitedMealsPage, setVisitedMealsPage] = useState(false);
 
-  // Get current path on client side
+  // Get current path only after component mounts (client-side only)
   useEffect(() => {
-    setPathname(window.location.pathname);
-  }, []);
+    // Safe check for browser environment
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname;
+      setPathname(currentPath);
+      
+      // If we're on the meals page now, mark that we've visited it
+      if (currentPath === '/meals') {
+        setVisitedMealsPage(true);
+      }
+      
+      // Handle route changes
+      const handleRouteChange = () => {
+        const newPath = window.location.pathname;
+        setPathname(newPath);
+        
+        // If navigating to the meals page, mark that we've visited it
+        if (newPath === '/meals') {
+          setVisitedMealsPage(true);
+        }
+      };
+      
+      // Listen for navigation events
+      window.addEventListener('popstate', handleRouteChange);
+      
+      // Create a MutationObserver to detect any DOM changes that might indicate navigation
+      const observer = new MutationObserver(() => {
+        const newPath = window.location.pathname;
+        if (newPath !== pathname) {
+          setPathname(newPath);
+          if (newPath === '/meals') {
+            setVisitedMealsPage(true);
+          }
+        }
+      });
+      
+      // Start observing
+      observer.observe(document.body, { 
+        childList: true, 
+        subtree: true 
+      });
+      
+      return () => {
+        window.removeEventListener('popstate', handleRouteChange);
+        observer.disconnect();
+      };
+    }
+  }, [pathname]);
 
   // Check if the current route should have navigation
   const shouldShowNavbar = () => {
+    if (!pathname) return false;
+    
     // Don't show navbar on homepage or onboarding pages
-    return !pathname || !(
+    return !(
       pathname === '/' || 
       pathname === '/onboarding' || 
       pathname.startsWith('/onboarding/')
     );
-  };
-  
-  // Update path when navigation happens
-  useEffect(() => {
-    const handleRouteChange = () => {
-      setPathname(window.location.pathname);
-    };
-
-    // Listen for route changes
-    window.addEventListener('popstate', handleRouteChange);
-    
-    return () => {
-      window.removeEventListener('popstate', handleRouteChange);
-    };
-  }, []);
-
-  // Handle clicking outside of mobile menu
-  const handleOutsideClick = (event) => {
-    if (menuOpen &&
-        !event.target.closest(".mobile-menu") &&
-        !event.target.closest(".mobile-menu-content")) {
-      setMenuOpen(false);
-    }
   };
 
   // Check if a path is active
@@ -74,21 +103,90 @@ export default function BottomNavbar({ children }) {
     return pathname === path || pathname.startsWith(`${path}/`);
   };
 
-  // Add event listener on mount, remove on unmount
+  // Handle clicking outside of mobile menu
   useEffect(() => {
-    if (menuOpen) {
+    if (menuOpen && typeof document !== 'undefined') {
+      const handleOutsideClick = (event) => {
+        if (!event.target.closest(".mobile-menu") && 
+            !event.target.closest(".mobile-menu-content")) {
+          setMenuOpen(false);
+        }
+      };
+      
       document.addEventListener("mousedown", handleOutsideClick);
-      // Prevent scrolling when menu is open
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
+      document.body.style.overflow = 'hidden'; // Prevent scrolling
+      
+      return () => {
+        document.removeEventListener("mousedown", handleOutsideClick);
+        document.body.style.overflow = 'auto';
+      };
     }
-    
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-      document.body.style.overflow = 'auto';
-    };
   }, [menuOpen]);
+
+  // Handle the FAB click - if on meals page, trigger the global function
+  const handleFabClick = async () => {
+    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+      // If not on meals page but have visited it, navigate back
+      if (pathname !== '/meals') {
+        router.push('/meals');
+        return;
+      }
+      
+      // We're on the meals page, proceed with generation
+      setIsGenerating(true);
+      
+      if (typeof window !== 'undefined') {
+        // Try to find and call the global function
+        if (window.generateMeals && typeof window.generateMeals === 'function') {
+          try {
+            await window.generateMeals();
+          } catch (error) {
+            console.error('Error generating meals:', error);
+          } finally {
+            setIsGenerating(false);
+          }
+        } else {
+          // If function not defined, reload to reinitialize
+          console.warn('generateMeals function not found, refreshing page');
+          window.location.reload();
+          setIsGenerating(false);
+        }
+      } else {
+        setIsGenerating(false);
+      }
+    } else {
+      // First time going to meals page
+      router.push('/meals');
+    }
+  };
+
+  // Key icon and button features based on current state
+  const getFabIcon = () => {
+    if (isGenerating) {
+      // Show loading spinner when generating
+      return (
+        <svg className="animate-spin w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      );
+    } else if (pathname === '/meals') {
+      // Checkmark when on meals page
+      return <Check className="w-7 h-7" />;
+    } else {
+      // Plus icon for other pages
+      return <Plus className="w-7 h-7" />;
+    }
+  };
+
+  // Get the right button color based on state
+  const getFabColor = () => {
+    if (pathname === '/meals') {
+      return "bg-teal-600 hover:bg-blue-700";
+    } else {
+      return "bg-teal-500 hover:bg-teal-600";
+    }
+  };
 
   return (
     <>
@@ -104,10 +202,11 @@ export default function BottomNavbar({ children }) {
           {isAuthenticated && (
             <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
               <button
-                onClick={() => router.push('/meals')}
-                className="bg-teal-500 hover:bg-teal-600 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-colors"
+                onClick={handleFabClick}
+                disabled={isGenerating}
+                className={`${getFabColor()} text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all`}
               >
-                <Plus className="w-7 h-7" />
+                {getFabIcon()}
               </button>
             </div>
           )}

@@ -633,6 +633,16 @@ export default function Home() {
     }
   };
   
+  // Make fetchMealPlan globally accessible for the FAB button
+  useEffect(() => {
+    // Expose the function globally for the FAB to call
+    window.generateMeals = fetchMealPlan;
+    
+    // Clean up when component unmounts
+    return () => {
+      window.generateMeals = undefined;
+    };
+  }, [fetchMealPlan]);
 
   return ( 
     <>
@@ -805,28 +815,6 @@ export default function Home() {
               Upgrade Now
             </button>
           )}
-            
-          {/* Generate Free Plan - Now a Text Button */}
-          <div className="flex justify-center mt-4 mb-6">
-            {isPro ? (
-              /* Pro Button - Long teal button with white text */
-              <button
-                onClick={fetchMealPlan}
-                disabled={loading}
-                className="w-full py-3 px-6 text-white bg-teal-500 rounded-lg hover:bg-teal-600 transition-colors text-lg font-medium shadow-md"
-              >
-                {loading ? "Generating..." : "Generate Meals"}
-              </button>
-            ) : (
-              /* Free Button - Remains as text style */
-              <p
-                onClick={fetchMealPlan}
-                className="text-teal-600 text-lg cursor-pointer font-bold"
-              >
-                {loading ? "Loading..." : "Generate Free Meals"}
-              </p>
-            )}
-          </div>
 
           {/* Display Meal Plan */}
           <MealPlanDisplay
