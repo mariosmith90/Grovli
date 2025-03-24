@@ -5,8 +5,7 @@ from pydantic import BaseModel
 import datetime, os, requests, uuid
 import hashlib
 from jose import jwt, JWTError
-from app.utils.redis_client import get_cache, set_cache, delete_cache, PROFILE_CACHE_TTL, AUTH_CACHE_TTL
-
+from app.utils.redis_client import get_cache, set_cache, delete_cache, flush_pattern, PROFILE_CACHE_TTL, AUTH_CACHE_TTL
 router = APIRouter(prefix="/user-recipes", tags=["User Recipes"])
 
 # Auth0 Configuration - Make sure these are set in your environment variables
@@ -178,8 +177,7 @@ async def save_recipes(request: SaveRecipeRequest, current_user: dict = Depends(
     saved_meal_plans_collection.insert_one(meal_plan)
     
     # Invalidate user's saved recipes cache
-    user_saved_recipes_key = f"user_saved_recipes:{user_id}"
-    delete_cache(user_saved_recipes_key)
+    flush_pattern(f"user_saved_recipes:{user_id}*")
     
     # Return the created plan
     response_data = {
@@ -324,7 +322,7 @@ async def delete_saved_meal_plan(
     
     # Invalidate caches
     delete_cache(f"saved_plan:{plan_id}")
-    delete_cache(f"user_saved_recipes:{user_id}*")  
+    flush_pattern(f"user_saved_recipes:{user_id}*")  
     
     return {"message": "Meal plan deleted successfully"}
 
