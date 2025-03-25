@@ -21,12 +21,12 @@ export default function ProfilePage() {
   const [userPlans, setUserPlans] = useState([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [lastCheckTime, setLastCheckTime] = useState(null);
-  // Add a new state to track if data is ready to be shown
   const [isDataReady, setIsDataReady] = useState(false);
+  const [completedMeals, setCompletedMeals] = useState({});
 
   const [globalSettings, setGlobalSettings] = useState({
     calculationMode: 'auto',
-    calories: 2000, // Default value
+    calories: 2000,
     carbs: 270,
     protein: 180,
     fat: 67,
@@ -60,13 +60,87 @@ export default function ProfilePage() {
     type: 'breakfast'
   });
 
-  // Saved meals by category - initialized as empty but only loaded when needed
+  // Saved meals by category
   const [savedMeals, setSavedMeals] = useState({
     breakfast: [],
     lunch: [],
     snack: [],
     dinner: []
   });
+
+  // Helper function to convert time strings to minutes
+  const timeToMinutes = (timeStr) => {
+    if (!timeStr) return 0;
+    
+    const [time, modifier] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':');
+    
+    hours = parseInt(hours);
+    minutes = parseInt(minutes || 0);
+    
+    if (modifier?.toLowerCase() === 'pm' && hours < 12) hours += 12;
+    if (modifier?.toLowerCase() === 'am' && hours === 12) hours = 0;
+    
+    return hours * 60 + minutes;
+  };
+
+  // Function to update current and next meals based on time
+  const updateCurrentAndNextMeals = (meals) => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    // Find all meals that have been planned (have a name)
+    const plannedMeals = meals.filter(meal => meal.name);
+    
+    if (plannedMeals.length === 0) {
+      return { currentMealIndex: 0, nextMealIndex: 0 };
+    }
+    
+    // Find the current meal (the most recent planned meal that hasn't passed its time yet)
+    let currentIndex = 0;
+    let closestPastIndex = 0;
+    let smallestPastDiff = Infinity;
+    
+    plannedMeals.forEach((meal, index) => {
+      const mealMinutes = timeToMinutes(meal.time);
+      const diff = currentMinutes - mealMinutes;
+      
+      if (diff >= 0 && diff < smallestPastDiff) {
+        smallestPastDiff = diff;
+        closestPastIndex = index;
+      }
+    });
+    
+    currentIndex = closestPastIndex;
+    
+    // Find the next meal (the first planned meal after current time)
+    let nextIndex = currentIndex;
+    for (let i = currentIndex + 1; i < plannedMeals.length; i++) {
+      if (!plannedMeals[i].completed) {
+        nextIndex = i;
+        break;
+      }
+    }
+    
+    // If we didn't find a next meal, look from the start
+    if (nextIndex === currentIndex) {
+      for (let i = 0; i < plannedMeals.length; i++) {
+        if (!plannedMeals[i].completed && i !== currentIndex) {
+          nextIndex = i;
+          break;
+        }
+      }
+    }
+    
+    // Convert back to original meal plan indices
+    const originalCurrentIndex = meals.findIndex(m => m.type === plannedMeals[currentIndex]?.type);
+    const originalNextIndex = meals.findIndex(m => m.type === plannedMeals[nextIndex]?.type);
+    
+    return {
+      currentMealIndex: originalCurrentIndex >= 0 ? originalCurrentIndex : 0,
+      nextMealIndex: originalNextIndex >= 0 ? originalNextIndex : 0
+    };
+  };
 
   // Helper function to make authenticated API requests
   const makeAuthenticatedRequest = async (endpoint, options = {}) => {
@@ -102,13 +176,12 @@ export default function ProfilePage() {
 
     try {
       setIsLoadingPlans(true);
-      setIsDataReady(false); // Reset data ready state when fetching
+      setIsDataReady(false);
       
       const userId = user.sub;
       const plans = await makeAuthenticatedRequest(`/api/user-plans/user/${userId}`);
       setUserPlans(plans);
       
-      // Load the most recent plan if available
       if (plans.length > 0) {
         const sortedPlans = [...plans].sort((a, b) => 
           new Date(b.updated_at) - new Date(a.updated_at)
@@ -120,7 +193,7 @@ export default function ProfilePage() {
       console.error('Error fetching user meal plans:', error);
     } finally {
       setIsLoadingPlans(false);
-      setIsDataReady(true); // Set data as ready once loading is complete
+      setIsDataReady(true);
     }
   };
 
@@ -179,70 +252,26 @@ export default function ProfilePage() {
           fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
           image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
           id: recipeId,
-          completed: false // Reset completion status for today
+          completed: false,
+          time: mealItem.time || mealTypeToTime[mealType]
         };
       }
     }
   
     setMealPlan(updatedMealPlan);
   
-    // If there's a recently added meal type, try to focus on it
-    const recentlyAddedMealType = localStorage.getItem('lastAddedMealType');
-    if (recentlyAddedMealType) {
-      const recentMealIndex = updatedMealPlan.findIndex(m => m.type === recentlyAddedMealType);
-      if (recentMealIndex !== -1 && updatedMealPlan[recentMealIndex].name) {
-        // We found the recently added meal, use it as current
-        setCurrentMealIndex(recentMealIndex);
-        updateNextMealCard(updatedMealPlan[recentMealIndex]);
-        updateCalorieCount(updatedMealPlan);
-        localStorage.removeItem('lastAddedMealType');
-        return; // Skip the time-based selection
-      }
-    }
-  
-    // Update current meal index to the earliest non-completed meal
-    const currentTime = new Date();
-    const timeToMinutes = (timeStr) => {
-      const [hours, minutesWithSuffix] = timeStr.split(':');
-      const minutes = parseInt(minutesWithSuffix);
-      const isPM = timeStr.toLowerCase().includes('pm');
-      return (parseInt(hours) % 12 + (isPM ? 12 : 0)) * 60 + minutes;
-    };
-  
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-  
-    // Find the next meal based on current time
-    let nextIndex = 0;
-    let closestDiff = Infinity;
-  
-    updatedMealPlan.forEach((meal, index) => {
-      if (meal.name) { // Only consider meals that have been planned
-        const mealMinutes = timeToMinutes(meal.time);
-        const diff = mealMinutes - currentMinutes;
-  
-        // If the meal is in the future and closer than our current closest
-        if (diff >= 0 && diff < closestDiff) {
-          closestDiff = diff;
-          nextIndex = index;
-        }
-      }
-    });
-  
-    // If all meals are in the past, select the earliest meal
-    if (closestDiff === Infinity) {
-      nextIndex = updatedMealPlan.findIndex(meal => meal.name) || 0;
-    }
-  
-    setCurrentMealIndex(nextIndex);
-    updateNextMealCard(updatedMealPlan[nextIndex]);
+    // Use time-based logic to determine current and next meals
+    const { currentMealIndex, nextMealIndex } = updateCurrentAndNextMeals(updatedMealPlan);
+    
+    setCurrentMealIndex(currentMealIndex);
+    updateNextMealCard(updatedMealPlan[nextMealIndex]);
     updateCalorieCount(updatedMealPlan);
   };
 
-  // Fetch saved meals for the add meal selector - only called when needed
+  // Fetch saved meals for the add meal selector
   const fetchSavedMeals = async (mealType) => {
     if (!user) return;
     
-    // If we already have meals for this type, don't reload
     if (savedMeals[mealType] && savedMeals[mealType].length > 0) {
       return;
     }
@@ -260,21 +289,18 @@ export default function ProfilePage() {
         if (!plan.recipes || !Array.isArray(plan.recipes)) continue;
   
         for (const recipe of plan.recipes) {
-          // Skip if we've already added this meal
           if (addedMealNames.has(recipe.title)) continue;
   
           const recipeMealType = (recipe.meal_type || '').toLowerCase();
           const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(recipeMealType) 
             ? recipeMealType : 'snack';
             
-          // Only process recipes for the requested meal type
           if (category !== mealType) continue;
   
-          // Fetch meal details using the recipe_id (which corresponds to meal_id)
           const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
   
           const formattedMeal = {
-            id: recipe.recipe_id, // Use the recipe_id from the saved recipe
+            id: recipe.recipe_id,
             name: mealDetails.title || recipe.title,
             calories: mealDetails.nutrition?.calories || 0,
             protein: mealDetails.nutrition?.protein || 0,
@@ -319,10 +345,73 @@ export default function ProfilePage() {
     });
   };
 
+  // Update calorie count based on planned meals
+  const updateCalorieCount = (currentMealPlan = mealPlan) => {
+    const totalCalories = currentMealPlan.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+    const consumedCalories = currentMealPlan
+      .filter(meal => meal.completed || completedMeals[meal.type])
+      .reduce((sum, meal) => sum + (meal.calories || 0), 0);
+    
+    setCalorieData({ 
+      consumed: consumedCalories, 
+      target: Math.max(totalCalories, globalSettings.calories)
+    });
+  };
+
+  // Mark current meal as eaten
+  const handleJustAte = () => {
+    const updatedMealPlan = [...mealPlan];
+    updatedMealPlan[currentMealIndex].completed = true;
+    
+    setMealPlan(updatedMealPlan);
+    
+    // Use time-based logic to determine next meal
+    const { nextMealIndex } = updateCurrentAndNextMeals(updatedMealPlan);
+    setCurrentMealIndex(nextMealIndex);
+    updateNextMealCard(updatedMealPlan[nextMealIndex]);
+    updateCalorieCount(updatedMealPlan);
+  };
+
+  // Toggle meal completion
+  const toggleMealCompletion = (mealType) => {
+    setCompletedMeals(prev => {
+      const newState = {
+        ...prev,
+        [mealType]: !prev[mealType]
+      };
+      updateCalorieCount();
+      return newState;
+    });
+  };
+
+  // Remove a meal
+  const handleRemoveMeal = (mealType) => {
+    const mealIndex = mealPlan.findIndex(meal => meal.type === mealType);
+    
+    if (mealIndex !== -1) {
+      const updatedMealPlan = [...mealPlan];
+      updatedMealPlan[mealIndex] = {
+        ...updatedMealPlan[mealIndex],
+        ...defaultMeal,
+        type: mealType,
+        time: updatedMealPlan[mealIndex].time
+      };
+      
+      setMealPlan(updatedMealPlan);
+      
+      if (mealIndex === currentMealIndex) {
+        const { nextMealIndex } = updateCurrentAndNextMeals(updatedMealPlan);
+        setCurrentMealIndex(nextMealIndex);
+        updateNextMealCard(updatedMealPlan[nextMealIndex]);
+      }
+      
+      updateCalorieCount(updatedMealPlan);
+    }
+  };
+
   // Initialize the app
   useEffect(() => {
     if (isAuthenticated && !isAuthLoading) {
-      // Fetch access token on initial load
       const fetchAccessToken = async () => {
         try {
           const token = await getAccessToken({
@@ -340,31 +429,23 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (accessToken) {
-      // Fetch user's meal plans first to get the active plan
       fetchUserMealPlans();
     }
   }, [accessToken]);
 
-  // In your useEffect that loads data when the component mounts
   useEffect(() => {
-    // Check if the user is authenticated and not loading
     if (isAuthenticated && !isAuthLoading) {
-      // Fetch meal plans when the component mounts
       fetchUserMealPlans();
       
-      // Load global settings from localStorage
       const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
       if (Object.keys(savedSettings).length > 0) {
         setGlobalSettings(savedSettings);
-        
-        // Update calorieData with the target from global settings
         setCalorieData(prev => ({
           ...prev,
           target: savedSettings.calories || 2000
         }));
       }
       
-      // If user is authenticated, fetch settings from server
       if (user && user.sub) {
         const fetchUserSettings = async () => {
           try {
@@ -373,10 +454,7 @@ export default function ProfilePage() {
             
             if (response.ok) {
               const serverSettings = await response.json();
-              console.log("Loaded server settings:", serverSettings);
               setGlobalSettings(serverSettings);
-              
-              // Update calorieData with the target from server settings
               setCalorieData(prev => ({
                 ...prev,
                 target: serverSettings.calories || 2000
@@ -392,21 +470,17 @@ export default function ProfilePage() {
     }
   }, [isAuthenticated, isAuthLoading]);
   
-  // Add a separate effect to refresh data when the component gets focus
   useEffect(() => {
     if (!isAuthenticated || isAuthLoading) return;
     
-    // Function to refresh meal plans
     const refreshMealPlans = () => {
       console.log('Refreshing meal plans data...');
       fetchUserMealPlans();
     };
     
-    // Set up handlers for when the page regains focus
     const handleFocus = () => refreshMealPlans();
     window.addEventListener('focus', handleFocus);
     
-    // Also refresh when returning to this page
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         refreshMealPlans();
@@ -414,42 +488,32 @@ export default function ProfilePage() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // Clean up
     return () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isAuthenticated, isAuthLoading]);
   
-  // THE FIX: Add an effect to check for meal plan updates
   useEffect(() => {
     if (!isAuthenticated || isAuthLoading) return;
     
-    // Function to check if meal plan was updated
     const checkForMealPlanUpdates = () => {
       const lastSavedTime = localStorage.getItem('mealPlanLastUpdated');
       
       if (lastSavedTime && (!lastCheckTime || new Date(lastSavedTime) > new Date(lastCheckTime))) {
-        // Update our last check time
         setLastCheckTime(new Date().toISOString());
-        
-        // Refresh the meal plans since there was an update
         console.log('Detected meal plan update, refreshing data...');
         fetchUserMealPlans();
       }
     };
     
-    // Check immediately when component mounts
     checkForMealPlanUpdates();
     
-    // Set up periodic checking (every 5 seconds)
     const intervalId = setInterval(checkForMealPlanUpdates, 5000);
     
-    // Also check when window gets focus
     const handleFocus = () => checkForMealPlanUpdates();
     window.addEventListener('focus', handleFocus);
     
-    // Also check when returning to this page
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         checkForMealPlanUpdates();
@@ -457,7 +521,6 @@ export default function ProfilePage() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // Clean up
     return () => {
       clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
@@ -465,32 +528,32 @@ export default function ProfilePage() {
     };
   }, [isAuthenticated, isAuthLoading, lastCheckTime]);
 
-  // Update calorie count based on planned meals
-  const updateCalorieCount = (currentMealPlan = mealPlan) => {
-    const totalCalories = currentMealPlan.reduce((sum, meal) => sum + (meal.calories || 0), 0);
-    const consumedCalories = currentMealPlan
-      .filter(meal => meal.completed)
-      .reduce((sum, meal) => sum + (meal.calories || 0), 0);
-    
-    setCalorieData({ 
-      consumed: consumedCalories, 
-      target: Math.max(totalCalories, globalSettings.calories) // Use global settings
-    });
-  };
+  // Check and update current meal periodically
+  useEffect(() => {
+    if (!isDataReady) return;
+
+    const checkCurrentMeal = () => {
+      const { currentMealIndex, nextMealIndex } = updateCurrentAndNextMeals(mealPlan);
+      setCurrentMealIndex(currentMealIndex);
+      updateNextMealCard(mealPlan[nextMealIndex]);
+    };
+
+    checkCurrentMeal();
+    const intervalId = setInterval(checkCurrentMeal, 60000);
+
+    return () => clearInterval(intervalId);
+  }, [mealPlan, isDataReady]);
 
   // Navigation functions
   const handleCreateNewMeals = () => router.push('/meals');
   const handleViewMealPlanner = () => router.push('/planner');
   
-  // Modified to fetch saved meals when a user wants to add a meal
   const handleAddMeal = (mealType) => {
     setSelectedMealType(mealType);
     setActiveSection('savedMeals');
-    // Fetch saved meals for the selected meal type on demand
     fetchSavedMeals(mealType);
   };
 
-  // Select a saved meal
   const handleSelectSavedMeal = (meal) => {
     const mealTypeIndex = mealPlan.findIndex(item => item.type === selectedMealType);
     
@@ -508,7 +571,6 @@ export default function ProfilePage() {
       
       setMealPlan(updatedMealPlan);
       
-      // Update next meal if needed
       if (mealTypeIndex === currentMealIndex) {
         updateNextMealCard(updatedMealPlan[mealTypeIndex]);
       }
@@ -517,60 +579,6 @@ export default function ProfilePage() {
     }
     
     setActiveSection('timeline');
-  };
-  
-  // Mark current meal as eaten
-  const handleJustAte = () => {
-    const updatedMealPlan = [...mealPlan];
-    updatedMealPlan[currentMealIndex].completed = true;
-    
-    // Find next incomplete meal
-    let nextIndex = currentMealIndex;
-    for (let i = currentMealIndex + 1; i < mealPlan.length; i++) {
-      if (!updatedMealPlan[i].completed && updatedMealPlan[i].name) {
-        nextIndex = i;
-        break;
-      }
-    }
-    
-    setMealPlan(updatedMealPlan);
-    setCurrentMealIndex(nextIndex);
-    updateNextMealCard(updatedMealPlan[nextIndex]);
-    updateCalorieCount(updatedMealPlan);
-  };
-
-  // Remove a meal
-  const handleRemoveMeal = (mealType) => {
-    const mealIndex = mealPlan.findIndex(meal => meal.type === mealType);
-    
-    if (mealIndex !== -1) {
-      const updatedMealPlan = [...mealPlan];
-      updatedMealPlan[mealIndex] = {
-        ...updatedMealPlan[mealIndex],
-        ...defaultMeal, // Reset to default values
-        type: mealType, // Keep the meal type
-        time: updatedMealPlan[mealIndex].time // Keep the time
-      };
-      
-      setMealPlan(updatedMealPlan);
-      
-      // Update current meal if needed
-      if (mealIndex === currentMealIndex) {
-        // Find next non-empty meal
-        let nextIndex = mealIndex;
-        for (let i = 0; i < updatedMealPlan.length; i++) {
-          if (updatedMealPlan[i].name) {
-            nextIndex = i;
-            break;
-          }
-        }
-        
-        setCurrentMealIndex(nextIndex);
-        updateNextMealCard(updatedMealPlan[nextIndex]);
-      }
-      
-      updateCalorieCount(updatedMealPlan);
-    }
   };
 
   return (
@@ -597,7 +605,7 @@ export default function ProfilePage() {
             </div>
           )}
           
-          {/* Meal Content - Only show when not loading AND data is ready */}
+          {/* Meal Content */}
           {!isLoadingPlans && isDataReady && (
             <>
               {/* Next Meal Section */}
@@ -635,6 +643,8 @@ export default function ProfilePage() {
                     meals={mealPlan} 
                     onAddMeal={handleAddMeal}
                     onRemoveMeal={handleRemoveMeal}
+                    toggleMealCompletion={toggleMealCompletion}
+                    completedMeals={completedMeals}
                   />
                 </section>
               ) : (
@@ -665,9 +675,6 @@ export default function ProfilePage() {
   );
 }
 
-// Component: NextMealCard - Simplified
-// Component: CalorieProgressBar - Simplified
-// Component: SavedMeals - Simplified
 function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreateNewMeals }) {
   const meals = savedMeals[mealType] || [];
   
@@ -717,8 +724,7 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreat
   );
 }
 
-// Component: MealTimeline - Simplified
-function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
+function MealTimeline({ meals, onAddMeal, onRemoveMeal, toggleMealCompletion, completedMeals }) {
   const mealIcons = {
     breakfast: Coffee,
     lunch: Utensils,
@@ -726,6 +732,26 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
     dinner: Moon
   };
   const router = useRouter();
+
+  // Helper function to convert time strings to minutes
+  const timeToMinutes = (timeStr) => {
+    if (!timeStr) return 0;
+    
+    const [time, modifier] = timeStr.split(' ');
+    let [hours, minutes] = time.split(':');
+    
+    hours = parseInt(hours);
+    minutes = parseInt(minutes || 0);
+    
+    if (modifier?.toLowerCase() === 'pm' && hours < 12) hours += 12;
+    if (modifier?.toLowerCase() === 'am' && hours === 12) hours = 0;
+    
+    return hours * 60 + minutes;
+  };
+
+  // Determine current time for highlighting
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
   return (
     <div className="relative">
@@ -736,50 +762,76 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
       <div className="space-y-8">
         {meals.map((meal, index) => {
           const Icon = mealIcons[meal.type];
-          const isCompleted = meal.completed;
-          const isCurrentMeal = meals.filter(m => m.completed).length === index;
-          
+          const mealMinutes = timeToMinutes(meal.time);
+          const isPast = currentMinutes > mealMinutes;
+          const isCompleted = completedMeals[meal.type] || meal.completed;
+          const isCurrent = !isCompleted && isPast && 
+            (index === meals.length - 1 || currentMinutes < timeToMinutes(meals[index + 1].time));
+
           return (
             <div key={index} className="relative flex items-start">
               {/* Highlight line for current progress */}
-              {(isCompleted || isCurrentMeal) && (
+              {(isCompleted || isCurrent) && (
                 <div className="absolute left-6 top-0 bottom-0 w-1 bg-teal-500" 
                      style={{ 
                        top: index === 0 ? '0' : '-2rem', 
-                       bottom: isCurrentMeal ? '50%' : (index === meals.length - 1 ? '0' : '-2rem') 
+                       bottom: isCurrent ? '50%' : (index === meals.length - 1 ? '0' : '-2rem') 
                      }}
                 ></div>
               )}
               
-              <div className={`flex items-center justify-center rounded-full h-12 w-12 z-10 
-                ${isCompleted 
-                  ? "bg-teal-500 text-white" 
-                  : isCurrentMeal 
-                    ? "bg-teal-100 ring-2 ring-teal-500" 
-                    : "bg-gray-100"}`}
+              <div 
+                className={`flex items-center justify-center rounded-full h-12 w-12 z-10 cursor-pointer
+                  ${isCompleted 
+                    ? "bg-teal-500 text-white" 
+                    : isCurrent 
+                      ? "bg-teal-100 ring-2 ring-teal-500" 
+                      : isPast
+                        ? "bg-gray-200"
+                        : "bg-gray-100"}`}
+                onClick={() => toggleMealCompletion(meal.type)}
               >
                 {isCompleted ? (
                   <CheckIcon className="h-6 w-6 text-white" />
                 ) : (
-                  <Icon className={`h-6 w-6 ${isCurrentMeal ? "text-teal-600" : "text-gray-500"}`} />
+                  <Icon className={`h-6 w-6 ${isCurrent ? "text-teal-600" : "text-gray-500"}`} />
                 )}
               </div>
               
               <div className="ml-4 flex-1">
                 <div className={`p-4 ${
                   isCompleted 
-                    ? "bg-teal-50 border border-white" 
-                    : isCurrentMeal 
-                      ? "bg-white border-2 border-white" 
-                      : "bg-white"
+                    ? "bg-teal-50 border border-teal-100" 
+                    : isCurrent 
+                      ? "bg-white border-2 border-teal-100" 
+                      : isPast
+                        ? "bg-gray-50"
+                        : "bg-white"
                 }`}>
                   <div className="flex justify-between items-center">
-                    <h3 className={`font-medium capitalize ${isCompleted || isCurrentMeal ? "text-teal-800" : ""}`}>
+                    <h3 className={`font-medium capitalize ${
+                      isCompleted 
+                        ? "text-teal-800" 
+                        : isCurrent 
+                          ? "text-teal-800" 
+                          : isPast
+                            ? "text-gray-500"
+                            : ""
+                    }`}>
                       {meal.type}
                       {isCompleted && <span className="ml-2 text-xs text-teal-600">✓ Completed</span>}
-                      {isCurrentMeal && <span className="ml-2 text-xs text-teal-600">Current</span>}
+                      {isCurrent && <span className="ml-2 text-xs text-teal-600">Current</span>}
+                      {isPast && !isCompleted && !isCurrent && <span className="ml-2 text-xs text-gray-400">Missed</span>}
                     </h3>
-                    <span className="text-sm text-gray-500">{meal.time}</span>
+                    <span className={`text-sm ${
+                      isCompleted 
+                        ? "text-teal-600" 
+                        : isCurrent 
+                          ? "text-teal-600" 
+                          : isPast
+                            ? "text-gray-400"
+                            : "text-gray-500"
+                    }`}>{meal.time}</span>
                   </div>
                   
                   {meal.name ? (
@@ -790,14 +842,16 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
                             <img 
                               src={meal.image} 
                               alt={meal.name} 
-                              className="w-12 h-12 object-cover mr-3 cursor-pointer hover:ring-2 hover:ring-teal-500 hover:ring-offset-2 transition-all"
+                              className={`w-12 h-12 object-cover mr-3 cursor-pointer hover:ring-2 hover:ring-teal-500 hover:ring-offset-2 transition-all ${
+                                isCompleted ? "opacity-70" : ""
+                              }`}
                               onClick={(e) => {
-                                e.stopPropagation(); // Prevent event bubbling
-                                router.push(`/recipes/${meal.id}`); // Navigate to recipe page
+                                e.stopPropagation();
+                                router.push(`/recipes/${meal.id}`);
                               }}
                             />
                           )}
-                          <div>
+                          <div className={isCompleted ? "opacity-70" : ""}>
                             <p className={isCompleted ? "line-through text-gray-500" : ""}>{meal.name}</p>
                             <p className="text-sm text-gray-600">{meal.calories} calories</p>
                           </div>
@@ -831,15 +885,9 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
   );
 }
 
-// Component: CalorieProgressBar - Simplified
 function CalorieProgressBar({ consumed, target, globalSettings }) {  
-  // Use globalSettings.calories for all calculations
   const targetCalories = globalSettings?.calories || target;
-  
-  // Calculate percentage based on targetCalories, not target
   const percentage = Math.min(Math.round((consumed / targetCalories) * 100), 100);
-  
-  // Calculate remaining based on targetCalories, not target
   const remaining = targetCalories - consumed;
   
   return (
@@ -863,7 +911,6 @@ function CalorieProgressBar({ consumed, target, globalSettings }) {
   );
 }
 
-// Component: NextMealCard - Simplified
 function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
   const [isSelected, setIsSelected] = useState(false);
   const router = useRouter();
