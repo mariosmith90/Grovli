@@ -45,16 +45,150 @@ export default function MealPlannerCalendar() {
   const [isLoadingSavedMeals, setIsLoadingSavedMeals] = useState(false);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false); // Added for autosave
   const [userPlans, setUserPlans] = useState([]);
   const [activePlanId, setActivePlanId] = useState(null);
   const [planName, setPlanName] = useState("");
+  const [savingMeals, setSavingMeals] = useState({}); // Format: { dateKey-mealType: true/false }
 
   // Add these new state variables near your other state declarations
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [sourceDateForDuplicate, setSourceDateForDuplicate] = useState(null);
   const [targetDateForDuplicate, setTargetDateForDuplicate] = useState(null);
 
+  const autoSaveTimeoutRef = useRef(null);
   const lastLoadedRef = useRef(null);
+
+  const saveMealPlan = () => {
+    // Just call updateMealPlan with the current mealPlan
+    updateMealPlan(mealPlan, 'update', []);
+  };
+
+  const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
+    // Save the updated plan to state
+    setMealPlan(updatedMealPlan);
+    
+    // Mark the affected meals as saving
+    const newSavingState = {};
+    affectedMeals.forEach(meal => {
+      newSavingState[`${meal.dateKey}-${meal.mealType}`] = true;
+    });
+    setSavingMeals(prev => ({ ...prev, ...newSavingState }));
+    
+    // Clear any existing timeout to prevent multiple saves
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    
+    // Set a short delay before auto-saving to avoid rapid successive saves
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (!user) {
+        toast.error("Please log in to save your meal plan");
+        return;
+      }
+      
+      try {
+        setIsAutoSaving(true);
+        
+        // Get access token using Auth0
+        const accessToken = await getAccessToken({
+          authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+        });
+        
+        // Format meals for API
+        const formattedMeals = [];
+        
+        Object.keys(updatedMealPlan).forEach(dateKey => {
+          const dateMeals = updatedMealPlan[dateKey];
+          
+          Object.keys(dateMeals).forEach(mealType => {
+            const meal = dateMeals[mealType];
+            formattedMeals.push({
+              date: dateKey,
+              mealType: mealType,
+              mealId: meal.id
+            });
+          });
+        });
+        
+        if (formattedMeals.length === 0) {
+          // Don't bother saving an empty plan
+          setIsAutoSaving(false);
+          return;
+        }
+        
+        // Prepare request data
+        const requestData = {
+          userId: user.sub,
+          planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
+          meals: formattedMeals
+        };
+        
+        // If we don't have an active plan yet and we're adding the first meal,
+        // create a new plan, otherwise update the existing one
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const endpoint = activePlanId 
+          ? `${apiUrl}/api/user-plans/update`
+          : `${apiUrl}/api/user-plans/save`;
+        
+        // Add planId if updating
+        if (activePlanId) {
+          requestData.planId = activePlanId;
+        }
+        
+        // API request
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to save: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // If it was a new plan, update the activePlanId
+        if (!activePlanId && result.id) {
+          setActivePlanId(result.id);
+          setPlanName(result.name);
+        }
+        
+        // Update localStorage to trigger refresh in other components
+        localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
+        
+        // Show success message for adding/removing meals
+        if (changeType === 'add') {
+          toast.success("Meal added to plan");
+        } else if (changeType === 'remove') {
+          toast.success("Meal removed from plan");
+        } else if (changeType === 'duplicate') {
+          toast.success("Meals duplicated successfully");
+        } else {
+          // For other updates, show a more subtle message
+          toast.success("Plan updated", { duration: 2000 });
+        }
+        
+      } catch (error) {
+        console.error('Error auto-saving meal plan:', error);
+        toast.error("Failed to save changes");
+      } finally {
+        setIsAutoSaving(false);
+        // Clear the saving state for affected meals
+        setSavingMeals(prev => {
+          const updated = { ...prev };
+          affectedMeals.forEach(meal => {
+            delete updated[`${meal.dateKey}-${meal.mealType}`];
+          });
+          return updated;
+        });
+      }
+    }, 500); // 500ms delay before auto-saving
+  };
 
   // Add this new function to handle duplication of a day's meals
   const duplicateDayMeals = () => {
@@ -80,13 +214,19 @@ export default function MealPlannerCalendar() {
       return;
     }
     
-    // Update meal plan with duplicated meals
-    setMealPlan(prev => ({
-      ...prev,
-      [targetDateKey]: { ...sourceDayMeals }
+    // Create the updated meal plan
+    const updatedMealPlan = { ...mealPlan };
+    updatedMealPlan[targetDateKey] = { ...sourceDayMeals };
+    
+    // Create a list of affected meals for the saving indicator
+    const affectedMeals = Object.keys(sourceDayMeals).map(mealType => ({ 
+      dateKey: targetDateKey, 
+      mealType 
     }));
     
-    toast.success("Meals duplicated successfully");
+    // Save the updated plan
+    updateMealPlan(updatedMealPlan, 'duplicate', affectedMeals);
+    
     setShowDuplicateDialog(false);
   };
 
@@ -492,13 +632,15 @@ export default function MealPlannerCalendar() {
     const { date, mealType } = selectedMeal;
     const dateKey = formatDateKey(date);
     
-    setMealPlan(prev => ({
-      ...prev,
-      [dateKey]: {
-        ...(prev[dateKey] || {}),
-        [mealType]: meal
-      }
-    }));
+    // Create the updated meal plan
+    const updatedMealPlan = { ...mealPlan };
+    if (!updatedMealPlan[dateKey]) {
+      updatedMealPlan[dateKey] = {};
+    }
+    updatedMealPlan[dateKey][mealType] = meal;
+    
+    // Save the updated plan with the affected meal
+    updateMealPlan(updatedMealPlan, 'add', [{ dateKey, mealType }]);
     
     // Keep the active meal state for highlighting purposes
     setTimeout(() => setActiveMeal(null), 1000); // Clear active meal after a delay
@@ -513,26 +655,18 @@ export default function MealPlannerCalendar() {
     
     setActiveMeal({ date: dateKey, type: mealType });
     
-    setMealPlan(prev => {
-      const updatedDate = { ...prev[dateKey] };
-      delete updatedDate[mealType];
-      
-      if (Object.keys(updatedDate).length === 0) {
-        const newPlan = { ...prev };
-        delete newPlan[dateKey];
-        return newPlan;
-      }
-      
-      return {
-        ...prev,
-        [dateKey]: updatedDate
-      };
-    });
+    const updatedMealPlan = { ...mealPlan };
+    const updatedDate = { ...updatedMealPlan[dateKey] };
+    delete updatedDate[mealType];
     
-    // Try to delete from server directly
-    if (activePlanId) {
-      deleteMealFromServer(date, mealType);
+    if (Object.keys(updatedDate).length === 0) {
+      delete updatedMealPlan[dateKey];
+    } else {
+      updatedMealPlan[dateKey] = updatedDate;
     }
+    
+    // Save the updated plan
+    updateMealPlan(updatedMealPlan, 'remove', [{ dateKey, mealType }]);
     
     setTimeout(() => setActiveMeal(null), 500);
   };
@@ -563,87 +697,6 @@ export default function MealPlannerCalendar() {
     return meals;
   };
 
-  // Save the entire meal plan
-// MealPlannerCalendar.js - Here's the complete saveMealPlan function with the fix:
-
-const saveMealPlan = async () => {
-  if (!user) {
-    toast.error("Please log in to save your meal plan");
-    return;
-  }
-  
-  try {
-    setIsSaving(true);
-    
-    // Get access token using Auth0
-    const accessToken = await getAccessToken({
-      authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-    });
-    
-    // Format meals for API
-    const formattedMeals = formatMealsForAPI();
-    
-    if (formattedMeals.length === 0) {
-      toast.error("Cannot save an empty meal plan");
-      setIsSaving(false);
-      return;
-    }
-    
-    // Prepare request data
-    const requestData = {
-      userId: user.sub,
-      planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
-      meals: formattedMeals
-    };
-    
-    // API endpoint based on whether we're creating or updating
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-    const endpoint = activePlanId 
-      ? `${apiUrl}/api/user-plans/update`
-      : `${apiUrl}/api/user-plans/save`;
-    
-    // Add planId if updating
-    if (activePlanId) {
-      requestData.planId = activePlanId;
-    }
-    
-    // API request
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify(requestData)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to save: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    // If it was a new plan, update the activePlanId
-    if (!activePlanId && result.id) {
-      setActivePlanId(result.id);
-      setPlanName(result.name);
-    }
-    
-    // THE FIX: Store timestamp in localStorage to trigger profile page refresh
-    localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
-    
-    // Refresh the user's plans
-    fetchUserMealPlans();
-    
-    toast.success("Meal plan saved successfully!");
-  } catch (error) {
-    console.error('Error saving meal plan:', error);
-    toast.error("Failed to save meal plan. Please try again.");
-  } finally {
-    setIsSaving(false);
-  }
-};
-
   // Create a new meal plan
   const createNewPlan = () => {
     setMealPlan({});
@@ -667,6 +720,9 @@ const saveMealPlan = async () => {
                            activeMeal.date === dateKey && 
                            activeMeal.type === type;
           
+          // Check if this meal is currently being saved
+          const isSaving = savingMeals[`${dateKey}-${type}`];
+          
           // Get meal-specific colors
           const colors = getMealColors(type);
           
@@ -681,14 +737,19 @@ const saveMealPlan = async () => {
               style={{ 
                 backgroundColor: isActive 
                   ? colors.activeBg
-                  : meal 
-                    ? colors.bg
-                    : '#F3F4F6',
+                  : isSaving
+                    ? `${colors.bg}80` // Add transparency while saving
+                    : meal 
+                      ? colors.bg
+                      : '#F3F4F6',
                 borderLeft: isActive 
                   ? `4px solid ${colors.activeBorder}`
-                  : meal 
-                    ? `4px solid ${colors.border}`
-                    : '4px solid transparent',
+                  : isSaving
+                    ? `4px dashed ${colors.border}` // Dashed border while saving
+                    : meal 
+                      ? `4px solid ${colors.border}`
+                      : '4px solid transparent',
+                opacity: isSaving ? 0.8 : 1, // Slightly reduce opacity while saving
                 transition: 'all 0.2s ease-in-out'
               }}
               onClick={(e) => {
@@ -706,7 +767,7 @@ const saveMealPlan = async () => {
                       : '#D1D5DB',
                   color: 'white'
                 }}>
-                  {getMealIcon(type)}
+                  {isSaving ? <Loader className="w-4 h-4 animate-spin" /> : getMealIcon(type)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm truncate ${
@@ -770,43 +831,6 @@ const saveMealPlan = async () => {
                     Loading plans...
                   </div>
                 )}
-                
-                {userPlans.length > 0 && (
-                  <div className="relative">
-                    <select 
-                      className="pl-3 pr-8 py-2 border rounded-lg text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      value={activePlanId || ""}
-                      onChange={(e) => {
-                        const planId = e.target.value;
-                        if (planId === "new") {
-                          createNewPlan();
-                        } else {
-                          const plan = userPlans.find(p => p.id === planId);
-                          if (plan) loadPlanToCalendar(plan);
-                        }
-                      }}
-                    >
-                      <option value="">Select Plan</option>
-                      {userPlans.map(plan => (
-                        <option key={plan.id} value={plan.id}>
-                          {plan.name}
-                        </option>
-                      ))}
-                      <option value="new">➕ New Plan</option>
-                    </select>
-                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                      <ChevronLeft className="h-4 w-4 text-gray-500 rotate-90" />
-                    </div>
-                  </div>
-                )}
-                
-                <input
-                  type="text"
-                  placeholder="Plan Name"
-                  className="pl-3 pr-2 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  value={planName}
-                  onChange={(e) => setPlanName(e.target.value)}
-                />
               </div>
             </div>
             
@@ -902,37 +926,6 @@ const saveMealPlan = async () => {
                 ))}
               </div>
             </div>
-            
-            {/* Save Button */}
-            <div className="mt-6 text-center">
-              <button
-                onClick={saveMealPlan}
-                disabled={isSaving}
-                className="px-6 py-3 bg-teal-500 text-white font-semibold rounded-lg hover:bg-teal-600 transition-colors shadow flex items-center justify-center mx-auto"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    {activePlanId ? 'Update Meal Plan' : 'Save Meal Plan'}
-                  </>
-                )}
-              </button>
-              
-              {activePlanId && (
-                <button
-                  onClick={createNewPlan}
-                  disabled={isSaving}
-                  className="mt-2 px-4 py-2 text-teal-600 font-medium hover:text-teal-800 transition-colors"
-                >
-                  Create New Plan
-                </button>
-              )}
-            </div>
           </div>
           
           {/* Meal Selection Slider */}
@@ -1010,13 +1003,6 @@ const saveMealPlan = async () => {
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full">
                     <p className="text-gray-500 mb-4">No saved meals found.</p>
-                    <button
-                      onClick={() => router.push('/meals')}
-                      className="flex items-center px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors"
-                    >
-                      <PlusCircle className="w-4 h-4 mr-2" />
-                      Create New Meals
-                    </button>
                   </div>
                 )}
               </div>
