@@ -118,20 +118,26 @@ export default function MealPlannerCalendar() {
   // Fetch saved meals when authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      // Check if there's been an update from another component
-      const lastUpdated = localStorage.getItem('mealPlanLastUpdated');
+      // Always fetch fresh data when component mounts
+      fetchSavedMeals();
+      fetchUserMealPlans();
       
-      // If the data was updated after we last loaded it, or we haven't loaded yet
-      if (lastUpdated && (!lastLoadedRef.current || new Date(lastUpdated) > new Date(lastLoadedRef.current))) {
-        fetchUserMealPlans();
-        // Update our last loaded timestamp
-        lastLoadedRef.current = new Date().toISOString();
-      } else {
-        fetchSavedMeals();
-        fetchUserMealPlans();
-      }
+      // Update our last loaded timestamp to track future changes
+      lastLoadedRef.current = new Date().toISOString();
+      
+      // Set up interval to check for updates
+      const checkInterval = setInterval(() => {
+        const lastUpdated = localStorage.getItem('mealPlanLastUpdated');
+        if (lastUpdated && (!lastLoadedRef.current || new Date(lastUpdated) > new Date(lastLoadedRef.current))) {
+          console.log('Detected update, refreshing meal plans...');
+          fetchUserMealPlans();
+          lastLoadedRef.current = new Date().toISOString();
+        }
+      }, 3000); // Check every 3 seconds
+      
+      return () => clearInterval(checkInterval);
     }
-  }, [isAuthenticated, isLoading]);  
+  }, [isAuthenticated, isLoading]);
 
   // Close slider when clicking outside
   useEffect(() => {
@@ -624,7 +630,7 @@ const saveMealPlan = async () => {
     }
     
     // THE FIX: Store timestamp in localStorage to trigger profile page refresh
-    localStorage.setItem('mealPlanLastSaved', new Date().toISOString());
+    localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
     
     // Refresh the user's plans
     fetchUserMealPlans();

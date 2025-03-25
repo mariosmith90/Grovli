@@ -427,7 +427,7 @@ export default function ProfilePage() {
     
     // Function to check if meal plan was updated
     const checkForMealPlanUpdates = () => {
-      const lastSavedTime = localStorage.getItem('mealPlanLastSaved');
+      const lastSavedTime = localStorage.getItem('mealPlanLastUpdated');
       
       if (lastSavedTime && (!lastCheckTime || new Date(lastSavedTime) > new Date(lastCheckTime))) {
         // Update our last check time
