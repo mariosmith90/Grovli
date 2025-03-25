@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [isDataReady, setIsDataReady] = useState(false);
   const [completedMeals, setCompletedMeals] = useState({});
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [globalSettings, setGlobalSettings] = useState({
     calculationMode: 'auto',
     calories: 2000,
@@ -277,6 +278,76 @@ export default function ProfilePage() {
     updateCalorieCount(updatedMealPlan);
   };
 
+  const loadDataForDate = async (date) => {
+    if (!user || !accessToken) return;
+    
+    try {
+      const dateString = date.toISOString().split('T')[0];
+      
+      // If we have a loaded plan, just filter for the selected date
+      if (userPlans.length > 0 && activePlanId) {
+        const activePlan = userPlans.find(plan => plan.id === activePlanId);
+        if (activePlan) {
+          // Filter meals for the selected date
+          const dateMeals = activePlan.meals.filter(meal => meal.date === dateString);
+          
+          // Create updated meal plan with the filtered meals
+          const updatedMealPlan = [...mealPlan];
+          
+          // Reset all meals to default first
+          updatedMealPlan.forEach(meal => {
+            meal.name = '';
+            meal.calories = 0;
+            meal.protein = 0;
+            meal.carbs = 0;
+            meal.fat = 0;
+            meal.image = '';
+            meal.completed = false;
+            meal.id = null;
+          });
+          
+          // Update with the day's meals
+          for (const mealItem of dateMeals) {
+            const { mealType, meal } = mealItem;
+            const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+            
+            if (mealIndex !== -1 && meal) {
+              updatedMealPlan[mealIndex] = {
+                ...updatedMealPlan[mealIndex],
+                name: meal.name || meal.title || "",
+                calories: meal.calories || meal.nutrition?.calories || 0,
+                protein: meal.protein || meal.nutrition?.protein || 0,
+                carbs: meal.carbs || meal.nutrition?.carbs || 0,
+                fat: meal.fat || meal.nutrition?.fat || 0,
+                image: meal.image || meal.imageUrl || "",
+                id: meal.id,
+                completed: dateString === getTodayDateString() ? (completedMeals[mealType] || false) : false
+              };
+            }
+          }
+          
+          setMealPlan(updatedMealPlan);
+          
+          // If it's today, load completion status
+          if (dateString === getTodayDateString()) {
+            loadMealCompletions();
+          } else {
+            // Clear completion status for non-today dates
+            setCompletedMeals({});
+          }
+          
+          // Update current meal and next meal
+          const { currentMealIndex, nextMealIndex } = updateCurrentAndNextMeals(updatedMealPlan);
+          setCurrentMealIndex(currentMealIndex);
+          updateNextMealCard(updatedMealPlan[nextMealIndex]);
+          updateCalorieCount(updatedMealPlan);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading data for date:', error);
+    }
+  };
+
   const fetchSavedMeals = async (mealType) => {
     if (!user) return;
     
@@ -501,7 +572,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (accessToken) {
-      fetchUserMealPlans();
+      fetchUserMealPlans().then(() => {
+        loadDataForDate(selectedDate);
+      });
     }
   }, [accessToken]);
 
@@ -622,6 +695,17 @@ export default function ProfilePage() {
           
           {!isLoadingPlans && isDataReady && (
             <>
+              {/* Day Timeline Slider */}
+              <section className="mb-4 bg-white p-4 rounded-lg shadow-sm">
+                <DayTimelineSlider 
+                  currentDate={selectedDate}
+                  onDateChange={(date) => {
+                    setSelectedDate(date);
+                    loadDataForDate(date);
+                  }}
+                />
+              </section>
+
               <section className="mb-6 bg-white p-4">
                 <h2 className="text-2xl font-semibold mb-3 flex items-center">
                   {(() => {
@@ -684,6 +768,91 @@ export default function ProfilePage() {
         </div>
       </main>
     </>
+  );
+}
+
+function DayTimelineSlider({ currentDate, onDateChange }) {
+  // Generate a 7-day window centered around the selected date
+  const [dates, setDates] = useState([]);
+  
+  useEffect(() => {
+    // Generate 7 days - 3 days before and 3 days after the current date
+    const generateDates = () => {
+      const result = [];
+      const today = new Date(currentDate);
+      
+      // Start 3 days before selected date
+      const startDate = new Date(today);
+      startDate.setDate(today.getDate() - 3);
+      
+      // Generate all 7 days
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + i);
+        result.push(date);
+      }
+      
+      setDates(result);
+    };
+    
+    generateDates();
+  }, [currentDate]);
+
+  // Check if a date is today
+  const isToday = (date) => {
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+           date.getMonth() === today.getMonth() &&
+           date.getFullYear() === today.getFullYear();
+  };
+  
+  // Check if a date is the currently selected date
+  const isSelected = (date) => {
+    return date.getDate() === currentDate.getDate() &&
+           date.getMonth() === currentDate.getMonth() &&
+           date.getFullYear() === currentDate.getFullYear();
+  };
+  
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-lg font-semibold text-gray-700">Select Day</h3>
+        <button 
+          onClick={() => onDateChange(new Date())}
+          className="text-sm text-teal-600 hover:text-teal-800 transition-colors"
+        >
+          Today
+        </button>
+      </div>
+      
+      <div className="relative">
+        <div className="flex justify-between items-center gap-2 overflow-x-auto py-2">
+          {dates.map((date, index) => (
+            <button
+              key={index}
+              onClick={() => onDateChange(date)}
+              className={`flex flex-col items-center min-w-[60px] p-2 rounded-lg transition-all ${
+                isSelected(date) 
+                  ? 'bg-teal-500 text-white ring-2 ring-teal-300 transform scale-105' 
+                  : isToday(date)
+                    ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-100'
+              }`}
+            >
+              <span className="text-xs font-medium">
+                {date.toLocaleDateString('en-US', { weekday: 'short' })}
+              </span>
+              <span className={`text-lg font-semibold ${isSelected(date) ? 'text-white' : ''}`}>
+                {date.getDate()}
+              </span>
+              <span className="text-xs">
+                {date.toLocaleDateString('en-US', { month: 'short' })}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
