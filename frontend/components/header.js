@@ -56,7 +56,7 @@ export default function Header() {
         className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600"
         aria-label="Settings"
       >
-        <Settings className="w-10 h-10" />
+        <Settings className="w-6 h-6" />
       </button>
     </div>
   );

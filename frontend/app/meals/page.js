@@ -313,34 +313,35 @@ export default function Home() {
   const handleChatComplete = async () => {
     setShowChatbot(false);
     
-    // If meal plan is ready but we don't have the data, fetch it now
-    if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
-      try {
-        setLoading(true);
-        
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data && data.meal_plan) {
-          setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
-          setDisplayedMealType(mealType); // Set the displayed meal type when data is ready
-        } else {
-          throw new Error("No meal plan data found");
-        }
-      } catch (error) {
-        console.error("Error fetching ready meal plan:", error);
-        setError("Could not retrieve your meal plan. Please try again.");
-      } finally {
-        setLoading(false);
-      }
+// If meal plan is ready but we don't have the data, fetch it now
+if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
+  try {
+    setLoading(true);
+    
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    
+    // Use the exact meal_plan_id from the notification
+    const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}`);
     }
-  };
+    
+    const data = await response.json();
+    
+    if (data && data.meal_plan) {
+      setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+      setDisplayedMealType(mealType); // Set the displayed meal type when data is ready
+    } else {
+      throw new Error("No meal plan data found");
+    }
+  } catch (error) {
+    console.error("Error fetching ready meal plan:", error);
+    setError("Could not retrieve your meal plan. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+}}
 
   // Load user profile and prefill meal form
   const loadUserProfileData = async () => {
