@@ -182,7 +182,7 @@ export default function BottomNavbar({ children }) {
   // Get the right button color based on state
   const getFabColor = () => {
     if (pathname === '/meals') {
-      return "bg-teal-600 hover:bg-blue-700";
+      return "bg-teal-600 hover:bg-teal-700";
     } else {
       return "bg-teal-500 hover:bg-teal-600";
     }
