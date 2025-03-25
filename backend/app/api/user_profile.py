@@ -13,11 +13,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Connect to MongoDB using the same connection as other routers
+# Connect to MongoDB
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client["grovli"]
 user_profile_collection = db["user_profiles"]
-user_collection = db["users"] # Reference to users collection
+user_collection = db["users"]
+meal_completions_collection = db["meal_completions"]
 
 # Create the router instance
 user_profile_router = APIRouter(prefix="/user-profile", tags=["User Profile"])
@@ -40,14 +41,16 @@ class UserProfileData(BaseModel):
     weight_loss_speed: Optional[str] = Field(None, description="Desired weight loss speed")
     food_restrictions: List[str] = Field(default=[], description="Foods to avoid")
 
+class MealCompletionStatus(BaseModel):
+    user_id: str
+    date: str  # YYYY-MM-DD format
+    meal_type: str  # "breakfast", "lunch", etc.
+    completed: bool
+
 async def ensure_user_exists(user_id: str):
-    """
-    Ensure the user exists in the user collection.
-    If not, create a basic user record.
-    """
+    """Ensure the user exists in the user collection"""
     user = user_collection.find_one({"auth0_id": user_id})
     if not user:
-        # Create a basic user record
         user_collection.insert_one({
             "auth0_id": user_id,
             "created_at": datetime.datetime.now(),
@@ -56,11 +59,47 @@ async def ensure_user_exists(user_id: str):
         logger.info(f"Created new user record for {user_id}")
     return user_id
 
+@user_profile_router.post("/meal-completion")
+async def save_meal_completion(status: MealCompletionStatus):
+    """Save a meal's completion status for a user on a specific date"""
+    try:
+        # Store in MongoDB
+        meal_completions_collection.update_one(
+            {
+                "user_id": status.user_id,
+                "date": status.date,
+                "meal_type": status.meal_type
+            },
+            {"$set": {"completed": status.completed}},
+            upsert=True
+        )
+        
+        # Invalidate any cached meal data for this user/date
+        cache_key = f"user_meals:{status.user_id}:{status.date}"
+        delete_cache(cache_key)
+        
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@user_profile_router.get("/meal-completion/{user_id}/{date}")
+async def get_meal_completions(user_id: str, date: str):
+    """Get all meal completion statuses for a user on a date"""
+    try:
+        completions = list(meal_completions_collection.find(
+            {"user_id": user_id, "date": date},
+            {"_id": 0, "user_id": 0, "date": 0}
+        ))
+        
+        # Convert to dictionary by meal type
+        result = {c["meal_type"]: c["completed"] for c in completions}
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @user_profile_router.get("/{user_id}")
 async def get_user_profile(user_id: str):
-    """
-    Retrieves a user's profile data with Redis caching.
-    """
+    """Retrieves a user's profile data with Redis caching"""
     try:
         logger.info(f"Fetching profile for user: {user_id}")
         
@@ -101,9 +140,7 @@ async def get_user_profile(user_id: str):
 
 @user_profile_router.post("/{user_id}")
 async def save_user_profile(user_id: str, profile_data: UserProfileData):
-    """
-    Save a user's profile data to the database and update Redis cache.
-    """
+    """Save a user's profile data to the database and update Redis cache"""
     try:
         logger.info(f"Saving profile for user: {user_id}")
         
@@ -119,12 +156,10 @@ async def save_user_profile(user_id: str, profile_data: UserProfileData):
         profile_dict["updated_at"] = datetime.datetime.now()
         
         if not existing_profile:
-            # This is a new profile, set created_at
             profile_dict["created_at"] = datetime.datetime.now()
             logger.info(f"Creating new profile for user {user_id}")
         else:
             logger.info(f"Updating existing profile for user {user_id}")
-            # Preserve the original creation date
             if "created_at" in existing_profile:
                 profile_dict["created_at"] = existing_profile["created_at"]
         
@@ -168,22 +203,7 @@ async def save_user_profile(user_id: str, profile_data: UserProfileData):
 
 @user_profile_router.get("/check-onboarding/{user_id}")
 async def check_onboarding_status(user_id: str, request: Request):
-    """
-    Check if a user has completed onboarding.
-
-    Args:
-        user_id (str): The user's unique identifier (e.g., Auth0 ID).
-        request (Request): The FastAPI request object to access query parameters.
-
-    Returns:
-        dict: A dictionary containing:
-            - `onboarded` (bool): Whether the user has completed onboarding.
-            - `profile_exists` (bool): Whether the user's profile exists.
-            - `message` (str): Additional information (e.g., "User not found").
-
-    Raises:
-        HTTPException: If there is an error querying the database.
-    """
+    """Check if a user has completed onboarding"""
     try:
         logger.info(f"Checking onboarding status for user: {user_id}")
 
@@ -193,7 +213,7 @@ async def check_onboarding_status(user_id: str, request: Request):
             logger.info(f"Force reset detected for user {user_id}")
             return {
                 "onboarded": False,
-                "profile_exists": True,  # We still acknowledge the profile exists
+                "profile_exists": True,
                 "force_reset": True,
                 "message": "Forced reset of onboarding status."
             }
@@ -214,13 +234,10 @@ async def check_onboarding_status(user_id: str, request: Request):
         # Check if a user profile exists in the `user_profiles` collection
         profile_exists = user_profile_collection.find_one({"user_id": user_id}) is not None
 
-        # If onboarding_completed is explicitly set to False (after a reset), 
-        # consider the user not onboarded regardless of profile existence
         if "onboarding_completed" in user and user["onboarding_completed"] is False:
             onboarded = False
             logger.info(f"User {user_id} has explicitly reset onboarding status.")
         else:
-            # Otherwise use the traditional logic
             onboarded = onboarding_completed or profile_exists
 
         logger.info(
@@ -244,21 +261,7 @@ async def check_onboarding_status(user_id: str, request: Request):
     
 @user_profile_router.post("/reset-onboarding/{user_id}")
 async def reset_onboarding(user_id: str):
-    """
-    Reset a user's onboarding status.
-    
-    This endpoint marks the user as not having completed onboarding,
-    allowing them to go through the onboarding process again.
-    
-    Args:
-        user_id (str): The user's unique identifier (e.g., Auth0 ID).
-        
-    Returns:
-        dict: A response indicating whether the reset was successful.
-        
-    Raises:
-        HTTPException: If there is an error updating the database.
-    """
+    """Reset a user's onboarding status"""
     try:
         logger.info(f"Resetting onboarding status for user: {user_id}")
         
