@@ -258,24 +258,25 @@ export default function MealPlannerCalendar() {
   // Fetch saved meals when authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      // Always fetch fresh data when component mounts
+      // Fetch data immediately when component mounts
       fetchSavedMeals();
       fetchUserMealPlans();
       
-      // Update our last loaded timestamp to track future changes
-      lastLoadedRef.current = new Date().toISOString();
-      
-      // Set up interval to check for updates
-      const checkInterval = setInterval(() => {
-        const lastUpdated = localStorage.getItem('mealPlanLastUpdated');
-        if (lastUpdated && (!lastLoadedRef.current || new Date(lastUpdated) > new Date(lastLoadedRef.current))) {
-          console.log('Detected update, refreshing meal plans...');
+      // Set up a handler for when the page becomes visible again
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          console.log('Page became visible, refreshing meal plans...');
           fetchUserMealPlans();
-          lastLoadedRef.current = new Date().toISOString();
         }
-      }, 3000); // Check every 3 seconds
+      };
       
-      return () => clearInterval(checkInterval);
+      // Listen for visibility changes (handles tab switching)
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      // Clean up event listener on unmount
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     }
   }, [isAuthenticated, isLoading]);
 

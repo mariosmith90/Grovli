@@ -26,6 +26,7 @@ export default function Home() {
   const [currentMealPlanId, setCurrentMealPlanId] = useState(null);
   const [displayedMealType, setDisplayedMealType] = useState('');
   const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [mealAlgorithm, setMealAlgorithm] = useState('experimental');
 
   const checkOnboardingStatus = async () => {
     if (!user) return false;
@@ -195,6 +196,7 @@ export default function Home() {
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
     }
+    
     try {
       setError('');
       setLoading(true);
@@ -203,104 +205,116 @@ export default function Home() {
       // Show chatbot window while meal plan is generating
       setShowChatbot(true);
       setMealPlanReady(false);
+      setCurrentMealPlanId(null);
       
       // Reset UI state
       setMealPlan([]); 
       setIngredients([]);
       setOrderingPlanIngredients(false);
       
+      // Send initial request to start meal plan generation
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const headers = { 'Content-Type': 'application/json' };
+      
+      if (user && user.sub) {
+        headers['user-id'] = user.sub;
+      }
+      
       // Get the token using the client-side getAccessToken helper
-      let accessToken;
       if (user) {
         try {
           const token = await getAccessToken({
-            authorizationParams: {
-              audience: "https://grovli.citigrove.com/audience"
-            }
+            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
           });
-          accessToken = token;
+          headers['Authorization'] = `Bearer ${token}`;
         } catch (tokenError) {
           console.error("❌ Error retrieving access token:", tokenError);
         }
       }
       
-      // Check API URL
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiUrl) {
-        throw new Error("API URL is not defined. Check your environment variables.");
-      }
-      
-      // Prepare headers
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Add authorization header if token exists
-      if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
-      }
-      
-      // Add user-id header if user exists
-      if (user && user.sub) {
-        headers['user-id'] = user.sub;
-      }
-
-      // Make request - now using global settings for macro calculations and dietary philosophy
-      const dietaryPrefs = [];
-      if (preferences.trim()) dietaryPrefs.push(preferences.trim());
-      if (globalSettings.dietaryPhilosophy) dietaryPrefs.push(globalSettings.dietaryPhilosophy);
-      
+      // Make the initial request to start meal plan generation
       const response = await fetch(`${apiUrl}/mealplan/`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          dietary_preferences: dietaryPrefs.join(' ').trim(),
+          dietary_preferences: preferences,
           meal_type: mealType,
           num_days: numDays,
           carbs: globalSettings.carbs,
-          calories: globalSettings.calories, 
+          calories: globalSettings.calories,
           protein: globalSettings.protein,
           sugar: globalSettings.sugar,
           fat: globalSettings.fat,
           fiber: globalSettings.fiber,
+          meal_algorithm: mealAlgorithm,
+          pantry_ingredients: []
         }),
       });
       
-      // Handle HTTP errors
       if (!response.ok) {
-        let errorDetail;
-        try {
-          const errorData = await response.json();
-          errorDetail = errorData.detail || `HTTP error ${response.status}`;
-        } catch (e) {
-          errorDetail = `HTTP error ${response.status}`;
-        }
-        throw new Error(errorDetail);
+        throw new Error(`HTTP error ${response.status}`);
       }
       
-      // Parse response
       const data = await response.json();
       
-      // Check if the response indicates processing status
-      if (data && data.status === "processing") {
-        setCurrentMealPlanId(data.meal_plan_id);
+      // If the meal plan is already complete (cached), use it immediately
+      if (data.meal_plan && Array.isArray(data.meal_plan)) {
+        setMealPlan(data.meal_plan);
+        setDisplayedMealType(mealType);
+        setShowChatbot(false);
         return;
       }
       
-      // If we received actual meal plan data immediately
-      if (data && data.meal_plan) {
-        setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
-        setDisplayedMealType(mealType); // Set the displayed meal type to match what was requested
-        setMealPlanReady(true);
+      // Otherwise, get the meal plan ID and start polling
+      if (data.status === "processing" && data.meal_plan_id) {
+        setCurrentMealPlanId(data.meal_plan_id);
         
-        // If we got cached results, we can close the chatbot
-        if (data.cached) {
-          setShowChatbot(false);
+        // Poll until the meal plan is ready
+        let isReady = false;
+        let retries = 0;
+        const maxRetries = 20; // Maximum 5 minutes (15s * 20)
+        
+        while (!isReady && retries < maxRetries) {
+          // Wait 15 seconds between checks
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          try {
+            // Check if the meal plan is ready
+            const statusResponse = await fetch(`${apiUrl}/mealplan/by_id/${data.meal_plan_id}`);
+            
+            if (statusResponse.ok) {
+              // Meal plan is ready, get it
+              const mealPlanData = await statusResponse.json();
+              
+              if (mealPlanData.meal_plan && Array.isArray(mealPlanData.meal_plan)) {
+                setMealPlan(mealPlanData.meal_plan);
+                setDisplayedMealType(mealType);
+                isReady = true;
+              }
+            } else if (statusResponse.status === 404) {
+              // Not ready yet, continue polling
+              console.log(`Meal plan not ready yet, retry ${retries + 1}/${maxRetries}`);
+            } else {
+              // Unexpected error
+              throw new Error(`HTTP error ${statusResponse.status}`);
+            }
+          } catch (error) {
+            console.error("Error checking meal plan status:", error);
+          }
+          
+          retries++;
+        }
+        
+        if (!isReady) {
+          throw new Error("Meal plan generation timed out. Please try again.");
         }
       } else {
-        setMealPlan([]);
-        throw new Error("Invalid API response format");
+        throw new Error("Invalid API response");
       }
+      
+      // Close the chatbot when complete
+      setShowChatbot(false);
+      
     } catch (error) {
       console.error('Error fetching meal plan:', error);
       setError(`Error: ${error.message}`);
@@ -532,6 +546,22 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
       setOrderingPlanIngredients(false);
     }    
   };
+
+  // Simple useEffect to load the mealAlgorithm from globalSettings
+  useEffect(() => {
+    // Load from localStorage
+    const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
+    
+    if (savedSettings.mealAlgorithm) {
+      setMealAlgorithm(savedSettings.mealAlgorithm);
+    } else {
+      // Fallback to separate localStorage item for backward compatibility
+      const savedAlgorithm = localStorage.getItem('mealAlgorithm');
+      if (savedAlgorithm) {
+        setMealAlgorithm(savedAlgorithm);
+      }
+    }
+  }, [user]);
 
   // Add this to useEffect in page.js
   useEffect(() => {

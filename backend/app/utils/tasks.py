@@ -185,6 +185,19 @@ def generate_meal_plan(
     try:
         logger.info(f"Starting background meal plan generation for user: {user_id}")
         
+        # Add a lock to prevent multiple workers from generating the same meal plan
+        generation_lock_key = f"meal_generation_lock:{request_hash}"
+        
+        # Try to acquire the lock
+        lock_acquired = False
+        if not get_cache(generation_lock_key):
+            set_cache(generation_lock_key, True, 600)  # 10-minute lock
+            lock_acquired = True
+            logger.info(f"Acquired generation lock for meal plan: {request_hash}")
+        else:
+            logger.info(f"Another worker is already generating meal plan: {request_hash}, skipping")
+            return {"status": "skipped", "message": "Another worker is handling this generation"}
+            
         # Convert the dictionary back to required values
         dietary_preferences = request_dict.get("dietary_preferences", "")
         meal_type = request_dict.get("meal_type", "")
@@ -194,6 +207,8 @@ def generate_meal_plan(
         fat = request_dict.get("fat", 0)
         fiber = request_dict.get("fiber", 0)
         sugar = request_dict.get("sugar", 0)
+        meal_algorithm = request_dict.get("meal_algorithm", "experimental")
+        pantry_ingredients = request_dict.get("pantry_ingredients", [])
         
         # Get API key from environment variables
         gemini_api_key = os.environ.get("GEMINI_API_KEY")
@@ -299,11 +314,26 @@ def generate_meal_plan(
             macros = meal_macros[current_meal_type]
             
             # Generate a single meal with a modified prompt
+            # Create base prompt
             prompt = f"""
             Generate EXACTLY 1 complete, **single-serving** {current_meal_type.lower()} meal for a {dietary_preferences} diet.
             The meal **must have exactly** {macros['calories']} kcal.
             Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create an authentic, realistic recipe
             that could appear in these publications, with proper culinary techniques and flavor combinations.
+            """
+
+            if meal_algorithm == "pantry" and pantry_ingredients:
+                pantry_ingredients_text = ", ".join(pantry_ingredients[:30])  # Limit to 30 ingredients to avoid token issues
+                prompt += f"""
+                **IMPORTANT: Prioritize using ingredients from the user's pantry.**
+                
+                Available pantry ingredients: {pantry_ingredients_text}
+                
+                This meal should use as many of these pantry ingredients as possible, but may include some additional ingredients 
+                if necessary for a complete meal. The recipe should seem designed to make use of what's available.
+                """
+            
+            prompt += f"""
             The meal must be balanced and meet these nutritional targets:
             - Be **a single-serving portion**, accurately scaled
             - Include **all** ingredients needed for **one serving** (oils, spices, pantry staples)
@@ -314,6 +344,7 @@ def generate_meal_plan(
             • Fat: {macros['fat']} g
             • Fiber: {macros['fiber']} g
             • Sugar: {macros['sugar']} g
+            
             ### **Mandatory Requirements**:
             1. **The meal must be a {current_meal_type} meal**
             2. **All portions must be for a single serving** (e.g., "6 oz chicken," not "2 lbs chicken")
@@ -454,6 +485,7 @@ def generate_meal_plan(
             })
 
         # Cache the complete meal plan in Redis by both request hash and meal plan ID
+# Cache the complete meal plan in Redis by both request hash and meal plan ID
         meal_plan_cache_key = f"meal_plan:{request_hash}"
         plan_id_cache_key = f"meal_plan_id:{meal_plan_id}"
         
@@ -546,6 +578,11 @@ def generate_meal_plan(
     except Exception as e:
         logger.error(f"Error in generate_meal_plan task: {str(e)}")
         return {"status": "error", "message": str(e)}
+    finally:
+        # Release the lock when done
+        if 'lock_acquired' in locals() and lock_acquired:
+            delete_cache(generation_lock_key)
+            logger.info(f"Released generation lock for meal plan: {request_hash}")
 
 @celery_app.task(name="notify_meal_plan_ready_task")
 def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
@@ -726,18 +763,32 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
         "meal_name": meal_name,
         "request_hash": request_hash
     })
+    
     if existing_meal:
-        # If the stored meal's plan ID is different from the current one,
-        # update it to the new meal_plan_id.
+        # ALWAYS update meal_plan_id to ensure consistency
         if existing_meal.get("meal_plan_id") != meal_plan_id:
             meals_collection.update_one(
                 {"_id": existing_meal["_id"]},
                 {"$set": {"meal_plan_id": meal_plan_id, "updated_at": datetime.datetime.now()}}
             )
-            # Update the local copy and refresh the Redis cache for this meal.
+            # Update the local copy
             existing_meal["meal_plan_id"] = meal_plan_id
-            set_cache(f"meal:{existing_meal['meal_id']}", existing_meal, MEAL_CACHE_TTL)
+            
+            # UPDATE BOTH CACHE KEYS
+            meal_id_cache_key = f"meal:{existing_meal['meal_id']}"
+            set_cache(meal_id_cache_key, existing_meal, MEAL_CACHE_TTL)
+            
+            # Also update the meal plan cache
+            plan_id_cache_key = f"meal_plan_id:{meal_plan_id}"
+            cached_plan = get_cache(plan_id_cache_key) or []
+            
+            # Replace the meal in the cached plan or add it
+            updated_plan = [m for m in cached_plan if m.get("meal_id") != existing_meal["meal_id"]]
+            updated_plan.append(existing_meal)
+            set_cache(plan_id_cache_key, updated_plan, MEAL_CACHE_TTL)
+            
             logger.info(f"Updated meal_plan_id for duplicate meal: {meal_name} to {meal_plan_id}")
+        
         return existing_meal
     
     # USDA validation

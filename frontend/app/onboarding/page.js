@@ -322,6 +322,7 @@ export default function OnboardingWizard() {
       
       // Settings to save to the API
       const settingsToSave = {
+        user_id: user.sub, 
         calculationMode: 'auto',
         calories: calculatedCalories,
         protein: macros.protein,

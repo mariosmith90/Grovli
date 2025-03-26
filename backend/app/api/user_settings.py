@@ -23,15 +23,32 @@ user_settings_collection = db["user_settings"]
 user_settings_router = APIRouter(prefix="/user-settings", tags=["User Settings"])
 
 class UserSettings(BaseModel):
-    calculationMode: str = Field(default="auto", description="Method for calculating macros")
-    calories: int = Field(default=2400, gt=0, description="Daily calorie target")
-    carbs: int = Field(default=270, ge=0, description="Daily carbs target in grams")
-    protein: int = Field(default=180, ge=0, description="Daily protein target in grams")
-    fat: int = Field(default=67, ge=0, description="Daily fat target in grams")
-    fiber: int = Field(default=34, ge=0, description="Daily fiber target in grams")
-    sugar: int = Field(default=60, ge=0, description="Daily sugar limit in grams")
-    dietaryPhilosophy: str = Field(default="", description="User's dietary philosophy (e.g., Vegan, Keto)")
-
+    user_id: str 
+    calculationMode: Optional[str] = 'auto'
+    calories: Optional[int] = 2400
+    carbs: Optional[int] = 270
+    protein: Optional[int] = 180
+    fat: Optional[int] = 67
+    fiber: Optional[int] = 34
+    sugar: Optional[int] = 60
+    dietaryPhilosophy: Optional[str] = ''
+    mealAlgorithm: Optional[str] = 'experimental'  # Add this line
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "user_id": "auth0|123456789",
+                "calculationMode": "auto",
+                "calories": 2400,
+                "carbs": 270,
+                "protein": 180,
+                "fat": 67,
+                "fiber": 34,
+                "sugar": 60,
+                "dietaryPhilosophy": "vegetarian",
+                "mealAlgorithm": "experimental"
+            }
+        }
 
 @user_settings_router.get("/{user_id}")
 async def get_user_settings(user_id: str):

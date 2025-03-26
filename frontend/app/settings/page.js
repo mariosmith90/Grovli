@@ -25,19 +25,20 @@ export default function GlobalSettingsComprehensive() {
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Global Settings State
-  const [calculationMode, setCalculationMode] = useState('auto');
-  const [calories, setCalories] = useState(2400);
-  const [carbs, setCarbs] = useState(270);
-  const [protein, setProtein] = useState(180);
-  const [fat, setFat] = useState(67);
-  const [fiber, setFiber] = useState(34);
-  const [sugar, setSugar] = useState(60);
-  const [dietaryPhilosophy, setDietaryPhilosophy] = useState('');
-  const [showCalorieInfo, setShowCalorieInfo] = useState(false);
-  const [showPhilosophyInfo, setShowPhilosophyInfo] = useState(false);
-  const [resetConfirmed, setResetConfirmed] = useState(false);
-  const [activeSection, setActiveSection] = useState('general');
+// Global Settings State
+const [calculationMode, setCalculationMode] = useState('auto');
+const [calories, setCalories] = useState(2400);
+const [carbs, setCarbs] = useState(270);
+const [protein, setProtein] = useState(180);
+const [fat, setFat] = useState(67);
+const [fiber, setFiber] = useState(34);
+const [sugar, setSugar] = useState(60);
+const [dietaryPhilosophy, setDietaryPhilosophy] = useState('');
+const [mealAlgorithm, setMealAlgorithm] = useState('experimental');
+const [showCalorieInfo, setShowCalorieInfo] = useState(false);
+const [showPhilosophyInfo, setShowPhilosophyInfo] = useState(false);
+const [resetConfirmed, setResetConfirmed] = useState(false);
+const [activeSection, setActiveSection] = useState('general');
 
   // Dietary philosophy options with icons and descriptions
   const philosophyOptions = [
@@ -204,6 +205,7 @@ export default function GlobalSettingsComprehensive() {
 
       // Prepare the settings object
       const settingsData = {
+        user_id: user.sub,
         calculationMode,
         calories,
         carbs,
@@ -211,7 +213,8 @@ export default function GlobalSettingsComprehensive() {
         fat,
         fiber,
         sugar,
-        dietaryPhilosophy
+        dietaryPhilosophy,
+        mealAlgorithm
       };
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -233,6 +236,9 @@ export default function GlobalSettingsComprehensive() {
 
       // Update localStorage with these settings
       localStorage.setItem('globalMealSettings', JSON.stringify(settingsData));
+
+      // Also update the separate mealAlgorithm localStorage item for backward compatibility
+      localStorage.setItem('mealAlgorithm', mealAlgorithm);
       
       // Show success message
       setSaveSuccess(true);
@@ -366,55 +372,78 @@ export default function GlobalSettingsComprehensive() {
     );
   };
 
-  // Add this useEffect near the top of your component, after other state declarations
-  useEffect(() => {
-    // Load settings from localStorage first
-    const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
-    
-    if (Object.keys(savedSettings).length > 0) {
-      // Update state with localStorage settings
-      setCalculationMode(savedSettings.calculationMode || 'auto');
-      setCalories(savedSettings.calories || 2400);
-      setCarbs(savedSettings.carbs || 270);
-      setProtein(savedSettings.protein || 180);
-      setFat(savedSettings.fat || 67);
-      setFiber(savedSettings.fiber || 34);
-      setSugar(savedSettings.sugar || 60);
-      setDietaryPhilosophy(savedSettings.dietaryPhilosophy || '');
+// Add this useEffect near the top of your component, after other state declarations
+useEffect(() => {
+  // Load settings from localStorage first
+  const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
+  
+  // Also load meal algorithm from localStorage
+  const savedAlgorithm = localStorage.getItem('mealAlgorithm');
+  
+  if (Object.keys(savedSettings).length > 0) {
+    // Update state with localStorage settings
+    setCalculationMode(savedSettings.calculationMode || 'auto');
+    setCalories(savedSettings.calories || 2400);
+    setCarbs(savedSettings.carbs || 270);
+    setProtein(savedSettings.protein || 180);
+    setFat(savedSettings.fat || 67);
+    setFiber(savedSettings.fiber || 34);
+    setSugar(savedSettings.sugar || 60);
+    setDietaryPhilosophy(savedSettings.dietaryPhilosophy || '');
+    // Set meal algorithm if present in settings
+    if (savedSettings.mealAlgorithm) {
+      setMealAlgorithm(savedSettings.mealAlgorithm);
+    } else if (savedAlgorithm) {
+      // Fallback to separate localStorage item
+      setMealAlgorithm(savedAlgorithm);
     }
-    
-    // If user is authenticated, fetch settings from server
-    if (user && user.sub) {
-      const fetchUserSettings = async () => {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+  } else if (savedAlgorithm) {
+    // If no settings but algorithm exists
+    setMealAlgorithm(savedAlgorithm);
+  }
+  
+  // If user is authenticated, fetch settings from server
+  if (user && user.sub) {
+    const fetchUserSettings = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+        
+        if (response.ok) {
+          const serverSettings = await response.json();
+          console.log("Loaded server settings:", serverSettings);
           
-          if (response.ok) {
-            const serverSettings = await response.json();
-            console.log("Loaded server settings:", serverSettings);
-            
-            // Update state with server settings
-            setCalculationMode(serverSettings.calculationMode || 'auto');
-            setCalories(serverSettings.calories || 2400);
-            setCarbs(serverSettings.carbs || 270);
-            setProtein(serverSettings.protein || 180);
-            setFat(serverSettings.fat || 67);
-            setFiber(serverSettings.fiber || 34);
-            setSugar(serverSettings.sugar || 60);
-            setDietaryPhilosophy(serverSettings.dietaryPhilosophy || '');
-            
-            // Update localStorage with server settings
-            localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
+          // Update state with server settings
+          setCalculationMode(serverSettings.calculationMode || 'auto');
+          setCalories(serverSettings.calories || 2400);
+          setCarbs(serverSettings.carbs || 270);
+          setProtein(serverSettings.protein || 180);
+          setFat(serverSettings.fat || 67);
+          setFiber(serverSettings.fiber || 34);
+          setSugar(serverSettings.sugar || 60);
+          setDietaryPhilosophy(serverSettings.dietaryPhilosophy || '');
+          
+          // Set meal algorithm if present in server settings
+          if (serverSettings.mealAlgorithm) {
+            setMealAlgorithm(serverSettings.mealAlgorithm);
           }
-        } catch (error) {
-          console.error("Error fetching user settings:", error);
+          
+          // Update localStorage with server settings
+          localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
+          
+          // Also update the separate mealAlgorithm localStorage item for backward compatibility
+          if (serverSettings.mealAlgorithm) {
+            localStorage.setItem('mealAlgorithm', serverSettings.mealAlgorithm);
+          }
         }
-      };
-      
-      fetchUserSettings();
-    }
-  }, [user]);
+      } catch (error) {
+        console.error("Error fetching user settings:", error);
+      }
+    };
+    
+    fetchUserSettings();
+  }
+}, [user]);
 
   // Calculate macros when calories change
   useEffect(() => {
@@ -446,7 +475,9 @@ export default function GlobalSettingsComprehensive() {
               <SettingsIcon className="w-7 h-7 mr-3 text-teal-600" /> 
               General Settings
             </h2>
-            <div className="bg-white shadow-md rounded-xl p-6">
+            
+            {/* Calculation Mode */}
+            <div className="bg-white shadow-md rounded-xl p-6 mb-6">
               <h3 className="text-lg font-semibold text-gray-700 mb-4">
                 Calculation Mode
               </h3>
@@ -470,7 +501,7 @@ export default function GlobalSettingsComprehensive() {
                   onClick={() => isPro && setCalculationMode('manual')}
                 >
                   Manual Adjustment
-                  </button>
+                </button>
               </div>
               {!isPro && (
                 <p className="text-sm text-gray-500 mt-2 text-center">
@@ -483,6 +514,54 @@ export default function GlobalSettingsComprehensive() {
                   </span>
                 </p>
               )}
+            </div>
+            
+            {/* Meal Algorithm Selection */}
+            <div className="bg-white shadow-md rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-gray-700 mb-4">
+                Meal Algorithm
+              </h3>
+              <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
+                <div className="relative inline-block w-[200px] h-10">
+                  <div className="absolute inset-0 bg-gray-200 rounded-full"></div>
+                  
+                  {/* Sliding background for active state */}
+                  <div 
+                    className={`absolute top-0 bottom-0 w-1/2 bg-teal-500 rounded-full transition-all duration-300 ease-in-out ${
+                      mealAlgorithm === 'pantry' ? 'left-0' : 'left-1/2'
+                    }`}
+                  ></div>
+                  
+                  {/* Toggle buttons */}
+                  <div className="relative flex h-full">
+                    <button
+                      onClick={() => setMealAlgorithm('pantry')}
+                      className={`flex-1 text-sm rounded-full flex items-center justify-center transition-colors ${
+                        mealAlgorithm === 'pantry' ? 'text-white font-medium' : 'text-gray-600'
+                      }`}
+                    >
+                      Pantry
+                    </button>
+                    <button
+                      onClick={() => setMealAlgorithm('experimental')}
+                      className={`flex-1 text-sm rounded-full flex items-center justify-center transition-colors ${
+                        mealAlgorithm === 'experimental' ? 'text-white font-medium' : 'text-gray-600'
+                      }`}
+                    >
+                      Experimental
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex-1">
+                  <p className="text-sm text-gray-700">
+                    {mealAlgorithm === 'pantry' 
+                      ? "Generate meals based on what's in your pantry"
+                      : "Discover new and creative meal ideas" 
+                    }
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         );

@@ -402,7 +402,7 @@ export default function RecipePage() {
       updatedMealItems.push({
         date: formattedDate,
         mealType: selectedMealType,
-        mealId: recipe.id || mealId,
+        mealId: mealId,
         current_day: isCurrentDay
       });
       

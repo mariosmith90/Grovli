@@ -57,6 +57,8 @@ class MealPlanRequest(BaseModel):
     sugar: int = Field(..., ge=0, description="Maximum daily sugar allowance in grams")
     fiber: int = Field(..., gt=0, description="Daily fiber requirement in grams")
     fat: int = Field(..., gt=0, description="Daily fat requirement in grams")
+    meal_algorithm: str = Field("experimental", description="Algorithm type: 'pantry' or 'experimental'")
+    pantry_ingredients: List[str] = Field(default_factory=list, description="Ingredients available in the user's pantry")
 
 # Define the expected number of meals based on Meal Type
 MEAL_TYPE_COUNTS = {
@@ -350,7 +352,7 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     
     # Step 5: If no cached plan exists, queue generation in Celery
     logger.info(f"⚠️ No cached meal plan found. Scheduling generation of new meals.")
-    meal_plan_id = f"{request_hash}_{random.randint(10000, 99999)}"
+    meal_plan_id = request_hash
     
     # First, update chat session to mark meal plan as processing
     try:
@@ -580,6 +582,8 @@ async def get_meal_plan_by_id(meal_plan_id: str):
             formatted_meals.append(formatted_meal)
         
         return {"meal_plan": formatted_meals, "cache_source": "mongodb"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error retrieving meal plan: {str(e)}")
         raise HTTPException(
