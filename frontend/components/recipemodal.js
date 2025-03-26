@@ -42,10 +42,8 @@ export function RecipeModal({ mealId, relatedRecipes }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-end pointer-events-none">
-      <div className="absolute inset-0 bg-transparent pointer-events-auto" />
-      
-      <div className="w-full max-w-2xl bg-white rounded-t-2xl shadow-xl pointer-events-auto pb-4">
+    <div className="fixed bottom-0 left-0 right-0 z-50 flex flex-col items-center justify-end">
+      <div className="w-full max-w-2xl bg-white rounded-t-2xl shadow-xl pb-4">
         <div className="relative px-4 pt-4">
           <div 
             ref={scrollerRef}
