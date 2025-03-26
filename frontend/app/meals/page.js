@@ -707,7 +707,7 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
               ))}
             </div>
             </div>
-            <CulturalInfo selectedCuisine={selectedCuisine} />
+            <CulturalInfo selectedCuisine={selectedCuisine} user={user} />
 
           {/* Meal Type Selection */}
           <div className="mb-8">

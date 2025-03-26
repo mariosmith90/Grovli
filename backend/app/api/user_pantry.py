@@ -57,6 +57,10 @@ class MealRecommendationRequest(BaseModel):
     ingredients: List[str]
     dietary_preferences: Optional[str] = None
 
+class IngredientSuggestionRequest(BaseModel):
+    cuisine: str
+    currentIngredients: List[str]
+
 # --- Category Classification with Gemini ---
 VALID_CATEGORIES = [
     "Produce", "Dairy", "Meat", "Seafood", "Bakery", 
@@ -536,3 +540,40 @@ async def bulk_add_pantry_items(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add pantry items: {str(e)}"
         )
+    
+@router.post("/suggest-ingredient")
+async def suggest_ingredient(request: IngredientSuggestionRequest, current_user: dict = Depends(get_auth0_user)):
+    """Suggest a new ingredient for a cuisine that's not in the current list"""
+    try:
+        if not GEMINI_API_KEY:
+            return {"ingredient": "Garlic"} # Default fallback
+        
+        # Format the prompt for Gemini
+        prompt_parts = [
+            f"I'm exploring {request.cuisine} cuisine and already have these ingredients: {', '.join(request.currentIngredients)}.\n"
+            f"Suggest ONE new classic ingredient important in {request.cuisine} cuisine that's not in my current list.\n"
+            "Respond with just the ingredient name (single word or short phrase), nothing else."
+        ]
+        
+        # Generate suggestion using Gemini
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt_parts)
+        
+        # Process response
+        suggested_ingredient = response.text.strip()
+        
+        # Remove any punctuation or explanations
+        if '.' in suggested_ingredient:
+            suggested_ingredient = suggested_ingredient.split('.')[0].strip()
+        
+        if ',' in suggested_ingredient:
+            suggested_ingredient = suggested_ingredient.split(',')[0].strip()
+        
+        if ':' in suggested_ingredient:
+            suggested_ingredient = suggested_ingredient.split(':')[1].strip()
+            
+        return {"ingredient": suggested_ingredient}
+    
+    except Exception as e:
+        print(f"Error suggesting ingredient: {e}")
+        return {"ingredient": "Spices"}  # Default fallback in case of error
