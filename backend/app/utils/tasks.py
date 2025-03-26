@@ -291,6 +291,78 @@ def generate_meal_plan(
             # Generate meals ONE AT A TIME instead of in batches
             all_generated_meals = []
             
+        # Function for validating and adjusting macros
+        def validate_and_adjust_macros(meal, target_macros):
+            """
+            Validates if the meal's macros match target macros and adjusts portions if needed.
+            Returns the adjusted meal with corrected portions and macros.
+            """
+            # Extract current meal macros
+            current_macros = meal.get("nutrition", {})
+            
+            # Check if we need to adjust (macro values are off by more than the allowed tolerance)
+            needs_adjustment = (
+                abs(current_macros.get("calories", 0) - target_macros.get("calories", 0)) > 5 or
+                abs(current_macros.get("protein", 0) - target_macros.get("protein", 0)) > 1 or
+                abs(current_macros.get("carbs", 0) - target_macros.get("carbs", 0)) > 1 or
+                abs(current_macros.get("fat", 0) - target_macros.get("fat", 0)) > 1 or
+                abs(current_macros.get("fiber", 0) - target_macros.get("fiber", 0)) > 1 or
+                abs(current_macros.get("sugar", 0) - target_macros.get("sugar", 0)) > 1
+            )
+            
+            if not needs_adjustment:
+                return meal  # Macros are already accurate
+            
+            # Calculate scaling factor based on calories (primary adjustment factor)
+            calorie_scaling = target_macros.get("calories", 1) / max(current_macros.get("calories", 1), 1)
+            
+            # Create scaled macros
+            adjusted_macros = {
+                "calories": target_macros.get("calories", 0),
+                "protein": target_macros.get("protein", 0),
+                "carbs": target_macros.get("carbs", 0),
+                "fat": target_macros.get("fat", 0),
+                "fiber": target_macros.get("fiber", 0),
+                "sugar": target_macros.get("sugar", 0)
+            }
+            
+            # Adjust ingredient portions proportionally
+            adjusted_ingredients = []
+            for ingredient in meal.get("ingredients", []):
+                if isinstance(ingredient, dict) and "quantity" in ingredient:
+                    # Parse quantity to find the numeric value
+                    quantity_str = ingredient["quantity"]
+                    quantity_match = re.search(r'([\d.]+)', quantity_str)
+                    
+                    if quantity_match:
+                        original_value = float(quantity_match.group(1))
+                        new_value = original_value * calorie_scaling
+                        
+                        # Format back to string, maintaining the original unit
+                        unit_match = re.search(r'[^\d.]+', quantity_str)
+                        unit = unit_match.group(0).strip() if unit_match else ""
+                        
+                        # Update quantity
+                        ingredient["quantity"] = f"{new_value:.1f} {unit}".strip()
+                        
+                        # Update ingredient macros if present
+                        if "macros" in ingredient:
+                            for key in ingredient["macros"]:
+                                ingredient["macros"][key] = round(ingredient["macros"][key] * calorie_scaling, 1)
+                    
+                adjusted_ingredients.append(ingredient)
+            
+            # Update the meal with adjusted values
+            adjusted_meal = meal.copy()
+            adjusted_meal["nutrition"] = adjusted_macros
+            adjusted_meal["ingredients"] = adjusted_ingredients
+            
+            # Add note about adjustment in instructions
+            adjustment_note = "\n\n**Note: Portions have been precisely adjusted to match the nutritional targets.**"
+            adjusted_meal["instructions"] = meal.get("instructions", "") + adjustment_note
+            
+            return adjusted_meal
+            
         # Create a structured plan for meal generation
         meal_generation_plan = []
         for m_type, count in meal_counts.items():
@@ -314,12 +386,28 @@ def generate_meal_plan(
             macros = meal_macros[current_meal_type]
             
             # Generate a single meal with a modified prompt
-            # Create base prompt
+            # Create base prompt with enhanced emphasis on macro accuracy
             prompt = f"""
             Generate EXACTLY 1 complete, **single-serving** {current_meal_type.lower()} meal for a {dietary_preferences} diet.
-            The meal **must have exactly** {macros['calories']} kcal.
+            The meal **must have exactly** {macros['calories']} kcal AND precisely match the following macronutrient targets:
+            - Protein: {macros['protein']}g (±1g)
+            - Carbs: {macros['carbs']}g (±1g)
+            - Fat: {macros['fat']}g (±1g)
+            - Fiber: {macros['fiber']}g (±1g)
+            - Sugar: {macros['sugar']}g (±1g)
+            
             Prioritize recipes inspired by **Food & Wine, Bon Appétit, and Serious Eats**. Create an authentic, realistic recipe
             that could appear in these publications, with proper culinary techniques and flavor combinations.
+            """
+
+            # Add a clear instruction about macro accuracy
+            prompt += f"""
+            ### **CRITICAL REQUIREMENT FOR MACRO ACCURACY**:
+            1. You MUST calculate the macros for EACH ingredient separately and ensure they add up to the exact target values
+            2. Adjust ingredient portions precisely to achieve the macro targets
+            3. Every macro value (protein, carbs, fat, fiber, sugar) must be within ±1g of the target
+            4. Calories must be within ±5 kcal of the target
+            5. DO NOT compromise nutrition accuracy for recipe simplicity
             """
 
             if meal_algorithm == "pantry" and pantry_ingredients:
@@ -422,8 +510,10 @@ def generate_meal_plan(
                     raise ValueError(f"AI response for {current_meal_type} meal {i+1} is not a valid list.")
                 
                 # Ensure the meal has the correct type
-                for meal in single_meal:
+                for j, meal in enumerate(single_meal):
                     meal["meal_type"] = current_meal_type
+                    # Apply the macro validation and adjustment
+                    single_meal[j] = validate_and_adjust_macros(meal, macros)
                 
                 # Cache this individual meal
                 set_cache(single_meal_cache_key, single_meal, MEAL_CACHE_TTL)
@@ -485,7 +575,6 @@ def generate_meal_plan(
             })
 
         # Cache the complete meal plan in Redis by both request hash and meal plan ID
-# Cache the complete meal plan in Redis by both request hash and meal plan ID
         meal_plan_cache_key = f"meal_plan:{request_hash}"
         plan_id_cache_key = f"meal_plan_id:{meal_plan_id}"
         
