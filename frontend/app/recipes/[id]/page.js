@@ -1,11 +1,12 @@
-"use client";
+"use client"
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Save, Calendar, Loader, ChevronRight } from "lucide-react";
+import { ChevronLeft, Save, Calendar, Loader, ChevronRight, Check, X } from "lucide-react";
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import { Download, Check, X } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { toast } from "react-hot-toast";
+import { RecipeModal } from "../../../components/recipemodal"
 
 export default function RecipePage() {
   const params = useParams();
@@ -30,6 +31,28 @@ export default function RecipePage() {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [displayDates, setDisplayDates] = useState([]);
   const [addToPantry, setAddToPantry] = useState(false);
+  const [relatedRecipes, setRelatedRecipes] = useState([]);
+  const [showRecipeModal, setShowRecipeModal] = useState(false);
+
+
+  // Load related recipes from localStorage
+  useEffect(() => {
+    if (recipe) {
+      try {
+        const mealPlanInputs = JSON.parse(localStorage.getItem("mealPlanInputs") || "{}");
+        if (mealPlanInputs.mealPlan && Array.isArray(mealPlanInputs.mealPlan)) {
+          const mealsFromPlan = mealPlanInputs.mealPlan;
+          
+          if (mealsFromPlan.length > 1) {
+            setRelatedRecipes(mealsFromPlan);
+            setShowRecipeModal(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading meal plan data:", error);
+      }
+    }
+  }, [recipe, mealId]);
 
   useEffect(() => {
     if (!mealId) return; 
@@ -690,6 +713,16 @@ export default function RecipePage() {
 
   return (
     <div className="container mx-auto max-w-4xl">
+      {/* Recipe Modal */}
+      {showRecipeModal && (
+        <RecipeModal 
+          mealId={mealId}
+          relatedRecipes={relatedRecipes}
+          onClose={() => setShowRecipeModal(false)}
+        />
+      )}
+
+      {/* Rest of your existing JSX remains the same... */}
       <div className="bg-white min-h-screen relative">
         {/* Header with back button */}
         <div className="p-4 flex justify-between items-center">
@@ -707,6 +740,7 @@ export default function RecipePage() {
             {recipe.title}
           </h1>
         </div>
+
         
         <div className="px-6 pb-6">
           {/* Recipe Image - Full width above macros */}
