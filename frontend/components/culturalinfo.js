@@ -38,26 +38,9 @@ const CulturalInfo = ({ selectedCuisine }) => {
     fetchCulturalInfo();
   }, [selectedCuisine]);
 
-  if (!selectedCuisine) {
-    return (
-      <div className="mt-6 p-8 bg-gray-50/50 backdrop-blur-sm rounded-2xl border border-gray-100 text-center">
-        <div className="flex flex-col items-center justify-center space-y-4">
-          <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="16"/>
-              <line x1="8" y1="12" x2="16" y2="12"/>
-            </svg>
-          </div>
-          <p className="text-gray-500 font-light">Select a cuisine to explore its unique characteristics</p>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) {
     return (
-      <div className="mt-6 p-8 bg-gray-50/50 backdrop-blur-sm rounded-2xl border border-gray-100 animate-pulse">
+      <div className="">
         <div className="flex items-center space-x-3 mb-6">
           <div className="h-8 w-8 rounded-full bg-gray-300"></div>
           <div className="h-5 bg-gray-300 rounded-full w-1/3"></div>
