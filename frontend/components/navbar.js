@@ -25,59 +25,12 @@ export default function BottomNavbar({ children }) {
   const { user } = useUser();
   const isAuthenticated = !!user;
   const [isGenerating, setIsGenerating] = useState(false);
+  const [mealGenerationComplete, setMealGenerationComplete] = useState(false);
+  const [hasViewedGeneratedMeals, setHasViewedGeneratedMeals] = useState(false);
+
   
   // Track if we've been to the meals page to preserve function access
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
-
-  // Get current path only after component mounts (client-side only)
-  useEffect(() => {
-    // Safe check for browser environment
-    if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname;
-      setPathname(currentPath);
-      
-      // If we're on the meals page now, mark that we've visited it
-      if (currentPath === '/meals') {
-        setVisitedMealsPage(true);
-      }
-      
-      // Handle route changes
-      const handleRouteChange = () => {
-        const newPath = window.location.pathname;
-        setPathname(newPath);
-        
-        // If navigating to the meals page, mark that we've visited it
-        if (newPath === '/meals') {
-          setVisitedMealsPage(true);
-        }
-      };
-      
-      // Listen for navigation events
-      window.addEventListener('popstate', handleRouteChange);
-      
-      // Create a MutationObserver to detect any DOM changes that might indicate navigation
-      const observer = new MutationObserver(() => {
-        const newPath = window.location.pathname;
-        if (newPath !== pathname) {
-          setPathname(newPath);
-          if (newPath === '/meals') {
-            setVisitedMealsPage(true);
-          }
-        }
-      });
-      
-      // Start observing
-      observer.observe(document.body, { 
-        childList: true, 
-        subtree: true 
-      });
-      
-      return () => {
-        window.removeEventListener('popstate', handleRouteChange);
-        observer.disconnect();
-      };
-    }
-  }, [pathname]);
 
   // Check if the current route should have navigation
   const shouldShowNavbar = () => {
@@ -124,7 +77,27 @@ export default function BottomNavbar({ children }) {
   }, [menuOpen]);
 
   // Handle the FAB click - if on meals page, trigger the global function
+
   const handleFabClick = async () => {
+    // If meals were generated but not viewed yet, just navigate to meals page
+    if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      setHasViewedGeneratedMeals(true);
+      localStorage.setItem('hasViewedGeneratedMeals', 'true');
+      router.push('/meals');
+      return;
+    }
+    
+    // If we've viewed generated meals, but clicked again, we should reset
+    // to start a new generation
+    if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
+      setMealGenerationComplete(false);
+      localStorage.removeItem('mealGenerationComplete');
+      setHasViewedGeneratedMeals(false);
+      localStorage.removeItem('hasViewedGeneratedMeals');
+      router.push('/meals');
+      return;
+    }
+    
     if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
       // If not on meals page but have visited it, navigate back
       if (pathname !== '/meals') {
@@ -134,12 +107,18 @@ export default function BottomNavbar({ children }) {
       
       // We're on the meals page, proceed with generation
       setIsGenerating(true);
+      setMealGenerationComplete(false);
+      localStorage.removeItem('mealGenerationComplete');
+      setHasViewedGeneratedMeals(false);
+      localStorage.removeItem('hasViewedGeneratedMeals');
       
       if (typeof window !== 'undefined') {
         // Try to find and call the global function
         if (window.generateMeals && typeof window.generateMeals === 'function') {
           try {
             await window.generateMeals();
+            setMealGenerationComplete(true);
+            localStorage.setItem('mealGenerationComplete', 'true');
           } catch (error) {
             console.error('Error generating meals:', error);
           } finally {
@@ -160,7 +139,7 @@ export default function BottomNavbar({ children }) {
     }
   };
 
-  // Key icon and button features based on current state
+  // Update getFabIcon to consider the hasViewedGeneratedMeals state
   const getFabIcon = () => {
     if (isGenerating) {
       // Show loading spinner when generating
@@ -170,14 +149,76 @@ export default function BottomNavbar({ children }) {
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       );
-    } else if (pathname === '/meals') {
-      // Checkmark when on meals page
+    } else if (pathname === '/meals' || (mealGenerationComplete && !hasViewedGeneratedMeals)) {
+      // Checkmark when on meals page OR when generation is complete but not yet viewed
       return <Check className="w-8 h-8" />;
     } else {
-      // Plus icon for other pages
+      // Plus icon for other cases
       return <Plus className="w-8 h-8" />;
     }
   };
+
+
+  // Get current path only after component mounts (client-side only)
+  useEffect(() => {
+    // Safe check for browser environment
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname;
+      setPathname(currentPath);
+      
+      // If we're on the meals page now, mark that we've visited it
+      if (currentPath === '/meals') {
+        setVisitedMealsPage(true);
+        localStorage.setItem('visitedMealsPage', 'true');
+      } else if (localStorage.getItem('visitedMealsPage') === 'true') {
+        setVisitedMealsPage(true);
+      }
+      
+      // Check if meal generation was previously completed
+      const completionStatus = localStorage.getItem('mealGenerationComplete');
+      if (completionStatus === 'true') {
+        setMealGenerationComplete(true);
+      }
+      
+      // Handle route changes
+      const handleRouteChange = () => {
+        const newPath = window.location.pathname;
+        setPathname(newPath);
+        
+        // If navigating to the meals page, mark that we've visited it
+        if (newPath === '/meals') {
+          setVisitedMealsPage(true);
+          localStorage.setItem('visitedMealsPage', 'true');
+        }
+      };
+      
+      // Listen for navigation events
+      window.addEventListener('popstate', handleRouteChange);
+      
+      // Create a MutationObserver to detect any DOM changes that might indicate navigation
+      const observer = new MutationObserver(() => {
+        const newPath = window.location.pathname;
+        if (newPath !== pathname) {
+          setPathname(newPath);
+          if (newPath === '/meals') {
+            setVisitedMealsPage(true);
+            localStorage.setItem('visitedMealsPage', 'true');
+          }
+        }
+      });
+      
+      // Start observing
+      observer.observe(document.body, { 
+        childList: true, 
+        subtree: true 
+      });
+      
+      return () => {
+        window.removeEventListener('popstate', handleRouteChange);
+        observer.disconnect();
+      };
+    }
+  }, [pathname]);
 
   // Get the right button color based on state
   const getFabColor = () => {
@@ -204,7 +245,9 @@ export default function BottomNavbar({ children }) {
               <button
                 onClick={handleFabClick}
                 disabled={isGenerating}
-                className={`${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all`}
+                className={`${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
+                  mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' ? 'pulse-animation' : ''
+                }`}
               >
                 {getFabIcon()}
               </button>

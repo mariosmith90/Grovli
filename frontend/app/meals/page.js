@@ -212,6 +212,29 @@ export default function Home() {
       setIngredients([]);
       setOrderingPlanIngredients(false);
       
+      // Fetch pantry ingredients if using pantry algorithm
+      let pantryIngredients = [];
+      if (mealAlgorithm === 'pantry' && user) {
+        try {
+          const token = await getAccessToken({
+            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+          });
+          
+          const pantryResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/items`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (pantryResponse.ok) {
+            const pantryData = await pantryResponse.json();
+            pantryIngredients = pantryData.items.map(item => item.name);
+          }
+        } catch (error) {
+          console.error("Error fetching pantry ingredients:", error);
+        }
+      }
+      
       // Send initial request to start meal plan generation
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const headers = { 'Content-Type': 'application/json' };
@@ -247,7 +270,7 @@ export default function Home() {
           fat: globalSettings.fat,
           fiber: globalSettings.fiber,
           meal_algorithm: mealAlgorithm,
-          pantry_ingredients: []
+          pantry_ingredients: pantryIngredients // Use the fetched ingredients
         }),
       });
       

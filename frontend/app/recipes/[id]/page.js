@@ -403,6 +403,7 @@ export default function RecipePage() {
         date: formattedDate,
         mealType: selectedMealType,
         mealId: mealId,
+        meal_name: recipe.title,
         current_day: isCurrentDay
       });
       

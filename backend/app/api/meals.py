@@ -252,9 +252,16 @@ async def generate_meal_plan(request: MealPlanRequest, request_obj: Request):
     
     logger.info(f"🍽️ Generating meal plan with {total_meals_needed} total meals: {meal_counts}")
     
-    # Step 2: Create a deterministic hash key that identifies this exact request
-    # Include the full dietary preferences (with philosophy) in the hash
-    request_hash = f"{request.meal_type}_{dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}"
+    pantry_fingerprint = ""
+    if request.meal_algorithm == "pantry" and request.pantry_ingredients:
+        # Create a deterministic fingerprint of pantry ingredients
+        # Sort them to ensure consistent order regardless of input order
+        sorted_ingredients = sorted(request.pantry_ingredients)
+        # Take the first few ingredients to keep hash reasonably sized
+        pantry_sample = sorted_ingredients[:5]
+        pantry_fingerprint = f"_pantry_{'-'.join(pantry_sample)}"
+
+    request_hash = f"{request.meal_type}_{dietary_preferences}_{request.calories}_{request.protein}_{request.carbs}_{request.fat}_{request.fiber}_{request.sugar}_{request.meal_algorithm}{pantry_fingerprint}"
     logger.info(f"🔑 Request hash: {request_hash}")
     
     # Step 3: Check Redis cache first
