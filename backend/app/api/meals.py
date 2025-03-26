@@ -567,9 +567,10 @@ async def get_meal_plan_by_id(meal_plan_id: str):
         
         # If not in cache, find meals in MongoDB
         meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
-        
-        if not meals:
-            raise HTTPException(status_code=404, detail=f"Meal plan not found: {meal_plan_id}")
+
+        expected_count = 4  # or dynamically determine based on meal_plan_id
+        if len(meals) < expected_count:
+            raise HTTPException(status_code=404, detail="Meal plan still generating")
         
         # Cache the results in Redis
         set_cache(cache_key, meals, MEAL_CACHE_TTL)
