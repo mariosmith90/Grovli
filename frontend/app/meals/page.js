@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import ChatbotWindow from '../../components/chatbot';
+import CulturalInfo from '../../components/culturalinfo'
 
 export default function Home() {
   const router = useRouter();
@@ -24,7 +25,7 @@ export default function Home() {
   const [mealPlanReady, setMealPlanReady] = useState(false);
   const [currentMealPlanId, setCurrentMealPlanId] = useState(null);
   const [displayedMealType, setDisplayedMealType] = useState('');
-
+  const [selectedCuisine, setSelectedCuisine] = useState('');
 
   const checkOnboardingStatus = async () => {
     if (!user) return false;
@@ -686,12 +687,12 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
                 <button
                   key={option}
                   onClick={() => {
+                    setSelectedCuisine(option);
                     setPreferences((prev) => {
                       const preferencesArray = prev.split(" ").filter(Boolean);
                       const updatedPreferences = preferencesArray.filter((item) =>
                         !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
                       );
-
                       return [...updatedPreferences, option].join(" "); 
                     });
                   }}
@@ -705,7 +706,8 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
                 </button>
               ))}
             </div>
-          </div>
+            </div>
+            <CulturalInfo selectedCuisine={selectedCuisine} />
 
           {/* Meal Type Selection */}
           <div className="mb-8">

@@ -1,22 +1,28 @@
-# app/utils/redis_client.py
 import os
 import json
 import redis
 import logging
 from typing import Any, Optional, Dict, List, Union
 import pickle
+from redis.connection import ConnectionPool
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Redis connection
-redis_client = redis.Redis(
+# Connection pool for better performance
+redis_pool = ConnectionPool(
     host=os.getenv("REDIS_HOST", "redis"),
     port=int(os.getenv("REDIS_PORT", "6379")),
-    db=int(os.getenv("REDIS_DB", "0")),
+    db=int(os.getenv("CULTURAL_REDIS_DB", "1")),  # Different DB for cultural info
     password=os.getenv("REDIS_PASSWORD", None),
-    decode_responses=False  # Set to False to allow storing binary data
+    max_connections=20,
+    decode_responses=False,
+    health_check_interval=30,
+    socket_keepalive=True
 )
+
+# Redis client using connection pool
+redis_client = redis.Redis(connection_pool=redis_pool)
 
 # Default TTLs in seconds
 DEFAULT_CACHE_TTL = 3600  # 1 hour
@@ -30,10 +36,17 @@ def get_cache(key: str) -> Optional[Any]:
     try:
         data = redis_client.get(key)
         if data:
-            return pickle.loads(data)
+            try:
+                return pickle.loads(data)
+            except pickle.UnpicklingError:
+                logger.error(f"Failed to unpickle data for key {key}")
+                return None
+        return None
+    except redis.RedisError as e:
+        logger.error(f"Redis get error for key {key}: {str(e)}", exc_info=True)
         return None
     except Exception as e:
-        logger.error(f"Redis get error for key {key}: {str(e)}")
+        logger.error(f"Unexpected error getting cache for key {key}: {str(e)}", exc_info=True)
         return None
 
 def set_cache(key: str, value: Any, ttl: int = DEFAULT_CACHE_TTL) -> bool:
@@ -41,16 +54,19 @@ def set_cache(key: str, value: Any, ttl: int = DEFAULT_CACHE_TTL) -> bool:
     try:
         serialized = pickle.dumps(value)
         return redis_client.setex(key, ttl, serialized)
+    except (redis.RedisError, pickle.PicklingError) as e:
+        logger.error(f"Redis set error for key {key}: {str(e)}", exc_info=True)
+        return False
     except Exception as e:
-        logger.error(f"Redis set error for key {key}: {str(e)}")
+        logger.error(f"Unexpected error setting cache for key {key}: {str(e)}", exc_info=True)
         return False
 
 def delete_cache(key: str) -> bool:
     """Delete a key from Redis cache."""
     try:
         return redis_client.delete(key) > 0
-    except Exception as e:
-        logger.error(f"Redis delete error for key {key}: {str(e)}")
+    except redis.RedisError as e:
+        logger.error(f"Redis delete error for key {key}: {str(e)}", exc_info=True)
         return False
 
 def flush_pattern(pattern: str) -> int:
@@ -60,14 +76,14 @@ def flush_pattern(pattern: str) -> int:
         if keys:
             return redis_client.delete(*keys)
         return 0
-    except Exception as e:
-        logger.error(f"Redis flush error for pattern {pattern}: {str(e)}")
+    except redis.RedisError as e:
+        logger.error(f"Redis flush error for pattern {pattern}: {str(e)}", exc_info=True)
         return 0
 
 def health_check() -> bool:
     """Check if Redis is responsive."""
     try:
         return redis_client.ping()
-    except Exception as e:
-        logger.error(f"Redis health check failed: {str(e)}")
+    except redis.RedisError as e:
+        logger.error(f"Redis health check failed: {str(e)}", exc_info=True)
         return False
