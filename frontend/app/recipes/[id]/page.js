@@ -774,15 +774,6 @@ export default function RecipePage() {
         />
       )}
 
-    {changingRecipe && (
-      <div className="fixed inset-0 bg-white/80 z-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader className="w-10 h-10 text-teal-500 animate-spin mx-auto mb-4" />
-          <p className="text-xl font-medium text-gray-800">Loading recipe...</p>
-        </div>
-      </div>
-    )}
-
       {/* Rest of your existing JSX remains the same... */}
       <div className="bg-white min-h-screen relative">
         {/* Header with back button */}
