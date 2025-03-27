@@ -329,13 +329,6 @@ export function MealPlanDisplay({
                 />
               </div>
             </div>
-
-            {/* Swipe indicators - arrows on both sides */}
-            <div className="flex justify-between items-center text-gray-400 my-2">
-              <ChevronLeft className={`w-8 h-8 ${currentMealIndex > 0 ? 'opacity-50' : 'opacity-0'}`} />
-              <span className="text-sm">Tap or swipe to navigate</span>
-              <ChevronRight className={`w-8 h-8 ${currentMealIndex < allMeals.length - 1 ? 'opacity-50' : 'opacity-0'}`} />
-            </div>
             
             {/* View Recipe button */}
             <button
