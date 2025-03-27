@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon } from 'lucide-react';
@@ -10,6 +10,7 @@ export default function ProfilePage() {
   const { user, isLoading: isAuthLoading } = useUser();
   const isAuthenticated = !!user;
   const [accessToken, setAccessToken] = useState(null);
+  const timelineRef = useRef(null);
 
   // States
   const [activeSection, setActiveSection] = useState('timeline');
@@ -672,6 +673,20 @@ export default function ProfilePage() {
     return () => clearInterval(intervalId);
   }, [mealPlan, isDataReady]);
 
+  // Scroll to current day on load
+  useEffect(() => {
+    if (timelineRef.current) {
+      const todayElement = timelineRef.current.querySelector('[data-today="true"]');
+      if (todayElement) {
+        todayElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }
+  }, [isDataReady]);
+
   return (
     <>
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
@@ -703,6 +718,7 @@ export default function ProfilePage() {
                     setSelectedDate(date);
                     loadDataForDate(date);
                   }}
+                  timelineRef={timelineRef}
                 />
               </section>
 
@@ -771,17 +787,17 @@ export default function ProfilePage() {
   );
 }
 
-function DayTimelineSlider({ currentDate, onDateChange }) {
-  // Generate a 7-day window centered around the selected date
+function DayTimelineSlider({ currentDate, onDateChange, timelineRef }) {
+  // Generate a 7-day window centered around the current date
   const [dates, setDates] = useState([]);
   
   useEffect(() => {
     // Generate 7 days - 3 days before and 3 days after the current date
     const generateDates = () => {
       const result = [];
-      const today = new Date(currentDate);
+      const today = new Date();
       
-      // Start 3 days before selected date
+      // Start 3 days before today
       const startDate = new Date(today);
       startDate.setDate(today.getDate() - 3);
       
@@ -825,7 +841,7 @@ function DayTimelineSlider({ currentDate, onDateChange }) {
         </button>
       </div>
       
-      <div className="relative">
+      <div className="relative" ref={timelineRef}>
         <div className="flex justify-between items-center gap-2 overflow-x-auto py-2">
           {dates.map((date, index) => (
             <button
@@ -838,6 +854,7 @@ function DayTimelineSlider({ currentDate, onDateChange }) {
                     ? 'bg-teal-50 text-teal-700 border border-teal-200'
                     : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-100'
               }`}
+              data-today={isToday(date)}
             >
               <span className="text-xs font-medium">
                 {date.toLocaleDateString('en-US', { weekday: 'short' })}
