@@ -11,10 +11,11 @@ import { RecipeModal } from "../../../components/recipemodal"
 export default function RecipePage() {
   const params = useParams();
   const router = useRouter();
-  const mealId = params?.id || ""; 
+  const initialMealId = params?.id || "";
   const { user, isLoading: userLoading } = useUser();
   const [showIngredientConfirmation, setShowIngredientConfirmation] = useState(false);
 
+  const [currentMealId, setMealId] = useState(initialMealId);
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -33,7 +34,57 @@ export default function RecipePage() {
   const [addToPantry, setAddToPantry] = useState(false);
   const [relatedRecipes, setRelatedRecipes] = useState([]);
   const [showRecipeModal, setShowRecipeModal] = useState(false);
+  const [changingRecipe, setChangingRecipe] = useState(false);
 
+  const checkIfRecipeIsSaved = async (recipeId) => {
+    if (!user) return;
+
+    try {
+      const accessToken = await getAccessToken({
+        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+      });
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${recipeId}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setIsSaved(data.isSaved);
+      }
+    } catch (error) {
+      console.error("Error checking saved status:", error);
+    }
+  };
+
+  // Make the updateRecipeData function available globally
+  useEffect(() => {
+    // Create a global function to update recipe data from the modal
+    window.updateRecipeData = (newRecipeData) => {
+      setChangingRecipe(true);
+      
+      if (newRecipeData && newRecipeData.id) {
+        setMealId(newRecipeData.id);
+        setRecipe(newRecipeData);
+        
+        // Check if this recipe is saved
+        if (user) {
+          checkIfRecipeIsSaved(newRecipeData.id);
+        }
+      }
+      
+      setTimeout(() => {
+        setChangingRecipe(false);
+      }, 300);
+    };
+    
+    // Cleanup when component unmounts
+    return () => {
+      delete window.updateRecipeData;
+    };
+  }, [user]);
 
   // Load related recipes from localStorage
   useEffect(() => {
@@ -52,14 +103,14 @@ export default function RecipePage() {
         console.error("Error loading meal plan data:", error);
       }
     }
-  }, [recipe, mealId]);
+  }, [recipe, currentMealId]);
 
   useEffect(() => {
-    if (!mealId) return; 
+    if (!currentMealId) return; // Changed from mealId
     
     const fetchRecipe = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${mealId}`);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${currentMealId}`);
         
         if (!response.ok) {
           const errorText = await response.text();
@@ -79,7 +130,8 @@ export default function RecipePage() {
     };
 
     fetchRecipe();
-  }, [mealId]);
+  }, [currentMealId]); 
+
 
   // Check if recipe is saved
   useEffect(() => {
@@ -91,7 +143,7 @@ export default function RecipePage() {
           authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
         });
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${mealId}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${currentMealId}`, {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
           }
@@ -107,7 +159,7 @@ export default function RecipePage() {
     };
 
     checkIfSaved();
-  }, [user, recipe, mealId]);
+  }, [user, recipe, currentMealId]);
 
   // Add this function to your component
   const addIngredientsToUserPantry = async () => {
@@ -425,7 +477,7 @@ export default function RecipePage() {
       updatedMealItems.push({
         date: formattedDate,
         mealType: selectedMealType,
-        mealId: mealId,
+        mealId: currentMealId,
         meal_name: recipe.title,
         current_day: isCurrentDay
       });
@@ -681,13 +733,13 @@ export default function RecipePage() {
     );
   };
 
-  if (loading) return (
+  if (loading && !changingRecipe) return (
     <div className="container mx-auto p-6 max-w-4xl">
       <div className="bg-white rounded-xlborder-nonep-8 text-center">
         <p className="text-xl">Loading recipe...</p>
       </div>
     </div>
-  );
+  );  
   
   if (error) return (
     <div className="container mx-auto p-6 max-w-4xl">
@@ -716,11 +768,20 @@ export default function RecipePage() {
       {/* Recipe Modal */}
       {showRecipeModal && (
         <RecipeModal 
-          mealId={mealId}
+          mealId={currentMealId}
           relatedRecipes={relatedRecipes}
           onClose={() => setShowRecipeModal(false)}
         />
       )}
+
+    {changingRecipe && (
+      <div className="fixed inset-0 bg-white/80 z-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader className="w-10 h-10 text-teal-500 animate-spin mx-auto mb-4" />
+          <p className="text-xl font-medium text-gray-800">Loading recipe...</p>
+        </div>
+      </div>
+    )}
 
       {/* Rest of your existing JSX remains the same... */}
       <div className="bg-white min-h-screen relative">

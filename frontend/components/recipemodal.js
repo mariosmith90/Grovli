@@ -4,15 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-export function RecipeModal({ mealId, relatedRecipes }) {
+export function RecipeModal({ mealId, relatedRecipes, onClose }) {
   const router = useRouter();
   const [currentRecipeIndex, setCurrentRecipeIndex] = useState(-1);
   const scrollerRef = useRef(null);
+  const [currentlySelectedId, setCurrentlySelectedId] = useState(mealId);
 
   useEffect(() => {
     if (relatedRecipes && mealId) {
       const index = relatedRecipes.findIndex(meal => meal.id === mealId);
       setCurrentRecipeIndex(index);
+      setCurrentlySelectedId(mealId);
       scrollToRecipe(index);
     }
   }, [relatedRecipes, mealId]);
@@ -32,9 +34,36 @@ export function RecipeModal({ mealId, relatedRecipes }) {
     }
   };
 
-  const handleThumbnailClick = (recipeId, index) => {
-    router.push(`/recipes/${recipeId}`);
+  const handleThumbnailClick = async (recipeId, index) => {
+    if (recipeId === currentlySelectedId) return;
+    
     setCurrentRecipeIndex(index);
+    setCurrentlySelectedId(recipeId);
+    
+    try {
+      // Update URL without forcing a page reload
+      window.history.pushState({}, '', `/recipes/${recipeId}`);
+      
+      // Fetch the recipe data
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${recipeId}`);
+      
+      if (!response.ok) {
+        throw new Error(`Recipe not found: ${await response.text()}`);
+      }
+      
+      const recipeData = await response.json();
+      
+      // Update parent component with new recipe data
+      // This requires adding this prop to the parent component
+      if (window.updateRecipeData && typeof window.updateRecipeData === 'function') {
+        window.updateRecipeData(recipeData);
+      }
+    } catch (error) {
+      console.error("Error fetching recipe:", error);
+      // Revert to previous recipe if there was an error
+      setCurrentRecipeIndex(relatedRecipes.findIndex(meal => meal.id === mealId));
+      setCurrentlySelectedId(mealId);
+    }
   };
 
   if (!relatedRecipes || relatedRecipes.length <= 1) {
@@ -57,7 +86,7 @@ export function RecipeModal({ mealId, relatedRecipes }) {
             {relatedRecipes.map((recipe, index) => (
               <div 
                 key={recipe.id}
-                className="flex-shrink-0 w-32 h-40 relative rounded-lg overflow-hidden cursor-pointer transition-transform hover:scale-105"
+                className={`flex-shrink-0 w-32 h-40 relative rounded-lg overflow-hidden cursor-pointer transition-transform hover:scale-105`}
                 style={{ scrollSnapAlign: 'center' }}
                 onClick={() => handleThumbnailClick(recipe.id, index)}
               >
