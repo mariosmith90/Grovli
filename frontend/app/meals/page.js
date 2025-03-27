@@ -871,15 +871,6 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
               Upgrade Now
             </button>
           )}
-  
-          {/* Generate Meals Button */}
-          <button
-            onClick={fetchMealPlan}
-            className="w-full py-3 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg transition-colors mt-4"
-            disabled={loading}
-          >
-            {loading ? "Generating..." : "Generate Meals"}
-          </button>
         </div>
         
         {/* Display Meal Plan */}
