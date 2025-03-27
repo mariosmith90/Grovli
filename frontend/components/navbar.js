@@ -320,105 +320,112 @@ export function BottomNavbar({ children }) {
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
           {/* Floating Action Button */}
           {isAuthenticated && (
-            <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style={{ marginLeft: '10px', background: 'transparent' }}>
-              {/* Radial menu buttons - only visible when on meal card view and fabMenuOpen is true */}
-              {isMealCardView() && (
-                <div className={`fab-menu relative ${fabMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-                  {/* Top Left Button */}
-                  <button
-                    onClick={handleSaveMeal}
-                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
-                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
-                    }`}
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      backgroundColor: 'rgb(234, 88, 12)', // orange-500
-                      transform: fabMenuOpen 
-                        ? 'translate(-65px, -65px)' 
-                        : 'translate(0, 0)',
-                      zIndex: 10
-                    }}
-                    aria-label="Save All Meals"
-                  >
-                    <Save className="w-4 h-4 text-white" />
-                  </button>
-                  
-                  {/* Top Button */}
-                  <button
-                    onClick={handleViewRecipe}
-                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
-                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
-                    }`}
-                    style={{
-                      width: '48px', 
-                      height: '48px',
-                      backgroundColor: 'rgb(20, 184, 166)', // teal-500
-                      transform: fabMenuOpen 
-                        ? 'translate(0px, -80px)' 
-                        : 'translate(0, 0)',
-                      zIndex: 10
-                    }}
-                    aria-label="View Full Recipe"
-                  >
-                    <BookOpen className="w-4 h-4 text-white" />
-                  </button>
-                  
-                  {/* Top Right Button */}
-                  <button
-                    onClick={handleOrderIngredients}
-                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
-                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
-                    }`}
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      backgroundColor: 'rgb(13, 148, 136)', // teal-600
-                      transform: fabMenuOpen 
-                        ? 'translate(65px, -65px)' 
-                        : 'translate(0, 0)',
-                      zIndex: 10
-                    }}
-                    aria-label="Order Ingredients"
-                  >
-                    <ShoppingCart className="w-4 h-4 text-white" />
-                  </button>
-                </div>
-              )}
-              
-              {/* Backdrop for FAB menu - only visible when in meal card view and fabMenuOpen is true */}
-              {isMealCardView() && fabMenuOpen && (
-                <div 
-                  className="fixed inset-0 bg-black bg-opacity-10 z-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFabMenuOpen(false);
+          <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 rounded-full p-1 bg-white">
+            {/* Radial menu buttons */}
+            {isMealCardView() && (
+              <div className={`fab-menu relative ${fabMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+                {/* Top Left Button */}
+                <button
+                  onClick={handleSaveMeal}
+                  className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                    fabMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+                  }`}
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    backgroundColor: 'rgb(234, 88, 12)',
+                    transform: fabMenuOpen 
+                      ? 'translate(-65px, -65px)' 
+                      : 'translate(0, 0)',
+                    zIndex: fabMenuOpen ? 20 : -1,
+                    transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease-out'
                   }}
-                ></div>
-              )}
-              
-              {/* Main FAB button */}
-              <button
-                onClick={handleFabClick}
-                disabled={isGenerating && !isMealCardView()}
-                className={`
-                  fab-button 
-                  ${getFabColor()} 
-                  text-white w-16 h-16 rounded-full 
-                  flex items-center justify-center 
-                  shadow-lg transition-all 
-                  ${fabMenuOpen ? 'rotate-45' : ''} 
-                  ${mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' && !isMealCardView() ? 'pulse-animation' : ''}
-                  focus:outline-none focus:ring-0 active:bg-transparent
-                `}
-                style={{
-                  WebkitTapHighlightColor: 'transparent'
+                  aria-label="Save All Meals"
+                >
+                  <Save className="w-4 h-4 text-white" />
+                </button>
+                
+                {/* Top Button */}
+                <button
+                  onClick={handleViewRecipe}
+                  className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                    fabMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+                  }`}
+                  style={{
+                    width: '48px', 
+                    height: '48px',
+                    backgroundColor: 'rgb(20, 184, 166)',
+                    transform: fabMenuOpen 
+                      ? 'translate(0px, -80px)' 
+                      : 'translate(0, 0)',
+                    zIndex: fabMenuOpen ? 20 : -1,
+                    transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease-out'
+                  }}
+                  aria-label="View Full Recipe"
+                >
+                  <BookOpen className="w-4 h-4 text-white" />
+                </button>
+                
+                {/* Top Right Button */}
+                <button
+                  onClick={handleOrderIngredients}
+                  className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                    fabMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+                  }`}
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    backgroundColor: 'rgb(13, 148, 136)',
+                    transform: fabMenuOpen 
+                      ? 'translate(65px, -65px)' 
+                      : 'translate(0, 0)',
+                    zIndex: fabMenuOpen ? 20 : -1,
+                    transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease-out'
+                  }}
+                  aria-label="Order Ingredients"
+                >
+                  <ShoppingCart className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            )}
+            
+            {/* Backdrop for FAB menu */}
+            {isMealCardView() && fabMenuOpen && (
+              <div 
+                className="fixed inset-0 bg-black bg-opacity-10 z-0 transition-opacity duration-200"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFabMenuOpen(false);
                 }}
-              >
-                {getFabIcon()}
-              </button>
-            </div>
-          )}
+              ></div>
+            )}
+            
+            {/* Main FAB button */}
+            <button
+              onClick={handleFabClick}
+              disabled={isGenerating && !isMealCardView()}
+              className={`
+                fab-button 
+                ${getFabColor()} 
+                text-white w-16 h-16 rounded-full 
+                flex items-center justify-center 
+                shadow-lg transition-all 
+                ${fabMenuOpen ? 'rotate-45' : ''} 
+                ${mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' && !isMealCardView() ? 'pulse-animation' : ''}
+                focus:outline-none focus:ring-0 active:bg-transparent
+                border-none outline-none ring-0
+              `}
+              style={{
+                WebkitTapHighlightColor: 'transparent',
+                outline: 'none !important',
+                transition: 'transform 0.2s ease-out, background-color 0.2s ease-out',
+                willChange: 'transform, background-color'
+              }}
+            >
+              {getFabIcon()}
+            </button>
+          </div>
+        )}
           
           <div className="max-w-screen-xl mx-auto px-4">
             {isAuthenticated ? (

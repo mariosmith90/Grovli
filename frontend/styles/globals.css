@@ -87,3 +87,26 @@ button[style*="background-color: #007BFF"] {
     -ms-overflow-style: none;
   }
 }
+
+/* Remove default button styles */
+button {
+  -webkit-tap-highlight-color: transparent;
+  outline: none !important;
+}
+
+/* Smooth transitions for FAB menu */
+.fab-menu {
+  transition: opacity 0.2s ease-out;
+}
+
+.fab-menu button {
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+              opacity 0.2s ease-out;
+  will-change: transform, opacity;
+}
+
+/* Remove focus rings */
+button:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
