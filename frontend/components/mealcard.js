@@ -229,11 +229,19 @@ export function MealPlanDisplay({
         <CheckIcon className="w-5 h-5" />
       </button>
       
-      {/* Progress indicator at top-center */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-white/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-md">
-        <span className="text-sm font-medium text-gray-700">
-          {currentMealIndex + 1} / {allMeals.length}
-        </span>
+      {/* Progress indicator at top-center with meal type label below it */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center">
+        <div className="bg-white/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-md mb-2">
+          <span className="text-sm font-medium text-gray-700">
+            {currentMealIndex + 1} / {allMeals.length}
+          </span>
+        </div>
+        {/* Meal type & day label centered below the progress counter */}
+        <div className="bg-white/90 rounded-full px-3 py-1 shadow-sm">
+          <p className="text-xs font-medium text-gray-800 capitalize">
+            {currentMeal.mealType.toLowerCase()} · Day {mealDayNumber}
+          </p>
+        </div>
       </div>
       
       {/* Meal content area - this is the swipeable/tappable area */}
@@ -268,13 +276,6 @@ export function MealPlanDisplay({
                   }}
                 />
               )}
-              
-              {/* Meal type & day label positioned at top-right of image */}
-              <div className="absolute top-16 right-4 bg-white/90 rounded-full px-3 py-1 shadow-sm">
-                <p className="text-xs font-medium text-gray-800 capitalize">
-                  {currentMeal.mealType.toLowerCase()} · Day {mealDayNumber}
-                </p>
-              </div>
             </div>
             
             {/* Meal details in padding container */}
