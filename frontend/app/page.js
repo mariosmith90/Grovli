@@ -2,23 +2,31 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
-import { Download, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
   const { user, isLoading } = useUser();
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [installPromptShown, setInstallPromptShown] = useState(false);
 
   useEffect(() => {
-    const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
+    // Let the browser handle the install prompt automatically
+    // This will display the standard browser PWA install prompt
+    // when the browser determines it's appropriate
+    
+    // We'll just track if the prompt has been shown for analytics
+    let promptDisplayed = false;
+    
+    const handleAppInstalled = () => {
+      console.log('App was installed');
+      // You can track this event for analytics
+      setInstallPromptShown(true);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -58,17 +66,6 @@ const HomePage = () => {
     } catch (error) {
       console.error("Error checking onboarding status:", error);
       router.push("/onboarding");
-    }
-  };
-
-  const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        console.log('App installed');
-      }
-      setDeferredPrompt(null);
     }
   };
 
@@ -113,19 +110,9 @@ const HomePage = () => {
                 size={20} 
               />
             </button>
-
-            {deferredPrompt && (
-              <button
-                onClick={handleInstallClick}
-                className="w-full flex items-center justify-center gap-2 border border-white/10 text-white/70 py-3 rounded-xl hover:bg-white/5 transition-all duration-300 ease-in-out group"
-              >
-                <Download 
-                  className="text-teal-400 group-hover:rotate-6 transition-transform" 
-                  size={20} 
-                />
-                Install App
-              </button>
-            )}
+            
+            {/* The standard browser install prompt will show automatically */}
+            {/* No custom install button needed */}
           </div>
         </div>
       </main>
