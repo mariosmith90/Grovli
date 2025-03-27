@@ -28,8 +28,6 @@ function NutrientMetric({ icon, value, unit, label, highlight = false }) {
   );
 }
 
-// components/mealcard.js - Replace your MealPlanDisplay export with this version
-
 export function MealPlanDisplay({ 
   mealPlan, 
   mealType, 
@@ -204,43 +202,38 @@ export function MealPlanDisplay({
     }
   };
 
+  // Calculate day number for display
+  const mealDayNumber = Math.floor(currentMealIndex / (mealType === 'Full Day' ? 4 : 1)) + 1;
+
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col">
-      {/* Header with navigation indicators */}
-      <div className="flex justify-between items-center p-4 bg-white shadow-sm">
-        <button 
-          onClick={onReturnToInput}
-          className="bg-gray-100 rounded-full p-2 hover:bg-gray-200 transition-colors"
-          aria-label="Back to meal plan"
-        >
-          <ChevronLeft className="w-6 h-6 text-gray-700" />
-        </button>
-        
-        <div className="text-center">
-          <h2 className="text-xl font-bold text-gray-800">
-            {currentMeal.mealType} 
-          </h2>
-          <p className="text-gray-600 text-sm">
-            Day {Math.floor(currentMealIndex / (mealType === 'Full Day' ? 4 : 1)) + 1}
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <span className="text-gray-600">
-            {currentMealIndex + 1} / {allMeals.length}
-          </span>
-          <button 
-            onClick={() => handleMealSelection(currentMeal.id)}
-            className={`rounded-full p-2 transition-colors ${
-              selectedRecipes.includes(currentMeal.id) 
-                ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-            aria-label={selectedRecipes.includes(currentMeal.id) ? "Deselect meal" : "Select meal"}
-          >
-            <CheckIcon className="w-5 h-5" />
-          </button>
-        </div>
+      {/* Back button fixed at top-left */}
+      <button 
+        onClick={onReturnToInput}
+        className="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur-sm rounded-full p-2 hover:bg-gray-200 transition-colors shadow-md"
+        aria-label="Back to meal plan"
+      >
+        <ChevronLeft className="w-6 h-6 text-gray-700" />
+      </button>
+      
+      {/* Meal selection button fixed at top-right */}
+      <button 
+        onClick={() => handleMealSelection(currentMeal.id)}
+        className={`absolute top-4 right-4 z-10 rounded-full p-2 transition-colors shadow-md ${
+          selectedRecipes.includes(currentMeal.id) 
+            ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' 
+            : 'bg-white/80 backdrop-blur-sm text-gray-700 hover:bg-gray-200'
+        }`}
+        aria-label={selectedRecipes.includes(currentMeal.id) ? "Deselect meal" : "Select meal"}
+      >
+        <CheckIcon className="w-5 h-5" />
+      </button>
+      
+      {/* Progress indicator at top-center */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-white/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-md">
+        <span className="text-sm font-medium text-gray-700">
+          {currentMealIndex + 1} / {allMeals.length}
+        </span>
       </div>
       
       {/* Meal content area - this is the swipeable/tappable area */}
@@ -260,9 +253,9 @@ export function MealPlanDisplay({
           style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : '' }}
         >
           {/* Meal content */}
-          <div className="h-full p-4 flex flex-col">
-            {/* Meal Image */}
-            <div className="w-full h-56 bg-gray-100 rounded-xl overflow-hidden mb-6">
+          <div className="h-full flex flex-col">
+            {/* Meal Image - Now takes full width with no padding */}
+            <div className="relative w-full h-64 bg-gray-100">
               {currentMeal.imageUrl && (
                 <img
                   src={currentMeal.imageUrl}
@@ -275,72 +268,88 @@ export function MealPlanDisplay({
                   }}
                 />
               )}
-            </div>
-            
-            {/* Meal Title */}
-            <h3 className="text-2xl font-bold text-gray-800 mb-4">
-              {currentMeal.title}
-            </h3>
-            
-            {/* Nutrition Information */}
-            <div className="mb-6">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
-                <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
-                Nutritional Information
-              </h4>
-
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                {/* Calories spans full row */}
-                <div className="col-span-3 sm:col-span-6">
-                  <NutrientMetric 
-                    icon={<Flame className="w-4 h-4 text-orange-500" />} 
-                    value={currentMeal.nutrition.calories} 
-                    unit="kcal"
-                    label="Calories"
-                    highlight={true} 
-                  />
-                </div>
-
-                {/* Macros */}
-                <NutrientMetric 
-                  value={currentMeal.nutrition.protein} 
-                  unit="g" 
-                  label="Protein" 
-                />
-                <NutrientMetric 
-                  value={currentMeal.nutrition.carbs} 
-                  unit="g" 
-                  label="Carbs" 
-                />
-                <NutrientMetric 
-                  value={currentMeal.nutrition.fat} 
-                  unit="g" 
-                  label="Fat" 
-                />
-                <NutrientMetric 
-                  value={currentMeal.nutrition.fiber} 
-                  unit="g" 
-                  label="Fiber" 
-                />
-                <NutrientMetric 
-                  value={currentMeal.nutrition.sugar} 
-                  unit="g" 
-                  label="Sugar" 
-                />
+              
+              {/* Meal type & day label positioned at top-right of image */}
+              <div className="absolute top-16 right-4 bg-white/90 rounded-full px-3 py-1 shadow-sm">
+                <p className="text-xs font-medium text-gray-800 capitalize">
+                  {currentMeal.mealType.toLowerCase()} · Day {mealDayNumber}
+                </p>
               </div>
             </div>
             
-            {/* View Recipe button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation(); // Prevent triggering swipe
-                router.push(`/recipes/${currentMeal.id}`);
-              }}
-              className="w-full py-3 mt-4 bg-teal-50 text-teal-700 font-semibold rounded-lg hover:bg-teal-100 transition-colors"
-            >
-              View Full Recipe
-            </button>
+            {/* Meal details in padding container */}
+            <div className="flex-1 p-4 flex flex-col">
+              {/* Meal Title */}
+              <h3 className="text-2xl font-bold text-gray-800 mb-4">
+                {currentMeal.title}
+              </h3>
+              
+              {/* Nutrition Information */}
+              <div className="mb-6">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
+                  <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
+                  Nutritional Information
+                </h4>
+
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                  {/* Calories spans full row */}
+                  <div className="col-span-3 sm:col-span-6">
+                    <NutrientMetric 
+                      icon={<Flame className="w-4 h-4 text-orange-500" />} 
+                      value={currentMeal.nutrition.calories} 
+                      unit="kcal"
+                      label="Calories"
+                      highlight={true} 
+                    />
+                  </div>
+
+                  {/* Macros */}
+                  <NutrientMetric 
+                    value={currentMeal.nutrition.protein} 
+                    unit="g" 
+                    label="Protein" 
+                  />
+                  <NutrientMetric 
+                    value={currentMeal.nutrition.carbs} 
+                    unit="g" 
+                    label="Carbs" 
+                  />
+                  <NutrientMetric 
+                    value={currentMeal.nutrition.fat} 
+                    unit="g" 
+                    label="Fat" 
+                  />
+                  <NutrientMetric 
+                    value={currentMeal.nutrition.fiber} 
+                    unit="g" 
+                    label="Fiber" 
+                  />
+                  <NutrientMetric 
+                    value={currentMeal.nutrition.sugar} 
+                    unit="g" 
+                    label="Sugar" 
+                  />
+                </div>
+              </div>
+              
+              {/* View Recipe button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent triggering swipe
+                  router.push(`/recipes/${currentMeal.id}`);
+                }}
+                className="w-full py-3 mt-auto bg-teal-50 text-teal-700 font-semibold rounded-lg hover:bg-teal-100 transition-colors"
+              >
+                View Full Recipe
+              </button>
+            </div>
           </div>
+        </div>
+        
+        {/* Swipe indicators - arrows on both sides */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex justify-between items-center px-4 text-white/50">
+          <ChevronLeft className={`w-12 h-12 ${currentMealIndex > 0 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
+          <ChevronRight className={`w-12 h-12 ${currentMealIndex < allMeals.length - 1 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
         </div>
       </div>
       
