@@ -2,53 +2,25 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0";
-import { ArrowRight } from 'lucide-react';
+import { Download, ArrowRight } from 'lucide-react';
 
 const HomePage = () => {
   const router = useRouter();
   const { user, isLoading } = useUser();
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [installable, setInstallable] = useState(false);
 
   useEffect(() => {
-    // Capture the beforeinstallprompt event
     const handleBeforeInstallPrompt = (e) => {
-      // Prevent the default browser mini-infobar from appearing on mobile
       e.preventDefault();
-      // Stash the event so it can be triggered later
       setDeferredPrompt(e);
-      // Show the UI that indicates our app can be installed
-      setInstallable(true);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // Track when the app is successfully installed
-    const handleAppInstalled = () => {
-      console.log('App was installed');
-      setInstallable(false);
-      setDeferredPrompt(null);
-    };
-
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    // Clean up event listeners
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
-
-  // Show the install prompt automatically after a short delay
-  useEffect(() => {
-    if (deferredPrompt) {
-      const timer = setTimeout(() => {
-        showInstallPrompt();
-      }, 3000); // 3 seconds delay
-      
-      return () => clearTimeout(timer);
-    }
-  }, [deferredPrompt]);
 
   const isAuthenticated = !!user;
   
@@ -89,19 +61,14 @@ const HomePage = () => {
     }
   };
 
-  // Function to trigger the browser's native install prompt
-  const showInstallPrompt = async () => {
+  const handleInstallClick = async () => {
     if (deferredPrompt) {
-      // Show the browser install prompt
       deferredPrompt.prompt();
-      
-      // Wait for the user to respond to the prompt
       const { outcome } = await deferredPrompt.userChoice;
-      console.log(`User response to the install prompt: ${outcome}`);
-      
-      // Clear the saved prompt since it can't be used again
+      if (outcome === 'accepted') {
+        console.log('App installed');
+      }
       setDeferredPrompt(null);
-      setInstallable(false);
     }
   };
 
@@ -146,6 +113,19 @@ const HomePage = () => {
                 size={20} 
               />
             </button>
+
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="w-full flex items-center justify-center gap-2 border border-white/10 text-white/70 py-3 rounded-xl hover:bg-white/5 transition-all duration-300 ease-in-out group"
+              >
+                <Download 
+                  className="text-teal-400 group-hover:rotate-6 transition-transform" 
+                  size={20} 
+                />
+                Install App
+              </button>
+            )}
           </div>
         </div>
       </main>
