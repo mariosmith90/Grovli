@@ -701,7 +701,6 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
 
   return ( 
     <>
-  
       {/* Full-screen white background */}
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
   
@@ -759,31 +758,32 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
                 </button>
               ))}
             </div>
-            </div>
-            <CulturalInfo selectedCuisine={selectedCuisine} user={user} />
-
+          </div>
+          
+          <CulturalInfo selectedCuisine={selectedCuisine} user={user} />
+  
           {/* Meal Type Selection */}
           <div className="mb-8">
             <p className="text-base font-semibold text-gray-700 mb-3">
               Meal Type
             </p>
-
+  
             <div className="flex flex-wrap items-center gap-2">
-            {["Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
-              <button
-                key={option}
-                onClick={() => {
-                  setMealType(option);
-                }}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  mealType === option 
-                    ? "bg-teal-500 text-white border-white" 
-                    : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                } transition-all`}
-              >
-                {option}
-              </button>
-            ))}
+              {["Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
+                <button
+                  key={option}
+                  onClick={() => {
+                    setMealType(option);
+                  }}
+                  className={`px-4 py-2 rounded-full border-2 ${
+                    mealType === option 
+                      ? "bg-teal-500 text-white border-white" 
+                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
+                  } transition-all`}
+                >
+                  {option}
+                </button>
+              ))}
                             
               {/* Divider Line */}
               <div className="h-6 w-px bg-gray-300 mx-1 self-center"></div>
@@ -819,13 +819,13 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
               </p>
             )}
           </div>
-
+  
           {/* Number of Days Selection */}
           <div className="mb-8">
             <p className="text-base font-semibold text-gray-700 mb-3">
               Number of Days
             </p>
-
+  
             <div className="flex flex-wrap gap-2 mb-3">
               {[1, 3, 5, 7].map((option) => (
                 <button
@@ -844,7 +844,7 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
                 </button>
               ))}
             </div>
-
+  
             {/* Pro Feature Message */}
             {!isPro && (
               <p className="text-sm text-gray-600">
@@ -858,7 +858,7 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
               </p>
             )}
           </div>
-
+  
           {/* Error Message */}
           {error && <p style={{ color: 'red' }}>{error}</p>}
   
@@ -871,8 +871,19 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
               Upgrade Now
             </button>
           )}
-
-          {/* Display Meal Plan */}
+  
+          {/* Generate Meals Button */}
+          <button
+            onClick={fetchMealPlan}
+            className="w-full py-3 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg transition-colors mt-4"
+            disabled={loading}
+          >
+            {loading ? "Generating..." : "Generate Meals"}
+          </button>
+        </div>
+        
+        {/* Display Meal Plan */}
+        {Array.isArray(mealPlan) && mealPlan.length > 0 && !showChatbot && (
           <MealPlanDisplay
             mealPlan={mealPlan}
             mealType={displayedMealType}
@@ -884,22 +895,26 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
             loading={loading}
             orderingPlanIngredients={orderingPlanIngredients}
             showChatbot={showChatbot}
+            onReturnToInput={() => {
+              // This function returns the user to the form view
+              setMealPlan([]);
+            }}
           />
-      </div>
-      
-      {showChatbot && (
-        <ChatbotWindow
-          user={user}
-          preferences={preferences}
-          mealType={mealType}
-          isVisible={showChatbot}
-          onClose={() => setShowChatbot(false)}
-          onChatComplete={handleChatComplete}
-          onMealPlanReady={() => setMealPlanReady(true)}
-          mealPlanReady={mealPlanReady}
-        />
-      )}
-    </main>
-  </>
+        )}
+        
+        {showChatbot && (
+          <ChatbotWindow
+            user={user}
+            preferences={preferences}
+            mealType={mealType}
+            isVisible={showChatbot}
+            onClose={() => setShowChatbot(false)}
+            onChatComplete={handleChatComplete}
+            onMealPlanReady={() => setMealPlanReady(true)}
+            mealPlanReady={mealPlanReady}
+          />
+        )}
+      </main>
+    </>
   );
 }

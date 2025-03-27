@@ -1,7 +1,15 @@
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from "next/navigation";
-import { CheckIcon, Flame, Activity } from "lucide-react";
+import { 
+  CheckIcon, 
+  Flame, 
+  Activity, 
+  X, 
+  ChevronLeft, 
+  ChevronRight 
+} from "lucide-react";
 
-// **Nutrient Display Component**
+// Nutrient Display Component
 function NutrientMetric({ icon, value, unit, label, highlight = false }) {
   return (
     <div className={`rounded-lg py-2 px-1 text-center transition-colors
@@ -20,112 +28,8 @@ function NutrientMetric({ icon, value, unit, label, highlight = false }) {
   );
 }
 
-// Define MealCard component and export it
-export function MealCard({ id, title, nutrition, imageUrl, onSelect, isSelected, mealType, dayNumber }) {
-  const router = useRouter();
-  
-  return (
-    <div 
-      className={`relative bg-white rounded-xlborder-noneoverflow-hidden transition-all duration-300 group flex flex-col cursor-pointer
-        ${isSelected 
-          ? "ring-2 ring-teal-500 translate-y-[-2px]" 
-          : "hover:translate-y-[-4px] hover:shadow-xl"}`}
-      onClick={() => onSelect && onSelect(id)}
-    >
-      {/* Meal Type and Day Badge */}
-      <div className="absolute top-2 left-2 z-20 flex gap-2">
-        {dayNumber && (
-          <div className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-            Day {dayNumber}
-          </div>
-        )}
-        {mealType && (
-          <div className="bg-teal-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-            {mealType}
-          </div>
-        )}
-      </div>
+// components/mealcard.js - Replace your MealPlanDisplay export with this version
 
-      {/* Grey Overlay When Selected */}
-      {isSelected && <div className="absolute inset-0 bg-gray-200/50 backdrop-blur-sm transition-opacity duration-300" />}
-
-      {/* Selection Indicator */}
-      {isSelected && <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-400 to-teal-600" />}
-      
-      {/* Meal Image */}
-      <div className="w-full h-48 bg-gray-100">
-        <img
-          src={imageUrl}
-          alt={title}
-          className="w-full h-full object-cover"
-        />
-      </div>
-
-      <div className="p-6 relative z-10 flex flex-col flex-grow">
-        {/* Header */}
-        <div className="flex justify-between items-start mb-4">
-          <h3 className="text-xl font-bold text-gray-800 tracking-tight group-hover:text-teal-700 transition-colors">
-            {title}
-          </h3>
-          {isSelected && (
-            <div className="bg-teal-100 text-teal-700 rounded-full py-1 px-3 flex items-center text-xs font-semibold">
-              <CheckIcon className="w-3 h-3 mr-1" />
-              Selected
-            </div>
-          )}
-        </div>
-        
-        {/* Nutrition Information */}
-        {nutrition && (
-          <div className="mb-6">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
-              <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
-              Nutritional Information
-            </h4>
-
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-              {/* 🔥 Calories spans full row */}
-              <div className="md:col-span-6">
-                <NutrientMetric 
-                  icon={<Flame className="w-4 h-4 text-orange-500" />} 
-                  value={nutrition.calories} 
-                  unit="kcal"
-                  label="Calories"
-                  highlight={true} 
-                />
-              </div>
-
-              {/* Macros */}
-              <NutrientMetric value={nutrition.protein} unit="g" label="Protein" />
-              <NutrientMetric value={nutrition.carbs} unit="g" label="Carbs" />
-              <NutrientMetric value={nutrition.fat} unit="g" label="Fat" />
-              <NutrientMetric value={nutrition.fiber} unit="g" label="Fiber" />
-              <NutrientMetric value={nutrition.sugar} unit="g" label="Sugar" />
-            </div>
-          </div>
-        )}
-
-        {/* See Recipe Link - Pushed to Bottom */}
-        <div className="mt-auto text-center">
-          <button
-            onClick={(e) => {
-              e.stopPropagation(); // Prevent triggering selection
-              router.push(`/recipes/${id}`);
-            }}
-            className="text-teal-600 hover:text-teal-800 font-semibold transition"
-          >
-            See Recipe →
-          </button>
-        </div>
-      </div>
-
-      {/* Bottom Selection Indicator */}
-      {isSelected && <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-teal-600 to-teal-400" />}
-    </div>
-  );
-}
-
-// MealPlanDisplay component
 export function MealPlanDisplay({ 
   mealPlan, 
   mealType, 
@@ -136,14 +40,30 @@ export function MealPlanDisplay({
   handleOrderPlanIngredients, 
   loading, 
   orderingPlanIngredients,
-  showChatbot 
+  showChatbot,
+  onReturnToInput 
 }) {
+  const router = useRouter();
+  const [currentMealIndex, setCurrentMealIndex] = useState(0);
+  const [animationDirection, setAnimationDirection] = useState(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const touchStartX = useRef(null);
+  const isMounted = useRef(true);
+  
+  // Setup mount/unmount tracking
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   // Early return if mealPlan is not an array or empty or chatbot is shown
   if (!Array.isArray(mealPlan) || mealPlan.length === 0 || showChatbot) {
     return null;
   }
 
-  // Determine how many days we have
+  // Process meal data
   const totalDays = numDays;
   const mealsPerDay = mealType === 'Full Day' ? 4 : 1;
   const mealsByDay = {};
@@ -160,127 +80,302 @@ export function MealPlanDisplay({
     
     // Get meal types for this day
     if (mealType === 'Full Day') {
-      // For Full Day, assign meal types in order
       const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
       dayMeals.forEach((meal, idx) => {
-        mealsByDay[dayNum].push({
-          ...meal,
-          mealType: mealTypes[idx % mealTypes.length]
-        });
+        if (meal) {  // Check if meal exists
+          mealsByDay[dayNum].push({
+            ...meal,
+            mealType: mealTypes[idx % mealTypes.length]
+          });
+        }
       });
     } else {
-      // For single meal type, use that type
       dayMeals.forEach(meal => {
-        mealsByDay[dayNum].push({
-          ...meal,
-          mealType: mealType
-        });
+        if (meal) {  // Check if meal exists
+          mealsByDay[dayNum].push({
+            ...meal,
+            mealType: mealType
+          });
+        }
       });
     }
   }
 
-  // Extract all meal IDs for Select All functionality
-  const allMealIds = Object.values(mealsByDay).flat().map(meal => meal.id);
+  // Flatten meals for swiping
+  const allMeals = Object.values(mealsByDay).flat();
   
-  // Check if all meals are currently selected
-  const allMealsSelected = allMealIds.length > 0 && allMealIds.every(id => selectedRecipes.includes(id));
+  // Validate before proceeding
+  if (!allMeals.length || currentMealIndex >= allMeals.length) {
+    return null;
+  }
+
+  // Get current meal
+  const currentMeal = allMeals[currentMealIndex];
   
-  // Handle Global Select All toggle
-  const handleSelectAllDays = () => {
-    if (allMealsSelected) {
-      // Deselect all meals
-      allMealIds.forEach(id => {
-        if (selectedRecipes.includes(id)) {
-          handleMealSelection(id);
+  // Additional validation for the current meal
+  if (!currentMeal || !currentMeal.nutrition) {
+    return null;
+  }
+
+  // Navigation functions
+  const goToNextMeal = () => {
+    if (currentMealIndex < allMeals.length - 1) {
+      setAnimationDirection('right');
+      setTimeout(() => {
+        if (isMounted.current) {
+          setCurrentMealIndex(prev => prev + 1);
+          setAnimationDirection(null);
+          setSwipeOffset(0);
         }
-      });
+      }, 300);
+    }
+  };
+
+  const goToPreviousMeal = () => {
+    if (currentMealIndex > 0) {
+      setAnimationDirection('left');
+      setTimeout(() => {
+        if (isMounted.current) {
+          setCurrentMealIndex(prev => prev - 1);
+          setAnimationDirection(null);
+          setSwipeOffset(0);
+        }
+      }, 300);
+    }
+  };
+
+  // Touch event handlers
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!touchStartX.current) return;
+    
+    const touchEndX = e.touches[0].clientX;
+    const diffX = touchStartX.current - touchEndX;
+    
+    // Only update state if component is still mounted
+    if (isMounted.current) {
+      setSwipeOffset(-diffX); // Negative for correct direction
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!touchStartX.current) return;
+    
+    const touchEndX = e.changedTouches[0].clientX;
+    const diffX = touchStartX.current - touchEndX;
+    
+    // Threshold for swipe
+    if (Math.abs(diffX) > 50) {
+      if (diffX > 0 && currentMealIndex < allMeals.length - 1) {
+        goToNextMeal();
+      } else if (diffX < 0 && currentMealIndex > 0) {
+        goToPreviousMeal();
+      } else {
+        // Reset offset if swipe wasn't strong enough or we're at the end
+        if (isMounted.current) {
+          setSwipeOffset(0);
+        }
+      }
     } else {
-      // Select all meals
-      allMealIds.forEach(id => {
-        if (!selectedRecipes.includes(id)) {
-          handleMealSelection(id);
-        }
-      });
+      // Reset offset if swipe wasn't strong enough
+      if (isMounted.current) {
+        setSwipeOffset(0);
+      }
+    }
+    
+    touchStartX.current = null;
+  };
+
+  // Tap navigation
+  const handleTap = (e) => {
+    const screenWidth = window.innerWidth;
+    const tapX = e.clientX;
+    
+    // Tap on right side of screen -> go next
+    if (tapX > screenWidth * 0.5 && currentMealIndex < allMeals.length - 1) {
+      goToNextMeal();
+    } 
+    // Tap on left side of screen -> go previous
+    else if (tapX <= screenWidth * 0.5 && currentMealIndex > 0) {
+      goToPreviousMeal();
     }
   };
 
   return (
-    <div className="mt-6">
-      {/* Group meals by day */}
-      {Object.entries(mealsByDay).map(([day, meals]) => (
-        <div key={`day-${day}`} className="mb-8">
-          {/* Day Header with Select All button inline */}
-          <div className="flex justify-between items-center mb-4 pb-2 border-b">
-            <h3 className="text-xl font-bold text-gray-800">
-              Day {day}
+    <div className="fixed inset-0 bg-white z-50 flex flex-col">
+      {/* Header with navigation indicators */}
+      <div className="flex justify-between items-center p-4 bg-white shadow-sm">
+        <button 
+          onClick={onReturnToInput}
+          className="bg-gray-100 rounded-full p-2 hover:bg-gray-200 transition-colors"
+          aria-label="Back to meal plan"
+        >
+          <ChevronLeft className="w-6 h-6 text-gray-700" />
+        </button>
+        
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-gray-800">
+            {currentMeal.mealType} 
+          </h2>
+          <p className="text-gray-600 text-sm">
+            Day {Math.floor(currentMealIndex / (mealType === 'Full Day' ? 4 : 1)) + 1}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <span className="text-gray-600">
+            {currentMealIndex + 1} / {allMeals.length}
+          </span>
+          <button 
+            onClick={() => handleMealSelection(currentMeal.id)}
+            className={`rounded-full p-2 transition-colors ${
+              selectedRecipes.includes(currentMeal.id) 
+                ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+            aria-label={selectedRecipes.includes(currentMeal.id) ? "Deselect meal" : "Select meal"}
+          >
+            <CheckIcon className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      
+      {/* Meal content area - this is the swipeable/tappable area */}
+      <div 
+        className="flex-grow relative overflow-hidden"
+        onClick={handleTap}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Animation container */}
+        <div 
+          className={`absolute inset-0 transition-transform duration-300 ${
+            animationDirection === 'right' ? 'translate-x-full' : 
+            animationDirection === 'left' ? '-translate-x-full' : ''
+          }`}
+          style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : '' }}
+        >
+          {/* Meal content */}
+          <div className="h-full p-4 flex flex-col">
+            {/* Meal Image */}
+            <div className="w-full h-56 bg-gray-100 rounded-xl overflow-hidden mb-6">
+              {currentMeal.imageUrl && (
+                <img
+                  src={currentMeal.imageUrl}
+                  alt={currentMeal.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.classList.add('bg-gradient-to-br', 'from-gray-100', 'to-gray-200');
+                  }}
+                />
+              )}
+            </div>
+            
+            {/* Meal Title */}
+            <h3 className="text-2xl font-bold text-gray-800 mb-4">
+              {currentMeal.title}
             </h3>
             
-            {/* Only show the Select All button on the first day */}
-            {day === '1' && (
-              <button
-                onClick={handleSelectAllDays}
-                className="flex items-center py-2 px-4 rounded-lg font-medium transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
-              >
-                <CheckIcon className={`w-5 h-5 mr-2 ${allMealsSelected ? "text-teal-500" : "text-gray-500"}`} />
-                Select All
-              </button>
-            )}
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {meals.map((meal, index) => (
-              <MealCard
-                key={index}
-                id={meal.id}
-                title={meal?.title || "Untitled Meal"}
-                nutrition={meal?.nutrition || {
-                  calories: 0,
-                  protein: 0,
-                  carbs: 0,
-                  fat: 0,
-                  fiber: 0,
-                  sugar: 0
-                }}
-                imageUrl={meal.imageUrl}
-                ingredients={meal?.ingredients || []}
-                instructions={meal?.instructions || "No instructions provided."}
-                onSelect={handleMealSelection}
-                isSelected={selectedRecipes.includes(meal.id)}
-                mealType={meal.mealType}
-                dayNumber={day}
-              />
-            ))}
+            {/* Nutrition Information */}
+            <div className="mb-6">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
+                <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
+                Nutritional Information
+              </h4>
+
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                {/* Calories spans full row */}
+                <div className="col-span-3 sm:col-span-6">
+                  <NutrientMetric 
+                    icon={<Flame className="w-4 h-4 text-orange-500" />} 
+                    value={currentMeal.nutrition.calories} 
+                    unit="kcal"
+                    label="Calories"
+                    highlight={true} 
+                  />
+                </div>
+
+                {/* Macros */}
+                <NutrientMetric 
+                  value={currentMeal.nutrition.protein} 
+                  unit="g" 
+                  label="Protein" 
+                />
+                <NutrientMetric 
+                  value={currentMeal.nutrition.carbs} 
+                  unit="g" 
+                  label="Carbs" 
+                />
+                <NutrientMetric 
+                  value={currentMeal.nutrition.fat} 
+                  unit="g" 
+                  label="Fat" 
+                />
+                <NutrientMetric 
+                  value={currentMeal.nutrition.fiber} 
+                  unit="g" 
+                  label="Fiber" 
+                />
+                <NutrientMetric 
+                  value={currentMeal.nutrition.sugar} 
+                  unit="g" 
+                  label="Sugar" 
+                />
+              </div>
+            </div>
+
+            {/* Swipe indicators - arrows on both sides */}
+            <div className="flex justify-between items-center text-gray-400 my-2">
+              <ChevronLeft className={`w-8 h-8 ${currentMealIndex > 0 ? 'opacity-50' : 'opacity-0'}`} />
+              <span className="text-sm">Tap or swipe to navigate</span>
+              <ChevronRight className={`w-8 h-8 ${currentMealIndex < allMeals.length - 1 ? 'opacity-50' : 'opacity-0'}`} />
+            </div>
+            
+            {/* View Recipe button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent triggering swipe
+                router.push(`/recipes/${currentMeal.id}`);
+              }}
+              className="w-full py-3 mt-4 bg-teal-50 text-teal-700 font-semibold rounded-lg hover:bg-teal-100 transition-colors"
+            >
+              View Full Recipe
+            </button>
           </div>
         </div>
-      ))}
-
-      {/* Action Buttons */}
-      <div className="mt-6"> 
-        {/* Save Selected Recipes Button - appears only when recipes are selected */}
-        {selectedRecipes.length > 0 && (
-          <button
-            onClick={saveSelectedRecipes}
-            className="w-full py-2 px-4 mb-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
-          >
-            Save Meals ({selectedRecipes.length})
-          </button>
-        )}
-
-        {/* Button Row with Plan Creator and Order Ingredients */}
+      </div>
+      
+      {/* Bottom action buttons */}
+      <div className="p-4 border-t bg-white">
         <div className="flex gap-3">
-          {/* Plan Creator Button */}
+          {/* Save Selected Recipes Button */}
+          {selectedRecipes.length > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                saveSelectedRecipes();
+              }}
+              className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
+              disabled={loading}
+            >
+              Save Meals ({selectedRecipes.length})
+            </button>
+          )}
+
+          {/* Order Ingredients Button */}
           <button
-            onClick={() => window.location.href = '/planner'}
-            className="flex-1 py-2 px-4 bg-teal-700 hover:bg-teal-900 text-white font-bold rounded-lg transition-all"
-          >
-            Plan Creator
-          </button>
-          
-          {/* Order Plan Ingredients Button */}
-          <button
-            onClick={handleOrderPlanIngredients}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOrderPlanIngredients();
+            }}
             disabled={loading || orderingPlanIngredients}
-            className="flex-1 py-2 px-4 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg"
+            className="flex-1 py-3 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
           </button>
@@ -289,6 +384,3 @@ export function MealPlanDisplay({
     </div>
   );
 }
-
-// Set the default export to MealCard
-export default MealCard;
