@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon } from 'lucide-react';
+import { PlusCircle, Coffee, Utensils, Apple, Moon, ArrowLeft, CheckIcon, TrashIcon, Loader } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -11,6 +12,8 @@ export default function ProfilePage() {
   const isAuthenticated = !!user;
   const [accessToken, setAccessToken] = useState(null);
   const timelineRef = useRef(null);
+  const autoSaveTimeoutRef = useRef(null);
+  const [savingMeals, setSavingMeals] = useState({});
 
   // States
   const [activeSection, setActiveSection] = useState('timeline');
@@ -101,6 +104,117 @@ export default function ProfilePage() {
       console.error(`API request failed: ${error.message}`);
       throw error;
     }
+  };
+
+  const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
+    // Save the updated plan to state
+    setMealPlan(updatedMealPlan);
+    
+    // Mark the affected meals as saving
+    const newSavingState = {};
+    affectedMeals.forEach(meal => {
+      newSavingState[`${meal.dateKey}-${meal.mealType}`] = true;
+    });
+    setSavingMeals(prev => ({ ...prev, ...newSavingState }));
+    
+    // Clear any existing timeout to prevent multiple saves
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    
+    // Set a short delay before auto-saving to avoid rapid successive saves
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (!user) {
+        toast.error("Please log in to save your meal plan");
+        return;
+      }
+      
+      try {
+        // Format meals for API
+        const formattedMeals = [];
+        const today = getTodayDateString();
+        
+        // Only include today's meals for the profile page
+        updatedMealPlan.forEach(meal => {
+          if (meal.name) {
+            formattedMeals.push({
+              date: today,
+              mealType: meal.type,
+              mealId: meal.id,
+              current_day: true
+            });
+          }
+        });
+        
+        if (formattedMeals.length === 0) {
+          // Don't bother saving an empty plan
+          return;
+        }
+        
+        // Prepare request data
+        const requestData = {
+          userId: user.sub,
+          planName: `Daily Plan - ${new Date().toLocaleDateString()}`,
+          meals: formattedMeals
+        };
+        
+        // If we don't have an active plan yet and we're adding the first meal,
+        // create a new plan, otherwise update the existing one
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const endpoint = activePlanId 
+          ? `${apiUrl}/api/user-plans/update`
+          : `${apiUrl}/api/user-plans/save`;
+        
+        // Add planId if updating
+        if (activePlanId) {
+          requestData.planId = activePlanId;
+        }
+        
+        // API request
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to save: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // If it was a new plan, update the activePlanId
+        if (!activePlanId && result.id) {
+          setActivePlanId(result.id);
+        }
+        
+        // Update localStorage to trigger refresh in other components
+        localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
+        
+        // Show success message for adding/removing meals
+        if (changeType === 'add') {
+          toast.success("Meal added to plan");
+        } else if (changeType === 'remove') {
+          toast.success("Meal removed from plan");
+        }
+        
+      } catch (error) {
+        console.error('Error auto-saving meal plan:', error);
+        toast.error("Failed to save changes");
+      } finally {
+        // Clear the saving state for affected meals
+        setSavingMeals(prev => {
+          const updated = { ...prev };
+          affectedMeals.forEach(meal => {
+            delete updated[`${meal.dateKey}-${meal.mealType}`];
+          });
+          return updated;
+        });
+      }
+    }, 500); // 500ms delay before auto-saving
   };
 
   const saveMealCompletion = async (mealType, completed) => {
@@ -421,18 +535,13 @@ export default function ProfilePage() {
   };
 
   const updateCalorieCount = (currentMealPlan = mealPlan) => {
-    // Use only meals with names for calculation
     const plannedMeals = currentMealPlan.filter(meal => meal.name);
-    
-    // Set the target to either the total planned calories or global setting, whichever is higher
     const totalCalories = plannedMeals.reduce((sum, meal) => sum + (parseInt(meal.calories) || 0), 0);
     
-    // Calculate consumed calories from completed meals only - using a single source of truth for completion status
     const consumedCalories = plannedMeals
       .filter(meal => meal.completed === true)
       .reduce((sum, meal) => sum + (parseInt(meal.calories) || 0), 0);
     
-    // Update state with the correct values
     setCalorieData({ 
       consumed: consumedCalories, 
       target: Math.max(totalCalories, globalSettings.calories)
@@ -448,18 +557,18 @@ export default function ProfilePage() {
     setCurrentMealIndex(nextMealIndex);
     updateNextMealCard(updatedMealPlan[nextMealIndex]);
     updateCalorieCount(updatedMealPlan);
+    
+    // Save completion status
+    toggleMealCompletion(updatedMealPlan[currentMealIndex].type);
   };
 
   const toggleMealCompletion = async (mealType) => {
-    // Find the meal in the meal plan
     const mealIndex = mealPlan.findIndex(meal => meal.type === mealType);
     if (mealIndex === -1) return;
     
-    // Get current completion state
     const currentCompleted = mealPlan[mealIndex].completed;
     const newCompleted = !currentCompleted;
     
-    // Update meal plan with new completion state
     const updatedMealPlan = [...mealPlan];
     updatedMealPlan[mealIndex] = {
       ...updatedMealPlan[mealIndex],
@@ -467,20 +576,16 @@ export default function ProfilePage() {
     };
     setMealPlan(updatedMealPlan);
     
-    // Also update the completedMeals object to maintain sync
     setCompletedMeals(prev => ({
       ...prev,
       [mealType]: newCompleted
     }));
     
-    // Ensure calorie count is updated
     updateCalorieCount(updatedMealPlan);
     
-    // Save to backend
     try {
       await saveMealCompletion(mealType, newCompleted);
     } catch (error) {
-      // Revert on error
       const revertedMealPlan = [...mealPlan];
       revertedMealPlan[mealIndex].completed = currentCompleted;
       setMealPlan(revertedMealPlan);
@@ -514,6 +619,12 @@ export default function ProfilePage() {
       }
       
       updateCalorieCount(updatedMealPlan);
+      
+      // Update the meal plan with the removed meal
+      updateMealPlan(updatedMealPlan, 'remove', [{
+        dateKey: getTodayDateString(),
+        mealType
+      }]);
     }
   };
 
@@ -538,7 +649,8 @@ export default function ProfilePage() {
         protein: meal.protein,
         carbs: meal.carbs,
         fat: meal.fat,
-        image: meal.image
+        image: meal.image,
+        id: meal.id
       };
       
       setMealPlan(updatedMealPlan);
@@ -548,6 +660,12 @@ export default function ProfilePage() {
       }
       
       updateCalorieCount(updatedMealPlan);
+      
+      // Update the meal plan with the new meal
+      updateMealPlan(updatedMealPlan, 'add', [{
+        dateKey: getTodayDateString(),
+        mealType: selectedMealType
+      }]);
     }
     
     setActiveSection('timeline');
@@ -757,6 +875,7 @@ export default function ProfilePage() {
                     onRemoveMeal={handleRemoveMeal}
                     toggleMealCompletion={toggleMealCompletion}
                     completedMeals={completedMeals}
+                    savingMeals={savingMeals}
                   />
                 </section>
               ) : (
@@ -788,20 +907,16 @@ export default function ProfilePage() {
 }
 
 function DayTimelineSlider({ currentDate, onDateChange, timelineRef }) {
-  // Generate a 7-day window centered around the current date
   const [dates, setDates] = useState([]);
   
   useEffect(() => {
-    // Generate 7 days - 3 days before and 3 days after the current date
     const generateDates = () => {
       const result = [];
       const today = new Date();
       
-      // Start 3 days before today
       const startDate = new Date(today);
       startDate.setDate(today.getDate() - 3);
       
-      // Generate all 7 days
       for (let i = 0; i < 7; i++) {
         const date = new Date(startDate);
         date.setDate(startDate.getDate() + i);
@@ -814,7 +929,6 @@ function DayTimelineSlider({ currentDate, onDateChange, timelineRef }) {
     generateDates();
   }, [currentDate]);
 
-  // Check if a date is today
   const isToday = (date) => {
     const today = new Date();
     return date.getDate() === today.getDate() &&
@@ -822,7 +936,6 @@ function DayTimelineSlider({ currentDate, onDateChange, timelineRef }) {
            date.getFullYear() === today.getFullYear();
   };
   
-  // Check if a date is the currently selected date
   const isSelected = (date) => {
     return date.getDate() === currentDate.getDate() &&
            date.getMonth() === currentDate.getMonth() &&
