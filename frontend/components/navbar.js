@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from "@auth0/nextjs-auth0";
-import { 
+import {
   Home, 
   Menu, 
   X, 
@@ -15,10 +15,12 @@ import {
   Plus,
   Settings,
   LogOut,
-  Check
+  Check,
+  Save,
+  ShoppingCart
 } from 'lucide-react';
 
-export default function BottomNavbar({ children }) {
+export function BottomNavbar({ children }) {
   const router = useRouter();
   const [pathname, setPathname] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -27,10 +29,12 @@ export default function BottomNavbar({ children }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [mealGenerationComplete, setMealGenerationComplete] = useState(false);
   const [hasViewedGeneratedMeals, setHasViewedGeneratedMeals] = useState(false);
-
   
   // Track if we've been to the meals page to preserve function access
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
+  
+  // State for the radial FAB menu
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
   // Check if the current route should have navigation
   const shouldShowNavbar = () => {
@@ -42,6 +46,17 @@ export default function BottomNavbar({ children }) {
       pathname === '/onboarding' || 
       pathname.startsWith('/onboarding/')
     );
+  };
+  
+  // Check if the current route is a meal card view
+  const isMealCardView = () => {
+    if (!pathname) return false;
+    
+    // Check if a meal plan is being displayed
+    return pathname === '/meals' && 
+           typeof window !== 'undefined' && 
+           Array.isArray(window.mealPlan) && 
+           window.mealPlan.length > 0;
   };
 
   // Check if a path is active
@@ -55,30 +70,37 @@ export default function BottomNavbar({ children }) {
     
     return pathname === path || pathname.startsWith(`${path}/`);
   };
-
-  // Handle clicking outside of mobile menu
+  
+  // Close the FAB menu if it's open when clicking outside
   useEffect(() => {
-    if (menuOpen && typeof document !== 'undefined') {
-      const handleOutsideClick = (event) => {
-        if (!event.target.closest(".mobile-menu") && 
-            !event.target.closest(".mobile-menu-content")) {
-          setMenuOpen(false);
+    if (fabMenuOpen && typeof document !== 'undefined') {
+      const handleGlobalClick = (event) => {
+        // Check if click is on the FAB or its children
+        if (!event.target.closest(".fab-menu") && 
+            !event.target.closest(".fab-button")) {
+          setFabMenuOpen(false);
         }
       };
       
-      document.addEventListener("mousedown", handleOutsideClick);
-      document.body.style.overflow = 'hidden'; // Prevent scrolling
+      document.addEventListener("mousedown", handleGlobalClick);
       
       return () => {
-        document.removeEventListener("mousedown", handleOutsideClick);
-        document.body.style.overflow = 'auto';
+        document.removeEventListener("mousedown", handleGlobalClick);
       };
     }
-  }, [menuOpen]);
+  }, [fabMenuOpen]);
 
-  // Handle the FAB click - if on meals page, trigger the global function
-
-  const handleFabClick = async () => {
+  // Handle the FAB click
+  const handleFabClick = async (e) => {
+    // If on meal card view, just toggle the menu
+    if (isMealCardView()) {
+      e.stopPropagation();
+      setFabMenuOpen(!fabMenuOpen);
+      return;
+    }
+    
+    // Regular FAB behavior from here
+    
     // If meals were generated but not viewed yet, just navigate to meals page
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       setHasViewedGeneratedMeals(true);
@@ -138,9 +160,57 @@ export default function BottomNavbar({ children }) {
       router.push('/meals');
     }
   };
+  
+  const handleSaveMeal = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    
+    if (typeof window !== 'undefined') {
+      // Attempt to call the global save function from the meals page
+      if (window.saveSelectedRecipes) {
+        // Ensure all meals are selected before saving
+        if (window.mealPlan && Array.isArray(window.mealPlan) && window.selectedRecipes) {
+          // Select all meals in the plan
+          window.mealPlan.forEach(meal => {
+            if (meal && meal.id && !window.selectedRecipes.includes(meal.id)) {
+              // Add the meal ID to the selectedRecipes array
+              window.selectedRecipes.push(meal.id);
+            }
+          });
+        }
+        
+        // Call save function
+        window.saveSelectedRecipes();
+      } else {
+        console.warn('Global save function not found');
+      }
+    }
+  };
+  
+  const handleViewRecipe = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    
+    if (typeof window !== 'undefined' && window.handleViewRecipeGlobal) {
+      window.handleViewRecipeGlobal(e);
+    }
+  };
+  
+  const handleOrderIngredients = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    
+    if (typeof window !== 'undefined' && window.handleOrderIngredientsGlobal) {
+      window.handleOrderIngredientsGlobal(e);
+    }
+  };
 
-  // Update getFabIcon to consider the hasViewedGeneratedMeals state
+  // Update getFabIcon to consider the hasViewedGeneratedMeals state and if in meal card view
   const getFabIcon = () => {
+    if (isMealCardView()) {
+      return fabMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    }
+    
     if (isGenerating) {
       // Show loading spinner when generating
       return (
@@ -157,7 +227,6 @@ export default function BottomNavbar({ children }) {
       return <Plus className="w-8 h-8" />;
     }
   };
-
 
   // Get current path only after component mounts (client-side only)
   useEffect(() => {
@@ -190,6 +259,9 @@ export default function BottomNavbar({ children }) {
           setVisitedMealsPage(true);
           localStorage.setItem('visitedMealsPage', 'true');
         }
+        
+        // Close any open FAB menu when changing pages
+        setFabMenuOpen(false);
       };
       
       // Listen for navigation events
@@ -204,6 +276,9 @@ export default function BottomNavbar({ children }) {
             setVisitedMealsPage(true);
             localStorage.setItem('visitedMealsPage', 'true');
           }
+          
+          // Close any open FAB menu when changing pages
+          setFabMenuOpen(false);
         }
       });
       
@@ -222,6 +297,10 @@ export default function BottomNavbar({ children }) {
 
   // Get the right button color based on state
   const getFabColor = () => {
+    if (isMealCardView()) {
+      return fabMenuOpen ? "bg-teal-700" : "bg-teal-600";
+    }
+    
     if (pathname === '/meals') {
       return "bg-teal-600 hover:bg-teal-700";
     } else {
@@ -239,15 +318,102 @@ export default function BottomNavbar({ children }) {
       {/* Fixed Bottom Navigation - Only show on relevant pages */}
       {shouldShowNavbar() && (
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
-          {/* Floating Action Button for creating meals */}
+          {/* Floating Action Button */}
           {isAuthenticated && (
-            <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+            <div className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" style={{ marginLeft: '10px', background: 'transparent' }}>
+              {/* Radial menu buttons - only visible when on meal card view and fabMenuOpen is true */}
+              {isMealCardView() && (
+                <div className={`fab-menu relative ${fabMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+                  {/* Top Left Button */}
+                  <button
+                    onClick={handleSaveMeal}
+                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      backgroundColor: 'rgb(234, 88, 12)', // orange-500
+                      transform: fabMenuOpen 
+                        ? 'translate(-65px, -65px)' 
+                        : 'translate(0, 0)',
+                      zIndex: 10
+                    }}
+                    aria-label="Save All Meals"
+                  >
+                    <Save className="w-4 h-4 text-white" />
+                  </button>
+                  
+                  {/* Top Button */}
+                  <button
+                    onClick={handleViewRecipe}
+                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    style={{
+                      width: '48px', 
+                      height: '48px',
+                      backgroundColor: 'rgb(20, 184, 166)', // teal-500
+                      transform: fabMenuOpen 
+                        ? 'translate(0px, -80px)' 
+                        : 'translate(0, 0)',
+                      zIndex: 10
+                    }}
+                    aria-label="View Full Recipe"
+                  >
+                    <BookOpen className="w-4 h-4 text-white" />
+                  </button>
+                  
+                  {/* Top Right Button */}
+                  <button
+                    onClick={handleOrderIngredients}
+                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
+                      fabMenuOpen ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      backgroundColor: 'rgb(13, 148, 136)', // teal-600
+                      transform: fabMenuOpen 
+                        ? 'translate(65px, -65px)' 
+                        : 'translate(0, 0)',
+                      zIndex: 10
+                    }}
+                    aria-label="Order Ingredients"
+                  >
+                    <ShoppingCart className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+              )}
+              
+              {/* Backdrop for FAB menu - only visible when in meal card view and fabMenuOpen is true */}
+              {isMealCardView() && fabMenuOpen && (
+                <div 
+                  className="fixed inset-0 bg-black bg-opacity-10 z-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFabMenuOpen(false);
+                  }}
+                ></div>
+              )}
+              
+              {/* Main FAB button */}
               <button
                 onClick={handleFabClick}
-                disabled={isGenerating}
-                className={`${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                  mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' ? 'pulse-animation' : ''
-                }`}
+                disabled={isGenerating && !isMealCardView()}
+                className={`
+                  fab-button 
+                  ${getFabColor()} 
+                  text-white w-16 h-16 rounded-full 
+                  flex items-center justify-center 
+                  shadow-lg transition-all 
+                  ${fabMenuOpen ? 'rotate-45' : ''} 
+                  ${mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' && !isMealCardView() ? 'pulse-animation' : ''}
+                  focus:outline-none focus:ring-0 active:bg-transparent
+                `}
+                style={{
+                  WebkitTapHighlightColor: 'transparent'
+                }}
               >
                 {getFabIcon()}
               </button>
@@ -406,6 +572,23 @@ export default function BottomNavbar({ children }) {
   );
 }
 
+// Also add the CSS for the pulse animation if not already present
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(20, 184, 166, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+    }
+    
+    .pulse-animation {
+      animation: pulse 2s infinite;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 // NavButton component for consistent styling
 function NavButton({ icon, label, path, isActive, onClick }) {
   return (
@@ -424,3 +607,5 @@ function NavButton({ icon, label, path, isActive, onClick }) {
     </button>
   );
 }
+
+export default BottomNavbar;

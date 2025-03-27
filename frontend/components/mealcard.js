@@ -6,7 +6,10 @@ import {
   Activity, 
   X, 
   ChevronLeft, 
-  ChevronRight 
+  ChevronRight,
+  Book,
+  ShoppingCart,
+  Save
 } from "lucide-react";
 
 // Nutrient Display Component
@@ -47,6 +50,7 @@ export function MealPlanDisplay({
   const [swipeOffset, setSwipeOffset] = useState(0);
   const touchStartX = useRef(null);
   const isMounted = useRef(true);
+  const isInvalidData = !Array.isArray(mealPlan) || mealPlan.length === 0 || showChatbot;
   
   // Setup mount/unmount tracking
   useEffect(() => {
@@ -101,6 +105,48 @@ export function MealPlanDisplay({
 
   // Flatten meals for swiping
   const allMeals = Object.values(mealsByDay).flat();
+  
+  // NOW add the useEffect that needs access to allMeals - AFTER it's defined
+  useEffect(() => {
+    // Make the current meal ID and functions available globally
+    if (typeof window !== 'undefined' && Array.isArray(allMeals) && allMeals.length > 0) {
+      // Set meal plan data
+      window.mealPlanActive = true;
+      window.mealPlan = mealPlan;
+      window.currentMealId = allMeals[currentMealIndex]?.id;
+      
+      // Set action functions
+      window.handleSaveMealGlobal = function(e) {
+        if (e) e.stopPropagation();
+        saveSelectedRecipes();
+      };
+      
+      window.handleViewRecipeGlobal = function(e) {
+        if (e) e.stopPropagation();
+        const id = allMeals[currentMealIndex]?.id;
+        if (id) {
+          router.push(`/recipes/${id}`);
+        }
+      };
+      
+      window.handleOrderIngredientsGlobal = function(e) {
+        if (e) e.stopPropagation();
+        handleOrderPlanIngredients();
+      };
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        window.mealPlanActive = false;
+        delete window.mealPlan;
+        delete window.currentMealId;
+        delete window.handleSaveMealGlobal;
+        delete window.handleViewRecipeGlobal;
+        delete window.handleOrderIngredientsGlobal;
+      }
+    };
+  }, [currentMealIndex, allMeals, mealPlan, router, saveSelectedRecipes, handleOrderPlanIngredients]);
   
   // Validate before proceeding
   if (!allMeals.length || currentMealIndex >= allMeals.length) {
@@ -286,7 +332,7 @@ export function MealPlanDisplay({
               </h3>
               
               {/* Nutrition Information */}
-              <div className="mb-6">
+              <div>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
                   <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
                   Nutritional Information
@@ -332,17 +378,6 @@ export function MealPlanDisplay({
                   />
                 </div>
               </div>
-              
-              {/* View Recipe button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevent triggering swipe
-                  router.push(`/recipes/${currentMeal.id}`);
-                }}
-                className="w-full py-3 mt-auto bg-teal-50 text-teal-700 font-semibold rounded-lg hover:bg-teal-100 transition-colors"
-              >
-                View Full Recipe
-              </button>
             </div>
           </div>
         </div>
@@ -351,37 +386,6 @@ export function MealPlanDisplay({
         <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex justify-between items-center px-4 text-white/50">
           <ChevronLeft className={`w-12 h-12 ${currentMealIndex > 0 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
           <ChevronRight className={`w-12 h-12 ${currentMealIndex < allMeals.length - 1 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
-        </div>
-      </div>
-      
-      {/* Bottom action buttons */}
-      <div className="p-4 border-t bg-white">
-        <div className="flex gap-3">
-          {/* Save Selected Recipes Button */}
-          {selectedRecipes.length > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                saveSelectedRecipes();
-              }}
-              className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all"
-              disabled={loading}
-            >
-              Save Meals ({selectedRecipes.length})
-            </button>
-          )}
-
-          {/* Order Ingredients Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOrderPlanIngredients();
-            }}
-            disabled={loading || orderingPlanIngredients}
-            className="flex-1 py-3 bg-teal-600 hover:bg-teal-800 text-white font-bold rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {orderingPlanIngredients ? "Processing..." : "Order Ingredients"}
-          </button>
         </div>
       </div>
     </div>
