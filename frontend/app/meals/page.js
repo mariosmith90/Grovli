@@ -64,6 +64,19 @@ export default function Home() {
   // Separate calories state for UI
   const [calories, setCalories] = useState(globalSettings.calories);
 
+  // Add this useEffect to expose loading state
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.mealLoading = loading;
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.mealLoading = undefined;
+      }
+    };
+  }, [loading]);
+
   // Sync globalSettings.calories with calories state
   useEffect(() => {
     setGlobalSettings((prev) => ({
@@ -776,9 +789,6 @@ export default function Home() {
   
           {/* Cuisine Preferences Section with Image Thumbnails */}
           <div className="mb-8">
-            <p className="text-base font-semibold text-gray-700 mb-3">
-              A Taste of…
-            </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
               {[
                 { name: "American", image: "/images/cuisines/american.jpg" },

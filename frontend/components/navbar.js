@@ -75,6 +75,22 @@ export function BottomNavbar({ children }) {
     
     return pathname === path || pathname.startsWith(`${path}/`);
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const checkLoading = () => {
+        setIsGenerating(prev => window.mealLoading || prev);
+      };
+      
+      // Check immediately
+      checkLoading();
+      
+      // Set up polling to check for changes
+      const interval = setInterval(checkLoading, 250);
+      
+      return () => clearInterval(interval);
+    }
+  }, []);
   
   // Close the FAB menu if it's open when clicking outside
   useEffect(() => {
@@ -107,84 +123,83 @@ export function BottomNavbar({ children }) {
     }
   };
 
-// Handle the FAB click
-const handleFabClick = async (e) => {
-  // If on meal card view, just toggle the menu
-  if (isMealCardView()) {
-    e.stopPropagation();
-    setFabMenuOpen(!fabMenuOpen);
-    return;
-  }
-  
-  // If on meals page, toggle days menu instead of immediately generating meals
-  if (pathname === '/meals' && !isMealCardView()) {
-    e.stopPropagation();
-    setDaysMenuOpen(!daysMenuOpen);
-    return;
-  }
-  
-  // Regular FAB behavior from here
-  
-  // If meals were generated but not viewed yet, just navigate to meals page
-  if (mealGenerationComplete && !hasViewedGeneratedMeals) {
-    setHasViewedGeneratedMeals(true);
-    localStorage.setItem('hasViewedGeneratedMeals', 'true');
-    router.push('/meals');
-    return;
-  }
-  
-  // If we've viewed generated meals, but clicked again, we should reset
-  // to start a new generation
-  if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
-    setMealGenerationComplete(false);
-    localStorage.removeItem('mealGenerationComplete');
-    setHasViewedGeneratedMeals(false);
-    localStorage.removeItem('hasViewedGeneratedMeals');
-    router.push('/meals');
-    return;
-  }
-  
-  if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
-    // If not on meals page but have visited it, navigate back
-    if (pathname !== '/meals') {
+  const handleFabClick = async (e) => {
+    // If on meal card view, just toggle the menu
+    if (isMealCardView()) {
+      e.stopPropagation();
+      setFabMenuOpen(!fabMenuOpen);
+      return;
+    }
+    
+    // If on meals page, toggle days menu instead of immediately generating meals
+    if (pathname === '/meals' && !isMealCardView()) {
+      e.stopPropagation();
+      setDaysMenuOpen(!daysMenuOpen);
+      return;
+    }
+    
+    // Regular FAB behavior from here
+    
+    // If meals were generated but not viewed yet, just navigate to meals page
+    if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      setHasViewedGeneratedMeals(true);
+      localStorage.setItem('hasViewedGeneratedMeals', 'true');
       router.push('/meals');
       return;
     }
     
-    // We're on the meals page, proceed with generation
-    setIsGenerating(true);
-    setMealGenerationComplete(false);
-    localStorage.removeItem('mealGenerationComplete');
-    setHasViewedGeneratedMeals(false);
-    localStorage.removeItem('hasViewedGeneratedMeals');
+    // If we've viewed generated meals, but clicked again, we should reset
+    // to start a new generation
+    if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
+      setMealGenerationComplete(false);
+      localStorage.removeItem('mealGenerationComplete');
+      setHasViewedGeneratedMeals(false);
+      localStorage.removeItem('hasViewedGeneratedMeals');
+      router.push('/meals');
+      return;
+    }
     
-    if (typeof window !== 'undefined') {
-      // Try to find and call the global function
-      if (window.generateMeals && typeof window.generateMeals === 'function') {
-        try {
-          await window.generateMeals();
-          setMealGenerationComplete(true);
-          localStorage.setItem('mealGenerationComplete', 'true');
-        } catch (error) {
-          console.error('Error generating meals:', error);
-          setError(`Meal generation failed: ${error.message}`);
-        } finally {
+    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+      // If not on meals page but have visited it, navigate back
+      if (pathname !== '/meals') {
+        router.push('/meals');
+        return;
+      }
+      
+      // We're on the meals page, proceed with generation
+      setIsGenerating(true);
+      setMealGenerationComplete(false);
+      localStorage.removeItem('mealGenerationComplete');
+      setHasViewedGeneratedMeals(false);
+      localStorage.removeItem('hasViewedGeneratedMeals');
+      
+      if (typeof window !== 'undefined') {
+        // Try to find and call the global function
+        if (window.generateMeals && typeof window.generateMeals === 'function') {
+          try {
+            await window.generateMeals();
+            setMealGenerationComplete(true);
+            localStorage.setItem('mealGenerationComplete', 'true');
+          } catch (error) {
+            console.error('Error generating meals:', error);
+            setError(`Meal generation failed: ${error.message}`);
+          } finally {
+            setIsGenerating(false);
+          }
+        } else {
+          // If function not defined, reload to reinitialize
+          console.warn('generateMeals function not found, refreshing page');
+          window.location.reload();
           setIsGenerating(false);
         }
       } else {
-        // If function not defined, reload to reinitialize
-        console.warn('generateMeals function not found, refreshing page');
-        window.location.reload();
         setIsGenerating(false);
       }
     } else {
-      setIsGenerating(false);
+      // First time going to meals page
+      router.push('/meals');
     }
-  } else {
-    // First time going to meals page
-    router.push('/meals');
-  }
-};
+  };
   
   const handleSaveMeal = (e) => {
     e.stopPropagation();
