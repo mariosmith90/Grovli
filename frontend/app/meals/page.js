@@ -617,6 +617,7 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
       return () => clearInterval(intervalId);
     }
   }, [user, mealPlanReady, showChatbot]);
+  
 
   // Subscription Status Effect
   useEffect(() => {
@@ -698,6 +699,28 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
       window.generateMeals = undefined;
     };
   }, [fetchMealPlan]);
+
+  // Make saveSelectedRecipes globally accessible
+  useEffect(() => {
+    // Expose the function globally for the FAB to call
+    window.saveSelectedRecipes = saveSelectedRecipes;
+    
+    // Clean up when component unmounts
+    return () => {
+      window.saveSelectedRecipes = undefined;
+    };
+  }, [saveSelectedRecipes]);
+
+  // Make selectedRecipes globally accessible
+  useEffect(() => {
+    window.selectedRecipes = selectedRecipes;
+    window.setSelectedRecipes = setSelectedRecipes;
+    
+    return () => {
+      window.selectedRecipes = undefined;
+      window.setSelectedRecipes = undefined;
+    };
+  }, [selectedRecipes, setSelectedRecipes]);
 
   return ( 
     <>
