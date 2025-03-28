@@ -3,21 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
+import { useMealGeneration } from '../contexts/MealGenerationContext';
 import {
-  Home, 
-  Menu, 
-  X, 
-  Calendar, 
-  ShoppingBag, 
-  User, 
-  BookOpen,
-  Utensils,
-  Plus,
-  Settings,
-  LogOut,
-  Check,
-  Save,
-  ShoppingCart
+  Home, Menu, X, Calendar, ShoppingBag, User, 
+  BookOpen, Utensils, Plus, Settings, LogOut,
+  Check, Save, ShoppingCart
 } from 'lucide-react';
 
 export function BottomNavbar({ children }) {
@@ -26,26 +16,25 @@ export function BottomNavbar({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { user, isLoading } = useUser();
   const isAuthenticated = !!user;
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [mealGenerationComplete, setMealGenerationComplete] = useState(false);
+  
+  const { 
+    isGenerating, 
+    setIsGenerating,
+    mealGenerationComplete,
+    setMealGenerationComplete,
+    currentMealPlanId,
+    setCurrentMealPlanId
+  } = useMealGeneration();
+  
   const [hasViewedGeneratedMeals, setHasViewedGeneratedMeals] = useState(false);
   const [isPro, setIsPro] = useState(false);
-  
-  // Track if we've been to the meals page to preserve function access
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
-  
-  // State for the radial FAB menu
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
-  
-  // State for the days selection menu
   const [daysMenuOpen, setDaysMenuOpen] = useState(false);
   const [numDays, setNumDays] = useState(1);
 
-  // Check if the current route should have navigation
   const shouldShowNavbar = () => {
     if (!pathname) return false;
-    
-    // Don't show navbar on homepage or onboarding pages
     return !(
       pathname === '/' || 
       pathname === '/onboarding' || 
@@ -53,320 +42,86 @@ export function BottomNavbar({ children }) {
     );
   };
   
-  // Check if the current route is a meal card view
   const isMealCardView = () => {
     if (!pathname) return false;
-    
-    // Check if a meal plan is being displayed
     return pathname === '/meals' && 
            typeof window !== 'undefined' && 
            Array.isArray(window.mealPlan) && 
            window.mealPlan.length > 0;
   };
 
-  // Check if a path is active
   const isActive = (path) => {
     if (!pathname) return false;
-    
-    // Special case for settings page
     if (path === '/settings' && pathname === '/settings') {
       return true;
     }
-    
     return pathname === path || pathname.startsWith(`${path}/`);
   };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const checkLoading = () => {
-        // Only update if the value has actually changed
+        const currentLoading = window.mealLoading || false;
         setIsGenerating(prev => {
-          const currentLoading = window.mealLoading || false;
-          return prev !== currentLoading ? currentLoading : prev;
+          if (prev !== currentLoading) {
+            if (currentLoading) {
+              localStorage.setItem('isGenerating', 'true');
+            } else {
+              localStorage.removeItem('isGenerating');
+            }
+            return currentLoading;
+          }
+          return prev;
         });
-      };     
+      };
       
-      // Check immediately
       checkLoading();
-      
-      // Set up polling to check for changes
       const interval = setInterval(checkLoading, 250);
-      
       return () => clearInterval(interval);
     }
   }, []);
 
-  // Add this to clean up when unmounting
   useEffect(() => {
-    return () => {
-      setIsGenerating(false);
-    };
-  }, []);
-  
-  // Close the FAB menu if it's open when clicking outside
-  useEffect(() => {
-    if ((fabMenuOpen || daysMenuOpen) && typeof document !== 'undefined') {
-      const handleGlobalClick = (event) => {
-        // Check if click is on the FAB or its children
-        if (!event.target.closest(".fab-menu") && 
-            !event.target.closest(".fab-button")) {
-          setFabMenuOpen(false);
-          setDaysMenuOpen(false);
-        }
-      };
-      
-      document.addEventListener("mousedown", handleGlobalClick);
-      
-      return () => {
-        document.removeEventListener("mousedown", handleGlobalClick);
-      };
-    }
-  }, [fabMenuOpen, daysMenuOpen]);
-
-  // Function to toggle the days menu
-  const toggleDaysMenu = (e) => {
-    if (isMealCardView()) return; // Don't toggle days menu in meal card view
-    
-    if (pathname === '/meals') {
-      e.stopPropagation();
-      setDaysMenuOpen(!daysMenuOpen);
-      setFabMenuOpen(false); // Close the other FAB menu if open
-    }
-  };
-
-  const handleFabClick = async (e) => {
-    // If on meal card view, just toggle the menu
-    if (isMealCardView()) {
-      e.stopPropagation();
-      setFabMenuOpen(!fabMenuOpen);
-      return;
-    }
-    
-    // If on meals page, toggle days menu instead of immediately generating meals
-    if (pathname === '/meals' && !isMealCardView()) {
-      e.stopPropagation();
-      setDaysMenuOpen(!daysMenuOpen);
-      return;
-    }
-    
-    // If meals were generated but not viewed yet, just navigate to meals page
-    if (mealGenerationComplete && !hasViewedGeneratedMeals) {
-      setHasViewedGeneratedMeals(true);
-      localStorage.setItem('hasViewedGeneratedMeals', 'true');
-      router.push('/meals');
-      return;
-    }
-    
-    // If we've viewed generated meals, but clicked again, reset to start new generation
-    if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
-      setMealGenerationComplete(false);
-      localStorage.removeItem('mealGenerationComplete');
-      setHasViewedGeneratedMeals(false);
-      localStorage.removeItem('hasViewedGeneratedMeals');
-      router.push('/meals');
-      return;
-    }
-    
-    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
-      // If not on meals page but have visited it, navigate back
-      if (pathname !== '/meals') {
-        router.push('/meals');
-        return;
-      }
-      
-      // Reset states before starting generation
-      setIsGenerating(true);
-      setMealGenerationComplete(false);
-      localStorage.removeItem('mealGenerationComplete');
-      setHasViewedGeneratedMeals(false);
-      localStorage.removeItem('hasViewedGeneratedMeals');
-      
-      try {
-        if (typeof window !== 'undefined') {
-          // Try to find and call the global function
-          if (window.generateMeals && typeof window.generateMeals === 'function') {
-            await window.generateMeals();
-            setMealGenerationComplete(true);
-            localStorage.setItem('mealGenerationComplete', 'true');
-          } else {
-            // If function not defined, reload to reinitialize
-            console.warn('generateMeals function not found, refreshing page');
-            window.location.reload();
-          }
-        }
-      } catch (error) {
-        console.error('Error generating meals:', error);
-        setError(`Meal generation failed: ${error.message}`);
-      } finally {
-        // Always ensure loading state is reset
-        setIsGenerating(false);
-        
-        // Force sync with global loading state
-        if (typeof window !== 'undefined') {
-          window.mealLoading = false;
-        }
-      }
-    } else {
-      // First time going to meals page
-      router.push('/meals');
-    }
-  };
-  
-  const handleSaveMeal = (e) => {
-    e.stopPropagation();
-    setFabMenuOpen(false);
-    
     if (typeof window !== 'undefined') {
-      // Attempt to call the global save function from the meals page
-      if (window.saveSelectedRecipes) {
-        // Ensure all meals are selected before saving
-        if (window.mealPlan && Array.isArray(window.mealPlan) && window.selectedRecipes) {
-          // Select all meals in the plan
-          window.mealPlan.forEach(meal => {
-            if (meal && meal.id && !window.selectedRecipes.includes(meal.id)) {
-              // Add the meal ID to the selectedRecipes array
-              window.selectedRecipes.push(meal.id);
-            }
-          });
-        }
-        
-        // Call save function
-        window.saveSelectedRecipes();
-      } else {
-        console.warn('Global save function not found');
-      }
-    }
-  };
-
-   // Fetch Subscription Status
-   const fetchSubscriptionStatus = async () => {
-    if (!user) return;
-
-    try {
-      // Check for specific user ID with special access
-      if (user.sub === "auth0|67b82eb657e61f81cdfdd503") {
-        setIsPro(true);
-        localStorage.setItem('userIsPro', 'true');
-        console.log("✅ Special user detected - Pro features enabled");
-        return;
-      }
-
-      // Updated Auth0 v4 token retrieval
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
-      
-      if (!token) {
-        throw new Error("Failed to retrieve access token.");
-      }
-
-      // Decode JWT and check subscription
-      const tokenPayload = JSON.parse(atob(token.split(".")[1]));
-      const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
-      
-      const proStatus = userSubscription === "pro";
-      setIsPro(proStatus);
-      localStorage.setItem('userIsPro', proStatus ? 'true' : 'false');
-    } catch (err) {
-      console.error("Error fetching subscription status:", err);
-    }
-  };
-
-  // Subscription Status Effect
-  useEffect(() => {
-    // Only fetch subscription status when user is loaded and authenticated
-    if (!isLoading && user) {
-      fetchSubscriptionStatus();
-    }
-  }, [user, isLoading]);
-  
-  const handleViewRecipe = (e) => {
-    e.stopPropagation();
-    setFabMenuOpen(false);
-    
-    if (typeof window !== 'undefined' && window.handleViewRecipeGlobal) {
-      window.handleViewRecipeGlobal(e);
-    }
-  };
-  
-  const handleOrderIngredients = (e) => {
-    e.stopPropagation();
-    setFabMenuOpen(false);
-    
-    if (typeof window !== 'undefined' && window.handleOrderIngredientsGlobal) {
-      window.handleOrderIngredientsGlobal(e);
-    }
-  };
-
-  // Update getFabIcon to consider the hasViewedGeneratedMeals state and if in meal card view
-  const getFabIcon = () => {
-    if (isMealCardView()) {
-      return fabMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
-    }
-    
-    if (isGenerating) {
-      // Show loading spinner when generating
-      return (
-        <svg className="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      );
-    } else if (pathname === '/meals' && !isMealCardView()) {
-      // Show plus sign when on meals page but not viewing meal cards
-      return daysMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
-    } else if (mealGenerationComplete && !hasViewedGeneratedMeals) {
-      // Checkmark when generation is complete but not yet viewed
-      return <Check className="w-8 h-8" />;
-    } else {
-      // Plus icon for other cases
-      return <Plus className="w-8 h-8" />;
-    }
-  };
-
-  // Get current path only after component mounts (client-side only)
-  useEffect(() => {
-    // Safe check for browser environment
-    if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname;
-      setPathname(currentPath);
-      
-      // If we're on the meals page now, mark that we've visited it
-      if (currentPath === '/meals') {
-        setVisitedMealsPage(true);
-        localStorage.setItem('visitedMealsPage', 'true');
-      } else if (localStorage.getItem('visitedMealsPage') === 'true') {
-        setVisitedMealsPage(true);
+      const loadingState = localStorage.getItem('isGenerating');
+      if (loadingState === 'true') {
+        setIsGenerating(true);
       }
       
-      // Check if meal generation was previously completed
       const completionStatus = localStorage.getItem('mealGenerationComplete');
       if (completionStatus === 'true') {
         setMealGenerationComplete(true);
       }
       
-      // Handle route changes
+      const viewedStatus = localStorage.getItem('hasViewedGeneratedMeals');
+      if (viewedStatus === 'true') {
+        setHasViewedGeneratedMeals(true);
+      }
+  
+      const visitedStatus = localStorage.getItem('visitedMealsPage');
+      if (visitedStatus === 'true') {
+        setVisitedMealsPage(true);
+      }
+  
+      const currentPath = window.location.pathname;
+      setPathname(currentPath);
+      
+      if (currentPath === '/meals') {
+        setVisitedMealsPage(true);
+        localStorage.setItem('visitedMealsPage', 'true');
+      }
+  
       const handleRouteChange = () => {
         const newPath = window.location.pathname;
         setPathname(newPath);
-        
-        // If navigating to the meals page, mark that we've visited it
         if (newPath === '/meals') {
           setVisitedMealsPage(true);
           localStorage.setItem('visitedMealsPage', 'true');
         }
-        
-        // Close any open FAB menu when changing pages
-        setFabMenuOpen(false);
-        setDaysMenuOpen(false);
       };
       
-      // Listen for navigation events
       window.addEventListener('popstate', handleRouteChange);
       
-      // Create a MutationObserver to detect any DOM changes that might indicate navigation
       const observer = new MutationObserver(() => {
         const newPath = window.location.pathname;
         if (newPath !== pathname) {
@@ -375,20 +130,14 @@ export function BottomNavbar({ children }) {
             setVisitedMealsPage(true);
             localStorage.setItem('visitedMealsPage', 'true');
           }
-          
-          // Close any open FAB menu when changing pages
-          setFabMenuOpen(false);
-          setDaysMenuOpen(false);
         }
       });
       
-      // Start observing
       observer.observe(document.body, { 
         childList: true, 
         subtree: true 
       });
       
-      // Load isPro status
       const proStatus = localStorage.getItem('userIsPro');
       if (proStatus === 'true') {
         setIsPro(true);
@@ -401,12 +150,249 @@ export function BottomNavbar({ children }) {
     }
   }, [pathname]);
 
-  // Share numDays and setNumDays globally
+  useEffect(() => {
+    return () => {
+      setIsGenerating(false);
+      if (typeof window !== 'undefined') {
+        window.mealLoading = false;
+        localStorage.removeItem('isGenerating');
+      }
+    };
+  }, []);
+  
+  useEffect(() => {
+    if ((fabMenuOpen || daysMenuOpen) && typeof document !== 'undefined') {
+      const handleGlobalClick = (event) => {
+        if (!event.target.closest(".fab-menu") && 
+            !event.target.closest(".fab-button")) {
+          setFabMenuOpen(false);
+          setDaysMenuOpen(false);
+        }
+      };
+      
+      document.addEventListener("mousedown", handleGlobalClick);
+      return () => {
+        document.removeEventListener("mousedown", handleGlobalClick);
+      };
+    }
+  }, [fabMenuOpen, daysMenuOpen]);
+
+  const toggleDaysMenu = (e) => {
+    if (isMealCardView()) return;
+    if (pathname === '/meals') {
+      e.stopPropagation();
+      setDaysMenuOpen(!daysMenuOpen);
+      setFabMenuOpen(false);
+    }
+  };
+
+  const handleFabClick = async (e) => {
+    if (isMealCardView()) {
+      e.stopPropagation();
+      setFabMenuOpen(!fabMenuOpen);
+      return;
+    }
+    
+    if (pathname === '/meals' && !isMealCardView()) {
+      e.stopPropagation();
+      setDaysMenuOpen(!daysMenuOpen);
+      return;
+    }
+    
+    if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      setHasViewedGeneratedMeals(true);
+      localStorage.setItem('hasViewedGeneratedMeals', 'true');
+      router.push('/meals');
+      return;
+    }
+    
+    if (mealGenerationComplete && pathname !== '/meals') {
+      router.push('/meals');
+      return;
+    }
+    
+    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+      setIsGenerating(true);
+      localStorage.setItem('hasViewedGeneratedMeals', 'false');
+      
+      try {
+        if (typeof window !== 'undefined') {
+          if (window.generateMeals && typeof window.generateMeals === 'function') {
+            await window.generateMeals();
+            setMealGenerationComplete(true);
+          } else {
+            console.warn('generateMeals function not found, refreshing page');
+            window.location.reload();
+          }
+        }
+      } catch (error) {
+        console.error('Error generating meals:', error);
+        setIsGenerating(false);
+      } finally {
+        setIsGenerating(false);
+      }
+    } else {
+      router.push('/meals');
+    }
+  };
+  
+  const handleSaveMeal = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    
+    if (typeof window !== 'undefined') {
+      if (window.saveSelectedRecipes) {
+        if (window.mealPlan && Array.isArray(window.mealPlan) && window.selectedRecipes) {
+          window.mealPlan.forEach(meal => {
+            if (meal && meal.id && !window.selectedRecipes.includes(meal.id)) {
+              window.selectedRecipes.push(meal.id);
+            }
+          });
+        }
+        window.saveSelectedRecipes();
+      } else {
+        console.warn('Global save function not found');
+      }
+    }
+  };
+
+  const fetchSubscriptionStatus = async () => {
+    if (!user) return;
+
+    try {
+      if (user.sub === "auth0|67b82eb657e61f81cdfdd503") {
+        setIsPro(true);
+        localStorage.setItem('userIsPro', 'true');
+        console.log("✅ Special user detected - Pro features enabled");
+        return;
+      }
+
+      const token = await getAccessToken({
+        authorizationParams: {
+          audience: "https://grovli.citigrove.com/audience"
+        }
+      });
+      
+      if (!token) {
+        throw new Error("Failed to retrieve access token.");
+      }
+
+      const tokenPayload = JSON.parse(atob(token.split(".")[1]));
+      const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
+      
+      const proStatus = userSubscription === "pro";
+      setIsPro(proStatus);
+      localStorage.setItem('userIsPro', proStatus ? 'true' : 'false');
+    } catch (err) {
+      console.error("Error fetching subscription status:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      fetchSubscriptionStatus();
+    }
+  }, [user, isLoading]);
+  
+  const handleViewRecipe = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    if (typeof window !== 'undefined' && window.handleViewRecipeGlobal) {
+      window.handleViewRecipeGlobal(e);
+    }
+  };
+  
+  const handleOrderIngredients = (e) => {
+    e.stopPropagation();
+    setFabMenuOpen(false);
+    if (typeof window !== 'undefined' && window.handleOrderIngredientsGlobal) {
+      window.handleOrderIngredientsGlobal(e);
+    }
+  };
+
+  const getFabIcon = () => {
+    if (isGenerating) {
+      return (
+        <svg className="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      );
+    }
+  
+    if (isMealCardView()) {
+      return fabMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    }
+    
+    if (pathname === '/meals' && !isMealCardView()) {
+      return daysMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    } else if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      return <Check className="w-8 h-8" />;
+    } else {
+      return <Plus className="w-8 h-8" />;
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname;
+      setPathname(currentPath);
+      
+      if (currentPath === '/meals') {
+        setVisitedMealsPage(true);
+        localStorage.setItem('visitedMealsPage', 'true');
+      } else if (localStorage.getItem('visitedMealsPage') === 'true') {
+        setVisitedMealsPage(true);
+      }
+      
+      const completionStatus = localStorage.getItem('mealGenerationComplete');
+      if (completionStatus === 'true') {
+        setMealGenerationComplete(true);
+      }
+      
+      const handleRouteChange = () => {
+        const newPath = window.location.pathname;
+        setPathname(newPath);
+        if (newPath === '/meals') {
+          setVisitedMealsPage(true);
+          localStorage.setItem('visitedMealsPage', 'true');
+        }
+      };
+      
+      window.addEventListener('popstate', handleRouteChange);
+      
+      const observer = new MutationObserver(() => {
+        const newPath = window.location.pathname;
+        if (newPath !== pathname) {
+          setPathname(newPath);
+          if (newPath === '/meals') {
+            setVisitedMealsPage(true);
+            localStorage.setItem('visitedMealsPage', 'true');
+          }
+        }
+      });
+      
+      observer.observe(document.body, { 
+        childList: true, 
+        subtree: true 
+      });
+      
+      const proStatus = localStorage.getItem('userIsPro');
+      if (proStatus === 'true') {
+        setIsPro(true);
+      }
+      
+      return () => {
+        window.removeEventListener('popstate', handleRouteChange);
+        observer.disconnect();
+      };
+    }
+  }, [pathname]);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.numDays = numDays;
       window.setNumDays = setNumDays;
-      
       return () => {
         window.numDays = undefined;
         window.setNumDays = undefined;
@@ -414,7 +400,6 @@ export function BottomNavbar({ children }) {
     }
   }, [numDays]);
 
-  // Get the right button color based on state
   const getFabColor = () => {
     if (isMealCardView()) {
       return fabMenuOpen ? "bg-teal-700" : "bg-teal-600";
@@ -429,15 +414,12 @@ export function BottomNavbar({ children }) {
 
   return (
     <>
-      {/* Render any children (props) passed to this component */}
       <div className={shouldShowNavbar() ? "mb-24" : ""}>
         {children}
       </div>
       
-      {/* Fixed Bottom Navigation - Only show on relevant pages */}
       {shouldShowNavbar() && (
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
-          {/* Floating Action Button */}
           {isAuthenticated && (
             <div 
               className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" 
@@ -448,17 +430,13 @@ export function BottomNavbar({ children }) {
                 border: 'none'
               }}
             >            
-              {/* Radial menu buttons - only visible when on meals page and daysMenuOpen is true */}
               {pathname === '/meals' && !isMealCardView() && daysMenuOpen && (
                 <div className={`fab-menu relative pointer-events-auto`}>
-                  {/* 1 Day Button - Always available */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setNumDays(1);
                       setDaysMenuOpen(false);
-                      
-                      // Trigger meal generation immediately
                       if (typeof window !== 'undefined' && window.generateMeals) {
                         window.generateMeals();
                       }
@@ -476,7 +454,6 @@ export function BottomNavbar({ children }) {
                     <span className="text-white font-bold">1</span>
                   </button>
                   
-                  {/* Pro Day Buttons */}
                   {[3, 5, 7].map((days) => (
                     <button
                       key={days}
@@ -484,8 +461,6 @@ export function BottomNavbar({ children }) {
                         e.stopPropagation();
                         setNumDays(days);
                         setDaysMenuOpen(false);
-                        
-                        // Trigger meal generation immediately
                         if (typeof window !== 'undefined' && window.generateMeals) {
                           window.generateMeals();
                         }
@@ -515,10 +490,8 @@ export function BottomNavbar({ children }) {
                 </div>
               )}
               
-              {/* Radial menu buttons - only visible when on meal card view and fabMenuOpen is true */}
               {isMealCardView() && (
                 <div className={`fab-menu relative ${fabMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-                  {/* Top Left Button */}
                   <button
                     onClick={handleSaveMeal}
                     className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
@@ -527,7 +500,7 @@ export function BottomNavbar({ children }) {
                     style={{
                       width: '48px',
                       height: '48px',
-                      backgroundColor: 'rgb(234, 88, 12)', // orange-500
+                      backgroundColor: 'rgb(234, 88, 12)',
                       transform: fabMenuOpen 
                         ? 'translate(-65px, -65px)' 
                         : 'translate(0, 0)',
@@ -538,7 +511,6 @@ export function BottomNavbar({ children }) {
                     <Save className="w-4 h-4 text-white" />
                   </button>
                   
-                  {/* Top Button */}
                   <button
                     onClick={handleViewRecipe}
                     className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
@@ -547,7 +519,7 @@ export function BottomNavbar({ children }) {
                     style={{
                       width: '48px', 
                       height: '48px',
-                      backgroundColor: 'rgb(20, 184, 166)', // teal-500
+                      backgroundColor: 'rgb(20, 184, 166)',
                       transform: fabMenuOpen 
                         ? 'translate(0px, -80px)' 
                         : 'translate(0, 0)',
@@ -558,7 +530,6 @@ export function BottomNavbar({ children }) {
                     <BookOpen className="w-4 h-4 text-white" />
                   </button>
                   
-                  {/* Top Right Button */}
                   <button
                     onClick={handleOrderIngredients}
                     className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 ${
@@ -567,7 +538,7 @@ export function BottomNavbar({ children }) {
                     style={{
                       width: '48px',
                       height: '48px',
-                      backgroundColor: 'rgb(13, 148, 136)', // teal-600
+                      backgroundColor: 'rgb(13, 148, 136)',
                       transform: fabMenuOpen 
                         ? 'translate(65px, -65px)' 
                         : 'translate(0, 0)',
@@ -580,7 +551,6 @@ export function BottomNavbar({ children }) {
                 </div>
               )}
               
-              {/* Backdrop for FAB menu - only visible when in meal card view and fabMenuOpen is true */}
               {isMealCardView() && fabMenuOpen && (
                 <div 
                   className="fixed inset-0 z-0"
@@ -591,7 +561,6 @@ export function BottomNavbar({ children }) {
                 ></div>
               )}
               
-              {/* Main FAB button */}
               <button
                 onClick={handleFabClick}
                 disabled={isGenerating && !isMealCardView()}
@@ -607,7 +576,6 @@ export function BottomNavbar({ children }) {
           <div className="max-w-screen-xl mx-auto px-4">
             {isAuthenticated ? (
               <div className="flex items-center h-20">
-                {/* Four buttons with even spacing */}
                 <div className="flex justify-around w-full">
                   <NavButton 
                     icon={<Calendar className="w-6 h-6" />} 
@@ -625,7 +593,6 @@ export function BottomNavbar({ children }) {
                     onClick={() => router.push('/pantry')}
                   />
                   
-                  {/* Center space for FAB - invisible but takes up space */}
                   <div className="w-16 flex-shrink-0"></div>
                   
                   <NavButton 
@@ -666,14 +633,12 @@ export function BottomNavbar({ children }) {
             )}
           </div>
           
-          {/* More Menu (Slide Up Panel) */}
           {menuOpen && (
             <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setMenuOpen(false)}>
               <div 
                 className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-xl p-6 transform transition-transform duration-300 ease-in-out"
                 onClick={e => e.stopPropagation()}
               >
-                {/* Small indicator at top of modal */}
                 <div className="absolute top-2 left-1/2 transform -translate-x-1/2 w-12 h-1.5 bg-gray-300 rounded-full"></div>
                 
                 <div className="pt-4 flex justify-between items-center mb-6">
@@ -756,7 +721,6 @@ export function BottomNavbar({ children }) {
   );
 }
 
-// Also add the CSS for the pulse animation if not already present
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `
@@ -773,7 +737,6 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(style);
 }
 
-// NavButton component for consistent styling
 function NavButton({ icon, label, path, isActive, onClick }) {
   return (
     <button
