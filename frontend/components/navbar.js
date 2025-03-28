@@ -79,8 +79,12 @@ export function BottomNavbar({ children }) {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const checkLoading = () => {
-        setIsGenerating(prev => window.mealLoading || prev);
-      };
+        // Only update if the value has actually changed
+        setIsGenerating(prev => {
+          const currentLoading = window.mealLoading || false;
+          return prev !== currentLoading ? currentLoading : prev;
+        });
+      };     
       
       // Check immediately
       checkLoading();
@@ -90,6 +94,13 @@ export function BottomNavbar({ children }) {
       
       return () => clearInterval(interval);
     }
+  }, []);
+
+  // Add this to clean up when unmounting
+  useEffect(() => {
+    return () => {
+      setIsGenerating(false);
+    };
   }, []);
   
   // Close the FAB menu if it's open when clicking outside
@@ -138,8 +149,6 @@ export function BottomNavbar({ children }) {
       return;
     }
     
-    // Regular FAB behavior from here
-    
     // If meals were generated but not viewed yet, just navigate to meals page
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       setHasViewedGeneratedMeals(true);
@@ -148,8 +157,7 @@ export function BottomNavbar({ children }) {
       return;
     }
     
-    // If we've viewed generated meals, but clicked again, we should reset
-    // to start a new generation
+    // If we've viewed generated meals, but clicked again, reset to start new generation
     if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
       setMealGenerationComplete(false);
       localStorage.removeItem('mealGenerationComplete');
@@ -166,34 +174,37 @@ export function BottomNavbar({ children }) {
         return;
       }
       
-      // We're on the meals page, proceed with generation
+      // Reset states before starting generation
       setIsGenerating(true);
       setMealGenerationComplete(false);
       localStorage.removeItem('mealGenerationComplete');
       setHasViewedGeneratedMeals(false);
       localStorage.removeItem('hasViewedGeneratedMeals');
       
-      if (typeof window !== 'undefined') {
-        // Try to find and call the global function
-        if (window.generateMeals && typeof window.generateMeals === 'function') {
-          try {
+      try {
+        if (typeof window !== 'undefined') {
+          // Try to find and call the global function
+          if (window.generateMeals && typeof window.generateMeals === 'function') {
             await window.generateMeals();
             setMealGenerationComplete(true);
             localStorage.setItem('mealGenerationComplete', 'true');
-          } catch (error) {
-            console.error('Error generating meals:', error);
-            setError(`Meal generation failed: ${error.message}`);
-          } finally {
-            setIsGenerating(false);
+          } else {
+            // If function not defined, reload to reinitialize
+            console.warn('generateMeals function not found, refreshing page');
+            window.location.reload();
           }
-        } else {
-          // If function not defined, reload to reinitialize
-          console.warn('generateMeals function not found, refreshing page');
-          window.location.reload();
-          setIsGenerating(false);
         }
-      } else {
+      } catch (error) {
+        console.error('Error generating meals:', error);
+        setError(`Meal generation failed: ${error.message}`);
+      } finally {
+        // Always ensure loading state is reset
         setIsGenerating(false);
+        
+        // Force sync with global loading state
+        if (typeof window !== 'undefined') {
+          window.mealLoading = false;
+        }
       }
     } else {
       // First time going to meals page
