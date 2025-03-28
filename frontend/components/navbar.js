@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from "@auth0/nextjs-auth0";
+import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import {
   Home, 
   Menu, 
@@ -24,17 +24,22 @@ export function BottomNavbar({ children }) {
   const router = useRouter();
   const [pathname, setPathname] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { user } = useUser();
+  const { user, isLoading } = useUser();
   const isAuthenticated = !!user;
   const [isGenerating, setIsGenerating] = useState(false);
   const [mealGenerationComplete, setMealGenerationComplete] = useState(false);
   const [hasViewedGeneratedMeals, setHasViewedGeneratedMeals] = useState(false);
+  const [isPro, setIsPro] = useState(false);
   
   // Track if we've been to the meals page to preserve function access
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
   
   // State for the radial FAB menu
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
+  
+  // State for the days selection menu
+  const [daysMenuOpen, setDaysMenuOpen] = useState(false);
+  const [numDays, setNumDays] = useState(1);
 
   // Check if the current route should have navigation
   const shouldShowNavbar = () => {
@@ -73,12 +78,13 @@ export function BottomNavbar({ children }) {
   
   // Close the FAB menu if it's open when clicking outside
   useEffect(() => {
-    if (fabMenuOpen && typeof document !== 'undefined') {
+    if ((fabMenuOpen || daysMenuOpen) && typeof document !== 'undefined') {
       const handleGlobalClick = (event) => {
         // Check if click is on the FAB or its children
         if (!event.target.closest(".fab-menu") && 
             !event.target.closest(".fab-button")) {
           setFabMenuOpen(false);
+          setDaysMenuOpen(false);
         }
       };
       
@@ -88,78 +94,97 @@ export function BottomNavbar({ children }) {
         document.removeEventListener("mousedown", handleGlobalClick);
       };
     }
-  }, [fabMenuOpen]);
+  }, [fabMenuOpen, daysMenuOpen]);
 
-  // Handle the FAB click
-  const handleFabClick = async (e) => {
-    // If on meal card view, just toggle the menu
-    if (isMealCardView()) {
+  // Function to toggle the days menu
+  const toggleDaysMenu = (e) => {
+    if (isMealCardView()) return; // Don't toggle days menu in meal card view
+    
+    if (pathname === '/meals') {
       e.stopPropagation();
-      setFabMenuOpen(!fabMenuOpen);
-      return;
+      setDaysMenuOpen(!daysMenuOpen);
+      setFabMenuOpen(false); // Close the other FAB menu if open
     }
-    
-    // Regular FAB behavior from here
-    
-    // If meals were generated but not viewed yet, just navigate to meals page
-    if (mealGenerationComplete && !hasViewedGeneratedMeals) {
-      setHasViewedGeneratedMeals(true);
-      localStorage.setItem('hasViewedGeneratedMeals', 'true');
+  };
+
+// Handle the FAB click
+const handleFabClick = async (e) => {
+  // If on meal card view, just toggle the menu
+  if (isMealCardView()) {
+    e.stopPropagation();
+    setFabMenuOpen(!fabMenuOpen);
+    return;
+  }
+  
+  // If on meals page, toggle days menu instead of immediately generating meals
+  if (pathname === '/meals' && !isMealCardView()) {
+    e.stopPropagation();
+    setDaysMenuOpen(!daysMenuOpen);
+    return;
+  }
+  
+  // Regular FAB behavior from here
+  
+  // If meals were generated but not viewed yet, just navigate to meals page
+  if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+    setHasViewedGeneratedMeals(true);
+    localStorage.setItem('hasViewedGeneratedMeals', 'true');
+    router.push('/meals');
+    return;
+  }
+  
+  // If we've viewed generated meals, but clicked again, we should reset
+  // to start a new generation
+  if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
+    setMealGenerationComplete(false);
+    localStorage.removeItem('mealGenerationComplete');
+    setHasViewedGeneratedMeals(false);
+    localStorage.removeItem('hasViewedGeneratedMeals');
+    router.push('/meals');
+    return;
+  }
+  
+  if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+    // If not on meals page but have visited it, navigate back
+    if (pathname !== '/meals') {
       router.push('/meals');
       return;
     }
     
-    // If we've viewed generated meals, but clicked again, we should reset
-    // to start a new generation
-    if (mealGenerationComplete && hasViewedGeneratedMeals && pathname !== '/meals') {
-      setMealGenerationComplete(false);
-      localStorage.removeItem('mealGenerationComplete');
-      setHasViewedGeneratedMeals(false);
-      localStorage.removeItem('hasViewedGeneratedMeals');
-      router.push('/meals');
-      return;
-    }
+    // We're on the meals page, proceed with generation
+    setIsGenerating(true);
+    setMealGenerationComplete(false);
+    localStorage.removeItem('mealGenerationComplete');
+    setHasViewedGeneratedMeals(false);
+    localStorage.removeItem('hasViewedGeneratedMeals');
     
-    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
-      // If not on meals page but have visited it, navigate back
-      if (pathname !== '/meals') {
-        router.push('/meals');
-        return;
-      }
-      
-      // We're on the meals page, proceed with generation
-      setIsGenerating(true);
-      setMealGenerationComplete(false);
-      localStorage.removeItem('mealGenerationComplete');
-      setHasViewedGeneratedMeals(false);
-      localStorage.removeItem('hasViewedGeneratedMeals');
-      
-      if (typeof window !== 'undefined') {
-        // Try to find and call the global function
-        if (window.generateMeals && typeof window.generateMeals === 'function') {
-          try {
-            await window.generateMeals();
-            setMealGenerationComplete(true);
-            localStorage.setItem('mealGenerationComplete', 'true');
-          } catch (error) {
-            console.error('Error generating meals:', error);
-          } finally {
-            setIsGenerating(false);
-          }
-        } else {
-          // If function not defined, reload to reinitialize
-          console.warn('generateMeals function not found, refreshing page');
-          window.location.reload();
+    if (typeof window !== 'undefined') {
+      // Try to find and call the global function
+      if (window.generateMeals && typeof window.generateMeals === 'function') {
+        try {
+          await window.generateMeals();
+          setMealGenerationComplete(true);
+          localStorage.setItem('mealGenerationComplete', 'true');
+        } catch (error) {
+          console.error('Error generating meals:', error);
+          setError(`Meal generation failed: ${error.message}`);
+        } finally {
           setIsGenerating(false);
         }
       } else {
+        // If function not defined, reload to reinitialize
+        console.warn('generateMeals function not found, refreshing page');
+        window.location.reload();
         setIsGenerating(false);
       }
     } else {
-      // First time going to meals page
-      router.push('/meals');
+      setIsGenerating(false);
     }
-  };
+  } else {
+    // First time going to meals page
+    router.push('/meals');
+  }
+};
   
   const handleSaveMeal = (e) => {
     e.stopPropagation();
@@ -186,6 +211,50 @@ export function BottomNavbar({ children }) {
       }
     }
   };
+
+   // Fetch Subscription Status
+   const fetchSubscriptionStatus = async () => {
+    if (!user) return;
+
+    try {
+      // Check for specific user ID with special access
+      if (user.sub === "auth0|67b82eb657e61f81cdfdd503") {
+        setIsPro(true);
+        localStorage.setItem('userIsPro', 'true');
+        console.log("✅ Special user detected - Pro features enabled");
+        return;
+      }
+
+      // Updated Auth0 v4 token retrieval
+      const token = await getAccessToken({
+        authorizationParams: {
+          audience: "https://grovli.citigrove.com/audience"
+        }
+      });
+      
+      if (!token) {
+        throw new Error("Failed to retrieve access token.");
+      }
+
+      // Decode JWT and check subscription
+      const tokenPayload = JSON.parse(atob(token.split(".")[1]));
+      const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
+      
+      const proStatus = userSubscription === "pro";
+      setIsPro(proStatus);
+      localStorage.setItem('userIsPro', proStatus ? 'true' : 'false');
+    } catch (err) {
+      console.error("Error fetching subscription status:", err);
+    }
+  };
+
+  // Subscription Status Effect
+  useEffect(() => {
+    // Only fetch subscription status when user is loaded and authenticated
+    if (!isLoading && user) {
+      fetchSubscriptionStatus();
+    }
+  }, [user, isLoading]);
   
   const handleViewRecipe = (e) => {
     e.stopPropagation();
@@ -219,8 +288,11 @@ export function BottomNavbar({ children }) {
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       );
-    } else if (pathname === '/meals' || (mealGenerationComplete && !hasViewedGeneratedMeals)) {
-      // Checkmark when on meals page OR when generation is complete but not yet viewed
+    } else if (pathname === '/meals' && !isMealCardView()) {
+      // Show plus sign when on meals page but not viewing meal cards
+      return daysMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    } else if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      // Checkmark when generation is complete but not yet viewed
       return <Check className="w-8 h-8" />;
     } else {
       // Plus icon for other cases
@@ -262,6 +334,7 @@ export function BottomNavbar({ children }) {
         
         // Close any open FAB menu when changing pages
         setFabMenuOpen(false);
+        setDaysMenuOpen(false);
       };
       
       // Listen for navigation events
@@ -279,6 +352,7 @@ export function BottomNavbar({ children }) {
           
           // Close any open FAB menu when changing pages
           setFabMenuOpen(false);
+          setDaysMenuOpen(false);
         }
       });
       
@@ -288,12 +362,31 @@ export function BottomNavbar({ children }) {
         subtree: true 
       });
       
+      // Load isPro status
+      const proStatus = localStorage.getItem('userIsPro');
+      if (proStatus === 'true') {
+        setIsPro(true);
+      }
+      
       return () => {
         window.removeEventListener('popstate', handleRouteChange);
         observer.disconnect();
       };
     }
   }, [pathname]);
+
+  // Share numDays and setNumDays globally
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.numDays = numDays;
+      window.setNumDays = setNumDays;
+      
+      return () => {
+        window.numDays = undefined;
+        window.setNumDays = undefined;
+      };
+    }
+  }, [numDays]);
 
   // Get the right button color based on state
   const getFabColor = () => {
@@ -302,7 +395,7 @@ export function BottomNavbar({ children }) {
     }
     
     if (pathname === '/meals') {
-      return "bg-teal-600 hover:bg-teal-700";
+      return daysMenuOpen ? "bg-teal-700" : "bg-teal-600 hover:bg-teal-700";
     } else {
       return "bg-teal-500 hover:bg-teal-600";
     }
@@ -327,9 +420,76 @@ export function BottomNavbar({ children }) {
                 background: 'transparent',
                 boxShadow: 'none',
                 border: 'none'
-              }}  
-              >            
-            {/* Radial menu buttons - only visible when on meal card view and fabMenuOpen is true */}
+              }}
+            >            
+              {/* Radial menu buttons - only visible when on meals page and daysMenuOpen is true */}
+              {pathname === '/meals' && !isMealCardView() && daysMenuOpen && (
+                <div className={`fab-menu relative pointer-events-auto`}>
+                  {/* 1 Day Button - Always available */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNumDays(1);
+                      setDaysMenuOpen(false);
+                      
+                      // Trigger meal generation immediately
+                      if (typeof window !== 'undefined' && window.generateMeals) {
+                        window.generateMeals();
+                      }
+                    }}
+                    className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 opacity-100`}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      backgroundColor: numDays === 1 ? 'rgb(13, 148, 136)' : 'rgb(20, 184, 166)', 
+                      transform: 'translate(-65px, -65px)',
+                      zIndex: 10
+                    }}
+                    aria-label="1 Day"
+                  >
+                    <span className="text-white font-bold">1</span>
+                  </button>
+                  
+                  {/* Pro Day Buttons */}
+                  {[3, 5, 7].map((days) => (
+                    <button
+                      key={days}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNumDays(days);
+                        setDaysMenuOpen(false);
+                        
+                        // Trigger meal generation immediately
+                        if (typeof window !== 'undefined' && window.generateMeals) {
+                          window.generateMeals();
+                        }
+                      }}
+                      className={`absolute rounded-full shadow-lg transition-all duration-300 flex items-center justify-center p-0 opacity-100`}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        backgroundColor: numDays === days ? 'rgb(13, 148, 136)' : 'rgb(20, 184, 166)', 
+                        transform: days === 3 
+                          ? 'translate(0px, -80px)' 
+                          : days === 5 
+                            ? 'translate(65px, -65px)' 
+                            : 'translate(80px, 0px)',
+                        zIndex: 10
+                      }}
+                      aria-label={`${days} Days`}
+                    >
+                      <span className="text-white font-bold">{days}</span>
+                      {!isPro && (
+                        <div className="absolute -top-1 -right-1 bg-orange-500 rounded-full w-4 h-4 flex items-center justify-center">
+                          <span className="text-white text-xs">$</span>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {/* Radial menu buttons - only visible when on meal card view and fabMenuOpen is true */}
               {isMealCardView() && (
                 <div className={`fab-menu relative ${fabMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
                   {/* Top Left Button */}
@@ -410,7 +570,7 @@ export function BottomNavbar({ children }) {
                 onClick={handleFabClick}
                 disabled={isGenerating && !isMealCardView()}
                 className={`fab-button ${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                  fabMenuOpen ? 'rotate-45' : ''
+                  fabMenuOpen || daysMenuOpen ? 'rotate-45' : ''
                 } ${mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' && !isMealCardView() ? 'pulse-animation' : ''}`}
               >
                 {getFabIcon()}
@@ -553,7 +713,7 @@ export function BottomNavbar({ children }) {
                       >
                         <div className="w-12 h-12 flex items-center justify-center bg-green-100 text-green-600 rounded-full mb-2">
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                           </svg>
                         </div>
                         <span className="text-sm font-medium text-gray-700">Register</span>

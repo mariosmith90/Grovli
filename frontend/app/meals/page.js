@@ -72,6 +72,28 @@ export default function Home() {
     }));
   }, [calories]);
 
+  // Sync with navbar's numDays
+  useEffect(() => {
+    // Sync with global numDays when available
+    if (typeof window !== 'undefined') {
+      // Set initial value from global if available
+      if (window.numDays !== undefined) {
+        setNumDays(window.numDays);
+      }
+      
+      // Setup interval to check for changes
+      const intervalId = setInterval(() => {
+        if (window.numDays !== undefined && window.numDays !== numDays) {
+          setNumDays(window.numDays);
+        }
+      }, 300);
+      
+      return () => {
+        clearInterval(intervalId);
+      };
+    }
+  }, [numDays]);
+
   // Load global settings from localStorage and server
   useEffect(() => {
     // First load from localStorage as fallback
@@ -351,35 +373,36 @@ export default function Home() {
   const handleChatComplete = async () => {
     setShowChatbot(false);
     
-// If meal plan is ready but we don't have the data, fetch it now
-if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
-  try {
-    setLoading(true);
-    
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    
-    // Use the exact meal_plan_id from the notification
-    const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+    // If meal plan is ready but we don't have the data, fetch it now
+    if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
+      try {
+        setLoading(true);
+        
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        
+        // Use the exact meal_plan_id from the notification
+        const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data && data.meal_plan) {
+          setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+          setDisplayedMealType(mealType); // Set the displayed meal type when data is ready
+        } else {
+          throw new Error("No meal plan data found");
+        }
+      } catch (error) {
+        console.error("Error fetching ready meal plan:", error);
+        setError("Could not retrieve your meal plan. Please try again.");
+      } finally {
+        setLoading(false);
+      }
     }
-    
-    const data = await response.json();
-    
-    if (data && data.meal_plan) {
-      setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
-      setDisplayedMealType(mealType); // Set the displayed meal type when data is ready
-    } else {
-      throw new Error("No meal plan data found");
-    }
-  } catch (error) {
-    console.error("Error fetching ready meal plan:", error);
-    setError("Could not retrieve your meal plan. Please try again.");
-  } finally {
-    setLoading(false);
-  }
-}}
+  };
 
   // Load user profile and prefill meal form
   const loadUserProfileData = async () => {
@@ -751,87 +774,180 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
             </div>
           </div>
   
-          {/* Cuisine Preferences Section */}
-          <div className="mb-2">
-            {/* First subsection */}
+          {/* Cuisine Preferences Section with Image Thumbnails */}
+          <div className="mb-8">
             <p className="text-base font-semibold text-gray-700 mb-3">
               A Taste of…
             </p>
-            <div className="flex flex-wrap gap-2 mb-6">
-              {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((option) => (
-                <button
-                  key={option}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+              {[
+                { name: "American", image: "/images/cuisines/american.jpg" },
+                { name: "Asian", image: "/images/cuisines/asian.jpg" },
+                { name: "Caribbean", image: "/images/cuisines/caribbean.jpg" },
+                { name: "Indian", image: "/images/cuisines/indian.jpg" },
+                { name: "Latin", image: "/images/cuisines/latin.jpg" },
+                { name: "Mediterranean", image: "/images/cuisines/mediterranean.jpg" }
+              ].map((cuisine) => (
+                <div 
+                  key={cuisine.name} 
+                  className={`relative rounded-lg overflow-hidden cursor-pointer transition-all transform hover:scale-105 ${
+                    preferences.includes(cuisine.name) ? "ring-4 ring-orange-500" : ""
+                  }`}
                   onClick={() => {
-                    setSelectedCuisine(option);
+                    setSelectedCuisine(cuisine.name);
                     setPreferences((prev) => {
                       const preferencesArray = prev.split(" ").filter(Boolean);
                       const updatedPreferences = preferencesArray.filter((item) =>
                         !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
                       );
-                      return [...updatedPreferences, option].join(" "); 
+                      return [...updatedPreferences, cuisine.name].join(" "); 
                     });
                   }}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    preferences.includes(option)
-                      ? "bg-orange-500 text-white border-white" 
-                      : "bg-gray-300 text-gray-700 border-white hover:bg-gray-400" 
-                  } transition-all`}
                 >
-                  {option}
-                </button>
+                  {/* Cuisine Image */}
+                  <div className="aspect-[4/3] bg-gray-200">
+                    <img 
+                      src={cuisine.image} 
+                      alt={`${cuisine.name} cuisine`} 
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.src = "/placeholder.jpg";
+                      }}
+                    />
+                  </div>
+                  
+                  {/* Cuisine Name Overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                    <p className="text-white font-medium">{cuisine.name}</p>
+                  </div>
+                  
+                  {/* Info Button */}
+                  <button 
+                    className="absolute top-2 right-2 w-8 h-8 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center text-gray-800 hover:bg-white transition-colors shadow-md z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedCuisine(cuisine.name);
+                      // Show cultural info modal or expand section
+                      document.getElementById(`culture-info-${cuisine.name}`).classList.toggle('hidden');
+                    }}
+                    aria-label={`Information about ${cuisine.name} cuisine`}
+                  >
+                    <span className="text-sm font-semibold">i</span>
+                  </button>
+                  
+                  {/* Selected Indicator */}
+                  {preferences.includes(cuisine.name) && (
+                    <div className="absolute top-0 left-0 w-full h-full bg-orange-500/20 pointer-events-none" />
+                  )}
+                </div>
               ))}
             </div>
+            
+            {/* Cultural Info Section - Hidden by default, shown when info button clicked */}
+            {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((cuisine) => (
+              <div 
+                key={`culture-info-${cuisine}`}
+                id={`culture-info-${cuisine}`}
+                className={`mt-2 p-4 bg-gray-100 rounded-lg hidden ${
+                  selectedCuisine === cuisine ? 'block' : 'hidden'
+                }`}
+              >
+                {selectedCuisine === cuisine && <CulturalInfo selectedCuisine={cuisine} user={user} />}
+              </div>
+            ))}
           </div>
-          
-          <CulturalInfo selectedCuisine={selectedCuisine} user={user} />
-  
-          {/* Meal Type Selection */}
+            
+          {/* Meal Type Selection with Image Thumbnails */}
           <div className="mb-8">
             <p className="text-base font-semibold text-gray-700 mb-3">
               Meal Type
             </p>
-  
-            <div className="flex flex-wrap items-center gap-2">
-              {["Breakfast", "Lunch", "Dinner", "Snack"].map((option) => (
-                <button
-                  key={option}
-                  onClick={() => {
-                    setMealType(option);
-                  }}
-                  className={`px-4 py-2 rounded-full border-2 ${
-                    mealType === option 
-                      ? "bg-teal-500 text-white border-white" 
-                      : "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                  } transition-all`}
+            
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+              {[
+                { name: "Breakfast", image: "/images/meals/breakfast.jpg" },
+                { name: "Lunch", image: "/images/meals/lunch.jpg" },
+                { name: "Dinner", image: "/images/meals/dinner.jpg" },
+                { name: "Snack", image: "/images/meals/snack.jpg" }
+              ].map((meal) => (
+                <div 
+                  key={meal.name} 
+                  className={`relative rounded-lg overflow-hidden cursor-pointer transition-all transform hover:scale-105 ${
+                    mealType === meal.name ? "ring-4 ring-teal-500" : ""
+                  }`}
+                  onClick={() => setMealType(meal.name)}
                 >
-                  {option}
-                </button>
+                  {/* Meal Image */}
+                  <div className="aspect-[4/3] bg-gray-200">
+                    <img 
+                      src={meal.image} 
+                      alt={`${meal.name}`} 
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.src = "/placeholder.jpg";
+                      }}
+                    />
+                  </div>
+                  
+                  {/* Meal Name Overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                    <p className="text-white font-medium">{meal.name}</p>
+                  </div>
+                  
+                  {/* Selected Indicator */}
+                  {mealType === meal.name && (
+                    <div className="absolute top-0 left-0 w-full h-full bg-teal-500/20 pointer-events-none" />
+                  )}
+                </div>
               ))}
-                            
-              {/* Divider Line */}
-              <div className="h-6 w-px bg-gray-300 mx-1 self-center"></div>
-                
-              {/* Full Day Option - Now a Pro feature */}
-              <button
+              
+              {/* Full Day Option - Pro feature */}
+              <div 
+                className={`relative rounded-lg overflow-hidden ${
+                  isPro ? "cursor-pointer hover:scale-105" : "cursor-not-allowed opacity-70"
+                } transition-all transform ${
+                  mealType === "Full Day" ? "ring-4 ring-teal-500" : ""
+                }`}
                 onClick={() => {
                   if (isPro) {
                     setMealType("Full Day");
                   }
                 }}
-                disabled={!isPro}
-                className={`px-4 py-2 rounded-full border-2 ${
-                  mealType === "Full Day" 
-                    ? "bg-teal-500 text-white border-white"
-                    : isPro
-                      ? "bg-gray-200 text-gray-700 border-white hover:bg-gray-300" 
-                      : "bg-gray-200 text-gray-500 border-white cursor-not-allowed"
-                } transition-all`}
               >
-                Full Day
-              </button>
+                {/* Meal Image */}
+                <div className="aspect-[4/3] bg-gray-200">
+                  <img 
+                    src="/images/meals/full-day.jpg" 
+                    alt="Full Day" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src = "/placeholder.jpg";
+                    }}
+                  />
+                  
+                  {/* Pro Badge */}
+                  {!isPro && (
+                    <div className="absolute top-2 right-2 bg-teal-600 text-white text-xs px-2 py-1 rounded-full">
+                      PRO
+                    </div>
+                  )}
+                </div>
+                
+                {/* Meal Name Overlay */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                  <p className="text-white font-medium">Full Day</p>
+                </div>
+                
+                {/* Selected Indicator */}
+                {mealType === "Full Day" && (
+                  <div className="absolute top-0 left-0 w-full h-full bg-teal-500/20 pointer-events-none" />
+                )}
+              </div>
             </div>
+            
+            {/* Pro Feature Message */}
             {!isPro && (
-              <p className="text-sm text-gray-600 mt-3">
+              <p className="text-sm text-gray-600 mt-2">
                 Full Day is a <strong>Pro feature</strong>.{" "}
                 <span
                   className="text-blue-600 cursor-pointer hover:underline"
@@ -843,43 +959,19 @@ if (mealPlanReady && currentMealPlanId && (!mealPlan || !mealPlan.length)) {
             )}
           </div>
   
-          {/* Number of Days Selection */}
-          <div className="mb-8">
-            <p className="text-base font-semibold text-gray-700 mb-3">
-              Number of Days
-            </p>
-  
-            <div className="flex flex-wrap gap-2 mb-3">
-              {[1, 3, 5, 7].map((option) => (
-                <button
-                  key={option}
-                  onClick={() => isPro ? setNumDays(option) : setNumDays(1)}
-                  className={`px-4 py-2 rounded-full border-2 transition-all ${
-                    numDays === option
-                      ? "bg-teal-500 text-white border-white"
-                      : option === 1 || isPro
-                        ? "bg-gray-200 text-gray-700 border-white hover:bg-gray-300"
-                        : "bg-gray-200 text-gray-500 border-white cursor-not-allowed"
-                  }`}
-                  disabled={!isPro && option !== 1}
-                >
-                  {option} {option === 1 ? "Day" : "Days"}
-                </button>
-              ))}
-            </div>
-  
-            {/* Pro Feature Message */}
-            {!isPro && (
-              <p className="text-sm text-gray-600">
-                Days over 1 is a <strong>Pro feature</strong>.{" "}
-                <span
-                  className="text-blue-600 cursor-pointer hover:underline"
-                  onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
-                >
-                  Upgrade Now
+          {/* Pro Feature Indicator for numDays */}
+          <div className="mb-4">
+            <p className="text-sm text-gray-600">
+              <span className="font-bold">Selected: {numDays} {numDays === 1 ? 'Day' : 'Days'}</span>
+              {numDays > 1 && !isPro && (
+                <span className="ml-2 text-orange-600">
+                  Days over 1 is a <strong>Pro feature</strong>
                 </span>
-              </p>
-            )}
+              )}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Adjust days using the menu button in the navbar
+            </p>
           </div>
   
           {/* Error Message */}
