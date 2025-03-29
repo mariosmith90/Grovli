@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
@@ -34,7 +33,9 @@ export default function Home() {
     mealGenerationComplete,
     setMealGenerationComplete,
     currentMealPlanId,
-    setCurrentMealPlanId
+    setCurrentMealPlanId,
+    setBackgroundTaskId,
+    startTaskChecking
   } = useMealGeneration();
 
   const checkOnboardingStatus = async () => {
@@ -71,16 +72,10 @@ export default function Home() {
   const [calories, setCalories] = useState(globalSettings.calories);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.mealLoading = loading;
+    if (typeof window !== 'undefined' && isGenerating) {
+      window.mealLoading = true;
     }
-    
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.mealLoading = undefined;
-      }
-    };
-  }, [loading]);
+  }, [isGenerating]);
 
   useEffect(() => {
     setGlobalSettings((prev) => ({
@@ -213,21 +208,21 @@ export default function Home() {
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
     }
-
+  
     setIsGenerating(true);
     setMealGenerationComplete(false);
     setCurrentMealPlanId(null);
+    setError('');
+    setLoading(true);
     
     try {
-      setError('');
-      setLoading(true);
       setSelectedRecipes([]);
       setShowChatbot(true);
       setMealPlanReady(false);
-      setMealPlan([]); 
+      setMealPlan([]);
       setIngredients([]);
       setOrderingPlanIngredients(false);
-      
+  
       let pantryIngredients = [];
       if (mealAlgorithm === 'pantry' && user) {
         try {
@@ -253,21 +248,20 @@ export default function Home() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const headers = { 'Content-Type': 'application/json' };
       
-      if (user && user.sub) {
+      if (user?.sub) {
         headers['user-id'] = user.sub;
-      }
-      
-      if (user) {
+        
         try {
           const token = await getAccessToken({
             authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
           });
-          headers['Authorization'] = `Bearer ${token}`;
+          if (token) headers['Authorization'] = `Bearer ${token}`;
         } catch (tokenError) {
-          console.error("❌ Error retrieving access token:", tokenError);
+          console.error("Error retrieving access token:", tokenError);
         }
       }
       
+      console.log("Sending meal plan request to:", `${apiUrl}/mealplan/`);
       const response = await fetch(`${apiUrl}/mealplan/`, {
         method: 'POST',
         headers,
@@ -287,67 +281,61 @@ export default function Home() {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || 
+          errorData.detail || 
+          `HTTP error ${response.status}`
+        );
       }
       
       const data = await response.json();
-      
+      console.log("API Response Data:", data);
+  
+      // Case 1: Immediate meal plan data
       if (data.meal_plan && Array.isArray(data.meal_plan)) {
+        console.log("Received immediate meal plan");
         setMealPlan(data.meal_plan);
         setDisplayedMealType(mealType);
         setShowChatbot(false);
+        setIsGenerating(false);
+        setMealGenerationComplete(true);
         return;
       }
       
+      // Case 2: Background processing response
       if (data.status === "processing" && data.meal_plan_id) {
+        console.log("Meal plan processing in background");
         setCurrentMealPlanId(data.meal_plan_id);
         
-        let isReady = false;
-        let retries = 0;
-        const maxRetries = 20;
-        
-        while (!isReady && retries < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          
-          try {
-            const statusResponse = await fetch(`${apiUrl}/mealplan/by_id/${data.meal_plan_id}`);
-            
-            if (statusResponse.ok) {
-              const mealPlanData = await statusResponse.json();
-              
-              if (mealPlanData.meal_plan && Array.isArray(mealPlanData.meal_plan)) {
-                setMealPlan(mealPlanData.meal_plan);
-                setDisplayedMealType(mealType);
-                isReady = true;
-              }
-            } else if (statusResponse.status === 404) {
-              console.log(`Meal plan not ready yet, retry ${retries + 1}/${maxRetries}`);
-            } else {
-              throw new Error(`HTTP error ${statusResponse.status}`);
-            }
-          } catch (error) {
-            console.error("Error checking meal plan status:", error);
-          }
-          
-          retries++;
-        }
-        
-        if (!isReady) {
-          throw new Error("Meal plan generation timed out. Please try again.");
-        }
-      } else {
-        throw new Error("Invalid API response");
+        // Use request_hash if available, otherwise fallback to meal_plan_id
+        const taskIdentifier = data.request_hash || data.meal_plan_id;
+        setBackgroundTaskId(taskIdentifier);
+        startTaskChecking(taskIdentifier);
+        return;
       }
       
-      setShowChatbot(false);
+      // Case 3: Unexpected response format
+      console.error("Unexpected API response format:", data);
+      throw new Error(
+        `Invalid API response format. Expected either:
+         - meal_plan array, or
+         - processing status with meal_plan_id
+         Received: ${JSON.stringify(data, null, 2)}`
+      );
       
     } catch (error) {
       console.error('Error fetching meal plan:', error);
       setError(`Error: ${error.message}`);
       setShowChatbot(false);
+      setIsGenerating(false);
+      
+      // Optional: Show more detailed error to user in development
+      if (process.env.NODE_ENV === 'development') {
+        setError(`Error: ${error.message}\n\nResponse: ${JSON.stringify(error.response?.data, null, 2)}`);
+      }
     } finally {
       setLoading(false);
-      setIsGenerating(false);
     }
   };
 
@@ -369,12 +357,15 @@ export default function Home() {
         if (data && data.meal_plan) {
           setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
           setDisplayedMealType(mealType);
+          setIsGenerating(false);
+          setMealGenerationComplete(true);
         } else {
           throw new Error("No meal plan data found");
         }
       } catch (error) {
         console.error("Error fetching ready meal plan:", error);
         setError("Could not retrieve your meal plan. Please try again.");
+        setIsGenerating(false);
       } finally {
         setLoading(false);
       }
@@ -437,7 +428,64 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      const params = new URLSearchParams(url.search);
+      const showMealCards = params.get('showMealCards');
+      
+      if (showMealCards === 'true' && mealGenerationComplete) {
+        // If we have a stored mealPlanId, load that meal plan
+        if (currentMealPlanId && (!mealPlan || mealPlan.length === 0)) {
+          const fetchMealPlanById = async () => {
+            try {
+              setLoading(true);
+              const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+              const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+              
+              if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+              }
+              
+              const data = await response.json();
+              
+              if (data && data.meal_plan) {
+                setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+                setDisplayedMealType(mealType);
+                setShowChatbot(false);
+              } else {
+                throw new Error("No meal plan data found");
+              }
+            } catch (error) {
+              console.error("Error fetching meal plan:", error);
+              setError("Could not retrieve your meal plan. Please try again.");
+            } finally {
+              setLoading(false);
+            }
+          };
+          
+          fetchMealPlanById();
+        } else if (Array.isArray(savedData?.mealPlan) && savedData.mealPlan.length > 0) {
+          // If we have a saved meal plan in localStorage, use that
+          setMealPlan(savedData.mealPlan);
+          setDisplayedMealType(savedData.displayedMealType || savedData.mealType);
+          setShowChatbot(false);
+        }
+      }
+      
+      // Clean up the URL after we've processed the parameter
+      if (showMealCards) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [currentMealPlanId, mealGenerationComplete]);
+
+  useEffect(() => {
     if (!isLoading && user) {
+      // Add this line to make user ID available globally
+      if (typeof window !== 'undefined' && user.sub) {
+        window.userId = user.sub;
+      }
+      
       checkOnboardingStatus().then((onboardingComplete) => {
         if (!onboardingComplete) {
           console.log("User has not completed onboarding, redirecting...");
@@ -583,6 +631,7 @@ export default function Home() {
               console.log("Found ready meal plan:", data.meal_plan_id);
               setMealGenerationComplete(true);
               setCurrentMealPlanId(data.meal_plan_id);
+              setIsGenerating(false);
             }
           }
         } catch (error) {
