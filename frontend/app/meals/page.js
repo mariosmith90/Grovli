@@ -294,12 +294,35 @@ export default function Home() {
   
       // Case 1: Immediate meal plan data
       if (data.meal_plan && Array.isArray(data.meal_plan)) {
-        console.log("Received immediate meal plan");
+        console.log("Received immediate meal plan with", data.meal_plan.length, "meals");
+        
+        // Ensure we have the right number of meals based on the request
+        const expectedMealCount = mealType === 'Full Day' ? numDays * 4 : numDays;
+        console.log(`Expected ${expectedMealCount} meals for ${numDays} days of ${mealType}`);
+        
+        if (data.meal_plan.length < expectedMealCount) {
+          console.warn(`Warning: Received fewer meals than expected (${data.meal_plan.length}/${expectedMealCount})`);
+        }
+        
+        // Store the meal plan and update state
         setMealPlan(data.meal_plan);
         setDisplayedMealType(mealType);
         setShowChatbot(false);
         setIsGenerating(false);
         setMealGenerationComplete(true);
+        
+        // Also store in localStorage to ensure it persists
+        localStorage.setItem(
+          "mealPlanInputs",
+          JSON.stringify({
+            preferences,
+            mealType,
+            numDays, 
+            mealPlan: data.meal_plan,
+            displayedMealType: mealType
+          })
+        );
+        
         return;
       }
       
@@ -355,10 +378,31 @@ export default function Home() {
         const data = await response.json();
         
         if (data && data.meal_plan) {
+          console.log(`Received meal plan with ${data.meal_plan.length} meals for ${numDays} days`);
+          
+          // Check if we have the expected number of meals
+          const expectedMealCount = mealType === 'Full Day' ? numDays * 4 : numDays;
+          if (data.meal_plan.length < expectedMealCount) {
+            console.warn(`Warning: Received fewer meals than expected (${data.meal_plan.length}/${expectedMealCount})`);
+          }
+          
+          // Stop the spinning indicator and show the meal plan
           setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
           setDisplayedMealType(mealType);
           setIsGenerating(false);
           setMealGenerationComplete(true);
+          
+          // Store in localStorage for persistence
+          localStorage.setItem(
+            "mealPlanInputs",
+            JSON.stringify({
+              preferences,
+              mealType,
+              numDays,
+              mealPlan: data.meal_plan,
+              displayedMealType: mealType
+            })
+          );
         } else {
           throw new Error("No meal plan data found");
         }
@@ -615,35 +659,54 @@ export default function Home() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (user && user.sub && !mealGenerationComplete && showChatbot) {
-      const checkMealPlanStatus = async () => {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-            headers: { 'user-id': user.sub }
-          });
+useEffect(() => {
+  if (user && user.sub && !mealGenerationComplete && showChatbot) {
+    const checkMealPlanStatus = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
+          headers: { 'user-id': user.sub }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Session check:", data);
           
-          if (response.ok) {
-            const data = await response.json();
+          if (data.meal_plan_ready && data.meal_plan_id) {
+            console.log("Found ready meal plan:", data.meal_plan_id);
             
-            if (data.meal_plan_ready && data.meal_plan_id) {
-              console.log("Found ready meal plan:", data.meal_plan_id);
-              setMealGenerationComplete(true);
-              setCurrentMealPlanId(data.meal_plan_id);
-              setIsGenerating(false);
+            // Important: Stop the generation process immediately
+            setMealGenerationComplete(true);
+            setCurrentMealPlanId(data.meal_plan_id);
+            setIsGenerating(false);
+            setMealPlanReady(true);
+            
+            // Fetch the meal plan right away
+            try {
+              const mealResponse = await fetch(`${apiUrl}/mealplan/by_id/${data.meal_plan_id}`);
+              if (mealResponse.ok) {
+                const mealData = await mealResponse.json();
+                if (mealData && mealData.meal_plan) {
+                  setMealPlan(Array.isArray(mealData.meal_plan) ? mealData.meal_plan : []);
+                  setDisplayedMealType(mealType);
+                  setShowChatbot(false);
+                }
+              }
+            } catch (fetchError) {
+              console.error("Error fetching meal plan:", fetchError);
             }
           }
-        } catch (error) {
-          console.error("Error checking meal plan status:", error);
         }
-      };
-      
-      checkMealPlanStatus();
-      const intervalId = setInterval(checkMealPlanStatus, 5000);
-      return () => clearInterval(intervalId);
-    }
-  }, [user, mealGenerationComplete, showChatbot]);
+      } catch (error) {
+        console.error("Error checking meal plan status:", error);
+      }
+    };
+    
+    checkMealPlanStatus();
+    const intervalId = setInterval(checkMealPlanStatus, 5000);
+    return () => clearInterval(intervalId);
+  }
+}, [user, mealGenerationComplete, showChatbot]);
 
   useEffect(() => {
     if (!isLoading && user) {

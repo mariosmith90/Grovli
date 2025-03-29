@@ -50,7 +50,6 @@ export function MealPlanDisplay({
   const [swipeOffset, setSwipeOffset] = useState(0);
   const touchStartX = useRef(null);
   const isMounted = useRef(true);
-  const isInvalidData = !Array.isArray(mealPlan) || mealPlan.length === 0 || showChatbot;
   
   // Setup mount/unmount tracking
   useEffect(() => {
@@ -78,6 +77,8 @@ export function MealPlanDisplay({
     // Calculate which meals belong to this day
     const startIdx = i * mealsPerDay;
     const endIdx = startIdx + mealsPerDay;
+    
+    // Ensure we don't try to access beyond the array bounds
     const dayMeals = mealPlan.slice(startIdx, Math.min(endIdx, mealPlan.length));
     
     // Get meal types for this day
@@ -87,7 +88,8 @@ export function MealPlanDisplay({
         if (meal) {  // Check if meal exists
           mealsByDay[dayNum].push({
             ...meal,
-            mealType: mealTypes[idx % mealTypes.length]
+            mealType: mealTypes[idx % mealTypes.length],
+            dayNumber: dayNum  // Add day number to each meal
           });
         }
       });
@@ -96,14 +98,15 @@ export function MealPlanDisplay({
         if (meal) {  // Check if meal exists
           mealsByDay[dayNum].push({
             ...meal,
-            mealType: mealType
+            mealType: mealType,
+            dayNumber: dayNum  // Add day number to each meal
           });
         }
       });
     }
   }
 
-  // Flatten meals for swiping
+  // Flatten meals for swiping - this handles multiple days correctly
   const allMeals = Object.values(mealsByDay).flat();
   
   // NOW add the useEffect that needs access to allMeals - AFTER it's defined
@@ -114,6 +117,12 @@ export function MealPlanDisplay({
       window.mealPlanActive = true;
       window.mealPlan = mealPlan;
       window.currentMealId = allMeals[currentMealIndex]?.id;
+      
+      // Log the meals for debugging
+      console.log("Meal plan days:", Object.keys(mealsByDay).length);
+      console.log("Total meals:", allMeals.length);
+      console.log("Current meal index:", currentMealIndex);
+      console.log("Current meal:", allMeals[currentMealIndex]);
       
       // Set action functions
       window.handleSaveMealGlobal = function(e) {
@@ -248,8 +257,8 @@ export function MealPlanDisplay({
     }
   };
 
-  // Calculate day number for display
-  const mealDayNumber = Math.floor(currentMealIndex / (mealType === 'Full Day' ? 4 : 1)) + 1;
+  // Get the day number directly from the current meal
+  const mealDayNumber = currentMeal.dayNumber || 1;
 
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col">
