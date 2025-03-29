@@ -10,42 +10,39 @@ export const MealGenerationProvider = ({ children }) => {
   const [backgroundTaskId, setBackgroundTaskId] = useState(null);
   const [taskCheckInterval, setTaskCheckInterval] = useState(null);
 
-  // Load state from localStorage on initial render
+  // Load state from localStorage
   useEffect(() => {
-    const savedState = localStorage.getItem('mealGenerationState');
-    if (savedState) {
-      const {
-        isGenerating: savedIsGenerating,
-        mealGenerationComplete: savedComplete,
-        currentMealPlanId: savedMealPlanId,
-        backgroundTaskId: savedTaskId
-      } = JSON.parse(savedState);
-      
-      setIsGenerating(savedIsGenerating);
-      setMealGenerationComplete(savedComplete);
-      setCurrentMealPlanId(savedMealPlanId);
-      setBackgroundTaskId(savedTaskId);
-      
-      if (savedTaskId) {
-        startTaskChecking(savedTaskId);
+    if (typeof window !== 'undefined') {
+      const savedState = localStorage.getItem('mealGenerationState');
+      if (savedState) {
+        const { 
+          isGenerating: savedIsGenerating, 
+          mealGenerationComplete: savedMealGenerationComplete,
+          currentMealPlanId: savedCurrentMealPlanId,
+          backgroundTaskId: savedBackgroundTaskId
+        } = JSON.parse(savedState);
+        
+        setIsGenerating(savedIsGenerating);
+        setMealGenerationComplete(savedMealGenerationComplete);
+        setCurrentMealPlanId(savedCurrentMealPlanId);
+        
+        if (savedBackgroundTaskId) {
+          setBackgroundTaskId(savedBackgroundTaskId);
+          startTaskChecking(savedBackgroundTaskId);
+        }
       }
     }
   }, []);
 
-  // Save state to localStorage whenever it changes
+  // Save state to localStorage
   useEffect(() => {
-    const state = {
-      isGenerating,
-      mealGenerationComplete,
-      currentMealPlanId,
-      backgroundTaskId
-    };
-    localStorage.setItem('mealGenerationState', JSON.stringify(state));
-    
-    // Update global window state
     if (typeof window !== 'undefined') {
-      window.mealLoading = isGenerating;
-      window.mealGenerationComplete = mealGenerationComplete;
+      localStorage.setItem('mealGenerationState', JSON.stringify({
+        isGenerating,
+        mealGenerationComplete,
+        currentMealPlanId,
+        backgroundTaskId
+      }));
     }
   }, [isGenerating, mealGenerationComplete, currentMealPlanId, backgroundTaskId]);
 
@@ -63,128 +60,43 @@ export const MealGenerationProvider = ({ children }) => {
     if (taskCheckInterval) {
       clearInterval(taskCheckInterval);
     }
-  
-    // Set isGenerating to true immediately to ensure spinner shows
-    setIsGenerating(true);
-    localStorage.setItem('isGenerating', 'true');
-    
-    // Reset completion state at the beginning of a new task
-    setMealGenerationComplete(false);
-    localStorage.removeItem('mealGenerationComplete');
-  
-    console.log(`🔄 Starting task check interval for task: ${taskId}`);
-  
-    const interval = setInterval(async () => {
-      try {
-        // First try the task status endpoint
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        console.log(`📡 Checking status for task: ${taskId}`);
-        
-        const response = await fetch(`${apiUrl}/mealplan/task_status/${taskId}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`📊 Task status response:`, data);
-          
-          if (data.status === 'completed') {
-            handleTaskCompletion(interval, data.meal_plan_id);
-            return;
-          } else if (data.status === 'failed') {
-            handleTaskFailure(interval);
-            return;
-          }
-        } else {
-          console.error(`❌ Error response from API: ${response.status}`);
-        }
-        
-        // As a backup, also check the session endpoint used by the chatbot
-        if (typeof window !== 'undefined' && window.userId) {
-          try {
-            const sessionResponse = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-              headers: { 'user-id': window.userId }
-            });
-            
-            if (sessionResponse.ok) {
-              const sessionData = await sessionResponse.json();
-              console.log(`📊 Session status response:`, sessionData);
-              
-              if (sessionData.meal_plan_ready && sessionData.meal_plan_id) {
-                console.log(`✅ Meal plan ready via session check: ${sessionData.meal_plan_id}`);
-                handleTaskCompletion(interval, sessionData.meal_plan_id);
-                return;
-              }
-            }
-          } catch (sessionError) {
-            console.error('Error checking session status:', sessionError);
-          }
-        }
-        
-        // Still processing if we got here
-        console.log(`⏳ Task ${taskId} still processing.`);
-      } catch (error) {
-        console.error('Error checking task status:', error);
-        // Don't clear the interval on network errors - keep trying
-      }
-    }, 3000); // Check more frequently (3 seconds)
-  
+
+    const interval = setInterval(() => checkBackgroundTaskStatus(taskId), 5000);
     setTaskCheckInterval(interval);
-    
-    // Helper function to handle task completion
-    function handleTaskCompletion(intervalToClean, mealPlanId) {
-      console.log(`✅ Task completed! Meal plan ID: ${mealPlanId}`);
+  };
+
+  const checkBackgroundTaskStatus = async (taskId) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/mealplan/task_status/${taskId}`);
       
-      // Clear interval first to prevent any race conditions
-      clearInterval(intervalToClean);
-      setTaskCheckInterval(null);
-      
-      // Update all relevant states in a specific order
-      if (mealPlanId) {
-        setCurrentMealPlanId(mealPlanId);
-      }
-      
-      // Important: set these in the correct order
-      setIsGenerating(false);
-      setMealGenerationComplete(true);
-      setBackgroundTaskId(null);
-      
-      // Update localStorage values
-      localStorage.setItem('mealGenerationComplete', 'true');
-      localStorage.removeItem('isGenerating');
-      
-      // Force update global window state
-      if (typeof window !== 'undefined') {
-        window.mealLoading = false;
-        window.mealGenerationComplete = true;
-        if (mealPlanId) {
-          window.currentMealPlanId = mealPlanId;
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.status === 'completed') {
+          setIsGenerating(false);
+          setMealGenerationComplete(true);
+          setBackgroundTaskId(null);
+          setCurrentMealPlanId(data.meal_plan_id);
+          clearInterval(taskCheckInterval);
+        } else if (data.status === 'failed') {
+          setIsGenerating(false);
+          setBackgroundTaskId(null);
+          clearInterval(taskCheckInterval);
+          console.error('Meal generation failed:', data.error);
         }
+        // If still processing, do nothing - we'll check again
+      } else {
+        console.error('Failed to check task status');
+        setIsGenerating(false);
+        setBackgroundTaskId(null);
+        clearInterval(taskCheckInterval);
       }
-      
-      // Dispatch a custom event that other components can listen for
-      if (typeof window !== 'undefined') {
-        const event = new CustomEvent('mealGenerationComplete', { 
-          detail: { 
-            mealPlanId: mealPlanId 
-          } 
-        });
-        window.dispatchEvent(event);
-      }
-    }
-    
-    // Helper function to handle task failure
-    function handleTaskFailure(intervalToClean) {
-      console.error(`❌ Task failed`);
-      
-      clearInterval(intervalToClean);
-      setTaskCheckInterval(null);
+    } catch (error) {
+      console.error('Error checking task status:', error);
       setIsGenerating(false);
       setBackgroundTaskId(null);
-      
-      localStorage.removeItem('isGenerating');
-      
-      if (typeof window !== 'undefined') {
-        window.mealLoading = false;
-      }
+      clearInterval(taskCheckInterval);
     }
   };
 
@@ -197,6 +109,7 @@ export const MealGenerationProvider = ({ children }) => {
     setCurrentMealPlanId,
     backgroundTaskId,
     setBackgroundTaskId,
+    checkBackgroundTaskStatus,
     startTaskChecking
   };
 

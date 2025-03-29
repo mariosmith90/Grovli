@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
@@ -60,37 +61,23 @@ export function BottomNavbar({ children }) {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const checkLoading = () => {
-        const currentLoading = isGenerating || window.mealLoading || localStorage.getItem('isGenerating') === 'true';
-        if (currentLoading !== isGenerating) {
-          setIsGenerating(currentLoading);
-        }
+        const currentLoading = window.mealLoading || false;
+        setIsGenerating(prev => {
+          if (prev !== currentLoading) {
+            if (currentLoading) {
+              localStorage.setItem('isGenerating', 'true');
+            } else {
+              localStorage.removeItem('isGenerating');
+            }
+            return currentLoading;
+          }
+          return prev;
+        });
       };
       
       checkLoading();
       const interval = setInterval(checkLoading, 250);
       return () => clearInterval(interval);
-    }
-  }, [isGenerating, setIsGenerating]);
-
-  useEffect(() => {
-    // Listen for the custom mealGenerationComplete event
-    const handleMealGenComplete = (event) => {
-      console.log("🎉 Meal generation complete event received!");
-      setIsGenerating(false);
-      setMealGenerationComplete(true);
-      setHasViewedGeneratedMeals(false);
-      
-      if (event.detail && event.detail.mealPlanId) {
-        setCurrentMealPlanId(event.detail.mealPlanId);
-      }
-    };
-    
-    if (typeof window !== 'undefined') {
-      window.addEventListener('mealGenerationComplete', handleMealGenComplete);
-      
-      return () => {
-        window.removeEventListener('mealGenerationComplete', handleMealGenComplete);
-      };
     }
   }, []);
 
@@ -165,12 +152,13 @@ export function BottomNavbar({ children }) {
 
   useEffect(() => {
     return () => {
-      if (!isGenerating && typeof window !== 'undefined') {
+      setIsGenerating(false);
+      if (typeof window !== 'undefined') {
         window.mealLoading = false;
         localStorage.removeItem('isGenerating');
       }
     };
-  }, [isGenerating]);
+  }, []);
   
   useEffect(() => {
     if ((fabMenuOpen || daysMenuOpen) && typeof document !== 'undefined') {
@@ -214,15 +202,12 @@ export function BottomNavbar({ children }) {
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       setHasViewedGeneratedMeals(true);
       localStorage.setItem('hasViewedGeneratedMeals', 'true');
-      
-      // This is the key change - passing query parameter to force showing meal cards
-      router.push('/meals?showMealCards=true');
+      router.push('/meals');
       return;
     }
     
     if (mealGenerationComplete && pathname !== '/meals') {
-      // Add query parameter here too to ensure consistency
-      router.push('/meals?showMealCards=true');
+      router.push('/meals');
       return;
     }
     
@@ -326,14 +311,7 @@ export function BottomNavbar({ children }) {
   };
 
   const getFabIcon = () => {
-    // Check explicitly for meal generation completion
-    if (mealGenerationComplete && !hasViewedGeneratedMeals && !isGenerating) {
-      console.log("✅ Showing completion icon (check mark)");
-      return <Check className="w-8 h-8" />;
-    }
-    
     if (isGenerating) {
-      console.log("⏳ Showing spinner icon");
       return (
         <svg className="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -348,25 +326,12 @@ export function BottomNavbar({ children }) {
     
     if (pathname === '/meals' && !isMealCardView()) {
       return daysMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    } else if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      return <Check className="w-8 h-8" />;
     } else {
       return <Plus className="w-8 h-8" />;
     }
   };
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const handleStorageChange = () => {
-        const savedState = localStorage.getItem('mealGenerationState');
-        if (savedState) {
-          const { isGenerating: savedIsGenerating } = JSON.parse(savedState);
-          setIsGenerating(savedIsGenerating);
-        }
-      };
-  
-      window.addEventListener('storage', handleStorageChange);
-      return () => window.removeEventListener('storage', handleStorageChange);
-    }
-  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -754,6 +719,22 @@ export function BottomNavbar({ children }) {
       )}
     </>
   );
+}
+
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(20, 184, 166, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+    }
+    
+    .pulse-animation {
+      animation: pulse 2s infinite;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 function NavButton({ icon, label, path, isActive, onClick }) {
