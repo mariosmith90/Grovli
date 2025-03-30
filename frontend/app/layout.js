@@ -1,8 +1,8 @@
 // app/layout.js
 import '../styles/globals.css';
 import Head from 'next/head';
-import BottomNavbar from '../components/navbar';
-import Header from '../components/header';
+import BottomNavbar from '../components/ui/navbar';
+import Header from '../components/ui/header';
 import { MealGenerationProvider } from '../contexts/MealGenerationContext';
 
 export const metadata = {

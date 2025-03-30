@@ -3,11 +3,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { useMealGeneration } from '../../contexts/MealGenerationContext';
-import MealCard, { MealPlanDisplay } from '../../components/mealcard';
-import ChatbotWindow from '../../components/chatbot';
-import CulturalInfo from '../../components/culturalinfo';
-import SearchBox from '../../components/searchbox';
-import Header from '../../components/header';
+import MealCard, { MealPlanDisplay } from '../../components/ui/mealcard';
+import ChatbotWindow from '../../components/features/meals/chatbot';
+import CulturalInfo from '../../components/features/meals/culturalinfo';
+import SearchBox from '../../components/features/meals/searchbox';
+import Header from '../../components/ui/header';
 
 export default function Home() {
   const router = useRouter();

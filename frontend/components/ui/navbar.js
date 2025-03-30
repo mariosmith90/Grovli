@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import { useMealGeneration } from '../contexts/MealGenerationContext';
+import { useMealGeneration } from '../../contexts/MealGenerationContext';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,

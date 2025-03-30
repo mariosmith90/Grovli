@@ -379,7 +379,7 @@ useEffect(() => {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-4xl px-4">
+    <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-4xl px-4 mb-20">
       <div className="bg-white rounded-2xl shadow-2xl w-full h-[500px] flex flex-col border border-gray-100 overflow-hidden font-sans">
         {/* Chat Header */}
         <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-t-2xl flex justify-between items-center">

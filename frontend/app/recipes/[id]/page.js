@@ -6,8 +6,8 @@ import { ChevronLeft, Calendar, Loader, Check } from "lucide-react";
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { Download } from 'lucide-react';
 import { toast } from "react-hot-toast";
-import { RecipeModal } from "../../../components/recipemodal";
-import { PlannerOverlay } from "../../../components/planner";
+import { RecipeModal } from "../../../components/ui/recipemodal";
+import { PlannerOverlay } from "../../../components/features/planner/planner";
 
 // Helper function to parse instructions
 function parseInstructions(instructions) {

@@ -5,7 +5,7 @@ import { UserProvider } from '@auth0/nextjs-auth0';
 import Head from 'next/head';
 import { useEffect, useState, useRef } from 'react';
 import jwtDecode from 'jwt-decode';
-import BottomNavbar from '../components/navbar'; // if needed
+import BottomNavbar from '../components/ui/navbar'; 
 
 // AutoLogoutOnExpiry Component
 function AutoLogoutOnExpiry() {

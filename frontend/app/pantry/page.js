@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
-import BarcodeScanner from '../../components/barcode';
+import BarcodeScanner from '../../components/features/pantry/barcode';
 import { Plus, Scan, Camera, Search, X, ShoppingBag, ExternalLink, Trash2, ChevronDown, ChevronUp, Edit, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
