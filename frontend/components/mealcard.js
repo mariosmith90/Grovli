@@ -261,7 +261,7 @@ export function MealPlanDisplay({
   const mealDayNumber = currentMeal.dayNumber || 1;
 
   return (
-    <div className="fixed inset-0 bg-white z-50 flex flex-col">
+    <div className="fixed inset-0 pt-20 bg-white z-50 flex flex-col">
       {/* Back button fixed at top-left */}
       <button 
         onClick={onReturnToInput}

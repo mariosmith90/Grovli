@@ -22,7 +22,14 @@ class MealPlanItem(BaseModel):
     date: str
     mealType: str
     mealId: str
-    current_day: bool = False 
+    meal_name: Optional[str] = None
+    meal_type: Optional[str] = None
+    macros: Optional[dict] = {}
+    ingredients: Optional[List[dict]] = []
+    instructions: Optional[str] = ""
+    imageUrl: Optional[str] = ""
+    calories: Optional[int] = 0
+    current_day: bool = False
 
 class SaveMealPlanRequest(BaseModel):
     userId: str
@@ -40,14 +47,11 @@ class DeleteMealRequest(BaseModel):
 
 # --- Helper to get user from Auth0 ID ---
 async def get_user_by_auth0_id(auth0_id: str):
-    """Get user document from MongoDB based on Auth0 ID"""
-    # Check Redis cache first
     cache_key = f"user:{auth0_id}"
     cached_user = get_cache(cache_key)
     if cached_user:
         return cached_user
         
-    # If not in cache, query MongoDB
     user = user_collection.find_one({"auth0_id": auth0_id})
     if not user:
         raise HTTPException(
@@ -55,23 +59,18 @@ async def get_user_by_auth0_id(auth0_id: str):
             detail="User not found"
         )
     
-    # Remove MongoDB _id before caching
     if "_id" in user:
         user_clean = {k: v for k, v in user.items() if k != "_id"}
     else:
         user_clean = user
         
-    # Cache the user for future requests
     set_cache(cache_key, user_clean, PROFILE_CACHE_TTL)
-    
     return user
 
 # --- API Endpoints ---
 @router.post("/save")
 async def save_meal_plan(request: SaveMealPlanRequest):
-    """Save a meal plan for a user"""
     try:
-        # Verify user exists
         user = user_collection.find_one({"auth0_id": request.userId})
         if not user:
             raise HTTPException(
@@ -79,70 +78,71 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                 detail="User not found"
             )
         
-        # Create plan ID
         plan_id = str(uuid.uuid4())
-        
-        # Generate plan name if not provided
         plan_name = request.planName or f"Meal Plan - {datetime.datetime.now().strftime('%Y-%m-%d')}"
         
-        # Process each meal in the plan
         processed_meals = []
         for meal_item in request.meals:
-            # Check Redis cache for meal details
-            meal_cache_key = f"meal:{meal_item.mealId}"
-            cached_meal = get_cache(meal_cache_key)
-            
-            if cached_meal:
-                # Use cached meal details
+            # First try to use data from request
+            if meal_item.meal_name:
                 meal_details = {
-                    "id": cached_meal["meal_id"],
-                    "title": cached_meal["meal_name"],
-                    "name": cached_meal["meal_name"],
-                    "meal_type": cached_meal["meal_type"],
-                    "nutrition": cached_meal["macros"],
-                    "ingredients": cached_meal["ingredients"],
-                    "instructions": cached_meal["meal_text"],
-                    "imageUrl": cached_meal.get("imageUrl", ""),  # Fixed: Use camelCase
-                    "calories": cached_meal["macros"].get("calories", 0)
+                    "id": meal_item.mealId,
+                    "title": meal_item.meal_name,
+                    "name": meal_item.meal_name,
+                    "meal_type": meal_item.meal_type or meal_item.mealType,
+                    "nutrition": meal_item.macros,
+                    "ingredients": meal_item.ingredients,
+                    "instructions": meal_item.instructions,
+                    "imageUrl": meal_item.imageUrl,
+                    "calories": meal_item.calories
                 }
             else:
-                # For each meal we need to get the full meal details from saved_meals
-                meal_details = None
+                # Fallback to cache/database lookup
+                meal_cache_key = f"meal:{meal_item.mealId}"
+                cached_meal = get_cache(meal_cache_key)
                 
-                # Look up meal from saved_meals collection
-                saved_meal_plans = saved_meals_collection.find({})
-                
-                # Search through saved meal plans for this meal
-                for plan in saved_meal_plans:
-                    if "recipes" in plan:
-                        for recipe in plan["recipes"]:
-                            if recipe.get("id") == meal_item.mealId:
-                                meal_details = recipe
+                if cached_meal:
+                    meal_details = {
+                        "id": cached_meal["meal_id"],
+                        "title": cached_meal["meal_name"],
+                        "name": cached_meal["meal_name"],
+                        "meal_type": cached_meal["meal_type"],
+                        "nutrition": cached_meal["macros"],
+                        "ingredients": cached_meal["ingredients"],
+                        "instructions": cached_meal["meal_text"],
+                        "imageUrl": cached_meal.get("imageUrl", ""),
+                        "calories": cached_meal["macros"].get("calories", 0)
+                    }
+                else:
+                    meal_details = None
+                    saved_meal_plans = saved_meals_collection.find({})
+                    
+                    for plan in saved_meal_plans:
+                        if "recipes" in plan:
+                            for recipe in plan["recipes"]:
+                                if recipe.get("id") == meal_item.mealId:
+                                    meal_details = recipe
+                                    break
+                            if meal_details:
                                 break
-                        if meal_details:
-                            break
-                
-                # If not found in saved_meals, check meals collection
-                if not meal_details:
-                    from app.api.meals import meals_collection
-                    meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
-                    if meal_doc:
-                        calories_value = meal_doc["macros"].get("calories", 0)
-                        meal_details = {
-                            "id": meal_doc["meal_id"],
-                            "title": meal_doc["meal_name"],
-                            "name": meal_doc["meal_name"],
-                            "meal_type": meal_doc["meal_type"],
-                            "nutrition": meal_doc["macros"],
-                            "ingredients": meal_doc["ingredients"],
-                            "instructions": meal_doc["meal_text"],
-                            "imageUrl": meal_doc.get("imageUrl", ""),  # Fixed: Use camelCase
-                            "calories": calories_value
-                        }
-                        
-                        # Cache this meal for future requests
-                        set_cache(meal_cache_key, meal_doc, PROFILE_CACHE_TTL)
-                
+                    
+                    if not meal_details:
+                        from app.api.meals import meals_collection
+                        meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
+                        if meal_doc:
+                            meal_details = {
+                                "id": meal_doc["meal_id"],
+                                "title": meal_doc["meal_name"],
+                                "name": meal_doc["meal_name"],
+                                "meal_type": meal_doc["meal_type"],
+                                "nutrition": meal_doc["macros"],
+                                "ingredients": meal_doc["ingredients"],
+                                "instructions": meal_doc["meal_text"],
+                                "imageUrl": meal_doc.get("imageUrl", ""),
+                                "calories": meal_doc["macros"].get("calories", 0)
+                            }
+                            set_cache(meal_cache_key, meal_doc, PROFILE_CACHE_TTL)
+            
             if meal_details:
                 processed_meal = {
                     "date": meal_item.date,
@@ -151,7 +151,6 @@ async def save_meal_plan(request: SaveMealPlanRequest):
                 }
                 processed_meals.append(processed_meal)
         
-        # Create the meal plan document
         meal_plan = {
             "id": plan_id,
             "user_id": request.userId,
@@ -161,10 +160,7 @@ async def save_meal_plan(request: SaveMealPlanRequest):
             "meals": processed_meals
         }
         
-        # Save to database
         user_meal_plans_collection.insert_one(meal_plan)
-        
-        # Invalidate user plans cache
         delete_cache(f"user_plans:{request.userId}")
         
         return {
@@ -178,7 +174,7 @@ async def save_meal_plan(request: SaveMealPlanRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save meal plan: {str(e)}"
         )
-
+    
 @router.get("/user/{user_id}")
 async def get_user_meal_plans(user_id: str):
     """Get all meal plans for a specific user"""
