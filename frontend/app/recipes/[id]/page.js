@@ -62,7 +62,6 @@ export default function RecipePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isSaved, setIsSaved] = useState(false);
-  const [checkingSavedStatus, setCheckingSavedStatus] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showPlannerOverlay, setShowPlannerOverlay] = useState(false);
   const [relatedRecipes, setRelatedRecipes] = useState([]);
@@ -70,11 +69,9 @@ export default function RecipePage() {
   const [changingRecipe, setChangingRecipe] = useState(false);
 
   const checkIfRecipeIsSaved = async (recipeId) => {
-    if (!user || !recipeId) return false;
+    if (!user) return;
 
     try {
-      setCheckingSavedStatus(true);
-      
       const accessToken = await getAccessToken({
         authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
       });
@@ -88,15 +85,9 @@ export default function RecipePage() {
       if (response.ok) {
         const data = await response.json();
         setIsSaved(data.isSaved);
-        return data.isSaved;
       }
-      
-      return false;
     } catch (error) {
       console.error("Error checking saved status:", error);
-      return false;
-    } finally {
-      setCheckingSavedStatus(false);
     }
   };
 
@@ -151,7 +142,6 @@ export default function RecipePage() {
     
     const fetchRecipe = async () => {
       try {
-        setLoading(true);
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${currentMealId}`);
         
         if (!response.ok) {
@@ -163,11 +153,6 @@ export default function RecipePage() {
         console.log("Recipe data from fetch:", data);
         console.log("Image URL:", data.imageUrl);
         setRecipe(data);
-        
-        // Check if recipe is saved after it's loaded
-        if (user) {
-          await checkIfRecipeIsSaved(currentMealId);
-        }
       } catch (error) {
         console.error("Error fetching recipe:", error);
         setError(`Failed to load recipe: ${error.message}`);
@@ -177,7 +162,35 @@ export default function RecipePage() {
     };
 
     fetchRecipe();
-  }, [currentMealId, user]); 
+  }, [currentMealId]); 
+
+  // Check if recipe is saved
+  useEffect(() => {
+    if (!user || !recipe) return;
+
+    const checkIfSaved = async () => {
+      try {
+        const accessToken = await getAccessToken({
+          authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+        });
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${currentMealId}`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setIsSaved(data.isSaved);
+        }
+      } catch (error) {
+        console.error("Error checking saved status:", error);
+      }
+    };
+
+    checkIfSaved();
+  }, [user, recipe, currentMealId]);
 
   // Add ingredients to pantry
   const addIngredientsToUserPantry = async () => {
@@ -227,13 +240,6 @@ export default function RecipePage() {
 
     try {
       setSaving(true);
-      
-      // Double check if it's already saved first
-      const alreadySaved = await checkIfRecipeIsSaved(currentMealId);
-      if (alreadySaved) {
-        toast.success("Recipe is already saved!");
-        return;
-      }
       
       const accessToken = await getAccessToken({
         authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
@@ -377,9 +383,9 @@ export default function RecipePage() {
               {/* Add to Planner Button */}
               <button 
                 onClick={togglePlannerOverlay}
-                disabled={checkingSavedStatus || (!isSaved && !checkingSavedStatus)} 
+                disabled={saving || !isSaved} 
                 className={`p-3 rounded-full ${
-                  !isSaved && !checkingSavedStatus
+                  !isSaved 
                     ? "bg-black/20 text-white/50 cursor-not-allowed" 
                     : "bg-black/30 backdrop-blur-sm hover:bg-black/40 transition-colors text-white shadow-lg"
                 }`}
@@ -392,15 +398,11 @@ export default function RecipePage() {
               {/* Save Recipe Button */}
               <button 
                 onClick={handleSaveRecipe}
-                disabled={saving || isSaved || checkingSavedStatus}
-                className={`p-3 rounded-full ${
-                  checkingSavedStatus 
-                    ? "bg-black/20 text-white/50 cursor-wait" 
-                    : "bg-black/30 backdrop-blur-sm hover:bg-black/40 transition-colors text-white shadow-lg"
-                }`}
+                disabled={saving || isSaved}
+                className="p-3 rounded-full bg-black/30 backdrop-blur-sm hover:bg-black/40 transition-colors text-white shadow-lg"
                 aria-label={isSaved ? "Recipe Saved" : "Save Recipe"}
               >
-                {saving || checkingSavedStatus ? (
+                {saving ? (
                   <Loader className="w-5 h-5 animate-spin" />
                 ) : isSaved ? (
                   <Check className="w-5 h-5" />
