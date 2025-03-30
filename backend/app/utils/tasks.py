@@ -588,7 +588,31 @@ def generate_meal_plan(
 
         # Only mark as ready and send notification if we have all the meals needed
         if len(all_generated_meals) >= total_meals_needed:
-            # Try to send notification that meal plan is ready
+            # NEW CHANGE: Check if all meal images are ready
+            all_images_ready = all(meal.get("imageUrl") for meal in formatted_meals)
+            
+            if not all_images_ready:
+                logger.warning(f"⚠️ Not marking meal plan as ready - only {len([m for m in formatted_meals if m.get('imageUrl')])} of {len(formatted_meals)} meals have images")
+                # Mark as still processing
+                try:
+                    if session_id:
+                        chat_collection.update_one(
+                            {"session_id": session_id},
+                            {
+                                "$set": {
+                                    "meal_plan_ready": False,
+                                    "meal_plan_processing": True,
+                                    "meal_plan_id": meal_plan_id,
+                                    "updated_at": datetime.datetime.now()
+                                }
+                            }
+                        )
+                        logger.info(f"Updated chat session {session_id} to mark meal plan as still processing (waiting for images)")
+                except Exception as e:
+                    logger.error(f"Failed to update chat session status for incomplete image generation: {str(e)}")
+                return
+                
+            # All meals and images are ready, continue with notification
             try:
                 # We already have session_id from earlier
                 if session_id:

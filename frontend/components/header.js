@@ -16,7 +16,8 @@ export default function Header({ toggleChatbot }) {
       setPathname(currentPath);
       // Check if header should be hidden
       const hidePaths = ['/settings', '/', '/onboarding'];
-      const shouldHide = hidePaths.includes(currentPath);
+      const shouldHide = hidePaths.includes(currentPath) || 
+                         hidePaths.some(path => currentPath.startsWith(path + '/'));
       setShouldShow(!shouldHide);
     };
 
@@ -47,7 +48,14 @@ export default function Header({ toggleChatbot }) {
       {/* Logo Section */}
       <div 
         className="cursor-pointer"
-        onClick={() => router.push('/meals')}
+        onClick={() => {
+          // Always go to the meal selection page, not the meal card view
+          router.push('/meals');
+          // Clear any meal plan data if we're navigating from meal cards
+          if (typeof window !== 'undefined' && window.mealPlanActive) {
+            window.mealPlan = [];
+          }
+        }}
       >
         <img 
           src="/logo.png" 

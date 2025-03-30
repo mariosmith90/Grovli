@@ -491,52 +491,60 @@ async def get_meal_by_id(meal_id: str):
     """
     Retrieves a specific meal by its meal_id with Redis caching.
     """
-    print(f"🔎 Looking up meal with ID: {meal_id}")  
-    
-    # Check Redis cache first
-    cache_key = f"meal:{meal_id}"
-    cached_meal = get_cache(cache_key)
-    if cached_meal:
-        print(f"✅ Found meal in Redis cache: {cached_meal.get('meal_name')}")
-        return {
-            "id": cached_meal["meal_id"],
-            "title": cached_meal["meal_name"],
-            "nutrition": cached_meal["macros"],
-            "ingredients": cached_meal["ingredients"],
-            "instructions": cached_meal["meal_text"],
-            "meal_type": cached_meal.get("meal_type"),
-            "imageUrl": cached_meal.get("imageUrl"),  # Standardized field
-            "cache_source": "redis"
-        }
-    
-    # If not in Redis, direct lookup by meal_id in MongoDB
-    meal = meals_collection.find_one({"meal_id": meal_id})
-    
-    if not meal:
-        print(f"⚠️ Meal not found with ID: {meal_id}")
-        # Try using meal_id as a regex pattern as a fallback
-        pattern = re.escape(meal_id)
-        meal = meals_collection.find_one({"meal_id": {"$regex": f".*{pattern}.*"}})
+    try:
+        print(f"🔎 Looking up meal with ID: {meal_id}")  
         
-    if not meal:
-        print(f"⚠️ Meal still not found with pattern: {meal_id}")
-        raise HTTPException(status_code=404, detail=f"Meal not found with ID: {meal_id}")
+        # Check Redis cache first
+        cache_key = f"meal:{meal_id}"
+        cached_meal = get_cache(cache_key)
+        if cached_meal:
+            print(f"✅ Found meal in Redis cache: {cached_meal.get('meal_name')}")
+            return {
+                "id": cached_meal["meal_id"],
+                "title": cached_meal.get("meal_name", "Unnamed Meal"),
+                "nutrition": cached_meal.get("macros", {}),
+                "ingredients": cached_meal.get("ingredients", []),
+                "instructions": cached_meal.get("meal_text", ""),
+                "meal_type": cached_meal.get("meal_type", ""),
+                "imageUrl": cached_meal.get("imageUrl", ""),
+                "cache_source": "redis"
+            }
+        
+        # If not in Redis, direct lookup by meal_id in MongoDB
+        meal = meals_collection.find_one({"meal_id": meal_id})
+        
+        if not meal:
+            # Try using meal_id as a regex pattern as a fallback
+            try:
+                pattern = re.escape(meal_id)
+                meal = meals_collection.find_one({"meal_id": {"$regex": f".*{pattern}.*"}})
+            except Exception:
+                pass
+            
+        if not meal:
+            print(f"⚠️ Meal still not found with pattern: {meal_id}")
+            raise HTTPException(status_code=404, detail=f"Meal not found with ID: {meal_id}")
 
-    print(f"✅ Found meal in MongoDB: {meal.get('meal_name')}")
-    
-    # Cache the result in Redis
-    set_cache(cache_key, meal, MEAL_CACHE_TTL)
-    
-    return {
-        "id": meal["meal_id"],
-        "title": meal["meal_name"],
-        "nutrition": meal["macros"],
-        "ingredients": meal["ingredients"],
-        "instructions": meal["meal_text"],
-        "meal_type": meal.get("meal_type"),
-        "imageUrl": meal.get("imageUrl"),  # Standardized field
-        "cache_source": "mongodb"
-    }
+        print(f"✅ Found meal in MongoDB: {meal.get('meal_name')}")
+        
+        # Cache the result in Redis
+        set_cache(cache_key, meal, MEAL_CACHE_TTL)
+        
+        return {
+            "id": meal["meal_id"],
+            "title": meal.get("meal_name", "Unnamed Meal"),
+            "nutrition": meal.get("macros", {}),
+            "ingredients": meal.get("ingredients", []),
+            "instructions": meal.get("meal_text", ""),
+            "meal_type": meal.get("meal_type", ""),
+            "imageUrl": meal.get("imageUrl", ""),
+            "cache_source": "mongodb"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_meal_by_id: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error")
 
 @router.get("/by_id/{meal_plan_id}")
 async def get_meal_plan_by_id(meal_plan_id: str):
@@ -554,12 +562,12 @@ async def get_meal_plan_by_id(meal_plan_id: str):
             for meal in cached_meals:
                 formatted_meal = {
                     "id": meal["meal_id"],
-                    "title": meal["meal_name"],
-                    "meal_type": meal["meal_type"],
-                    "nutrition": meal["macros"],
-                    "ingredients": meal["ingredients"],
-                    "instructions": meal["meal_text"],
-                    "imageUrl": meal.get("imageUrl")  # Standardized field
+                    "title": meal.get("meal_name", ""),
+                    "meal_type": meal.get("meal_type", ""),
+                    "nutrition": meal.get("macros", {}),
+                    "ingredients": meal.get("ingredients", []),
+                    "instructions": meal.get("meal_text", ""),
+                    "imageUrl": meal.get("imageUrl", "")
                 }
                 formatted_meals.append(formatted_meal)
             
@@ -567,10 +575,13 @@ async def get_meal_plan_by_id(meal_plan_id: str):
         
         # If not in cache, find meals in MongoDB
         meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
-
-        expected_count = 4  # or dynamically determine based on meal_plan_id
-        if len(meals) < expected_count:
-            raise HTTPException(status_code=404, detail="Meal plan still generating")
+        
+        # Remove the expected count check - return whatever meals are available
+        if not meals:
+            # Also try searching by request_hash if meal_plan_id is actually a request hash
+            meals = list(meals_collection.find({"request_hash": meal_plan_id}))
+            if not meals:
+                raise HTTPException(status_code=404, detail="Meal plan still generating")
         
         # Cache the results in Redis
         set_cache(cache_key, meals, MEAL_CACHE_TTL)
@@ -580,12 +591,12 @@ async def get_meal_plan_by_id(meal_plan_id: str):
         for meal in meals:
             formatted_meal = {
                 "id": meal["meal_id"],
-                "title": meal["meal_name"],
-                "meal_type": meal["meal_type"],
-                "nutrition": meal["macros"],
-                "ingredients": meal["ingredients"],
-                "instructions": meal["meal_text"],
-                "imageUrl": meal.get("imageUrl")  # Standardized field
+                "title": meal.get("meal_name", ""),
+                "meal_type": meal.get("meal_type", ""),
+                "nutrition": meal.get("macros", {}),
+                "ingredients": meal.get("ingredients", []),
+                "instructions": meal.get("meal_text", ""),
+                "imageUrl": meal.get("imageUrl", "")
             }
             formatted_meals.append(formatted_meal)
         

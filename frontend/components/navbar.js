@@ -173,7 +173,7 @@ export function BottomNavbar({ children }) {
       return;
     }
     
-    // If meal plan is ready but not yet viewed, go to meals page
+    // If meal plan is ready but not yet viewed, go to meals page with cards view
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       setHasViewedGeneratedMeals(true);
       localStorage.setItem('hasViewedGeneratedMeals', 'true');
@@ -181,14 +181,24 @@ export function BottomNavbar({ children }) {
       return;
     }
     
-    // If meal plan is ready and we're not on meals page, go to meals page
+    // If meal plan is ready and we're not on meals page, go to meals page with cards
     if (mealGenerationComplete && pathname !== '/meals') {
       router.push('/meals?showMealCards=true');
       return;
     }
     
-    // If on meals page or have visited it, generate a new meal plan
-    if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+    // In all other cases, navigate to the meals selection page
+    if (pathname !== '/meals' || isMealCardView()) {
+      // If we're on meal cards view, reset to selection view
+      if (isMealCardView() && typeof window !== 'undefined') {
+        window.mealPlan = [];
+      }
+      router.push('/meals');
+      return;
+    }
+    
+    // Only generate a new meal plan if we're already on the meals selection page
+    if (pathname === '/meals' && !isMealCardView()) {
       // Reset previous meal generation state before starting a new one
       resetMealGeneration();
       
@@ -197,29 +207,14 @@ export function BottomNavbar({ children }) {
       localStorage.setItem('hasViewedGeneratedMeals', 'false');
       
       try {
-        if (typeof window !== 'undefined') {
-          if (window.generateMeals && typeof window.generateMeals === 'function') {
-            // Navigate to meals page if not already there
-            if (pathname !== '/meals') {
-              router.push('/meals');
-              // Wait for navigation to complete
-              await new Promise(resolve => setTimeout(resolve, 300));
-            }
-            
-            // Generate new meal plan
-            await window.generateMeals();
-          } else {
-            console.warn('generateMeals function not found, navigating to meals page');
-            router.push('/meals');
-          }
+        if (typeof window !== 'undefined' && window.generateMeals && typeof window.generateMeals === 'function') {
+          // Generate new meal plan (we're already on the meals page)
+          await window.generateMeals();
         }
       } catch (error) {
         console.error('Error generating meals:', error);
         setIsGenerating(false);
       }
-    } else {
-      // If none of the above conditions are met, just navigate to meals page
-      router.push('/meals');
     }
   };
   
