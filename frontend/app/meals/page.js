@@ -6,6 +6,7 @@ import { useMealGeneration } from '../../contexts/MealGenerationContext';
 import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import ChatbotWindow from '../../components/chatbot';
 import CulturalInfo from '../../components/culturalinfo';
+import SearchBox from '../../components/searchbox'
 
 export default function Home() {
   const router = useRouter();
@@ -699,22 +700,18 @@ export default function Home() {
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 border-none w-full max-w-4xl flex-grow flex flex-col">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-gray-800">
-              Plan Your Meals
-            </h2>
-            
-            <div className="flex flex-col items-end">
-              <div className="flex items-center gap-2">
-                <span className="text-xl font-semibold text-gray-700">{globalSettings.calories}</span>
-                <span className="text-sm text-gray-500">kcal</span>
-              </div>
-              <button
-                onClick={() => router.push('/settings')}
-                className="text-xs text-teal-600 hover:text-teal-800 transition-colors font-medium"
-              >
-                Change
-              </button>
-            </div>
+            {/* Your header content could go here */}
+          </div>
+  
+          {/* Insert the modern search box here */}
+          <div className="mb-8">
+            <SearchBox 
+              placeholder="Search meals..." 
+              onSearch={(query) => {
+                console.log("Search query:", query);
+                // Update state or call backend search API later
+              }} 
+            />
           </div>
   
           <div className="mb-8">
