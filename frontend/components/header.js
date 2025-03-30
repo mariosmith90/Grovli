@@ -1,9 +1,9 @@
 "use client";
 import { useRouter } from 'next/navigation';
-import { Settings } from 'lucide-react';
+import { Settings, Bot } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-export default function Header() {
+export default function Header({ toggleChatbot }) {
   const router = useRouter();
   const [pathname, setPathname] = useState('');
   const [shouldShow, setShouldShow] = useState(false);
@@ -56,14 +56,26 @@ export default function Header() {
         />
       </div>
 
-      {/* Settings Button */}
-      <button 
-        onClick={() => router.push('/settings')} 
-        className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
-        aria-label="Settings"
-      >
-        <Settings className="w-6 h-6" />
-      </button>
+      {/* Action Buttons */}
+      <div className="flex items-center gap-3">
+        {/* Chatbot Toggle Button */}
+        <button 
+          onClick={() => window.toggleChatbotWindow?.()} 
+          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600 rounded-full shadow-sm" 
+          aria-label="Open Chatbot Assistant"
+        >
+          <Bot className="w-6 h-6" />
+        </button>
+
+        {/* Settings Button */}
+        <button 
+          onClick={() => router.push('/settings')} 
+          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600 rounded-full shadow-sm" 
+          aria-label="Settings"
+        >
+          <Settings className="w-6 h-6" />
+        </button>
+      </div>
     </header>
   );
 }

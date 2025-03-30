@@ -7,6 +7,8 @@ import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import ChatbotWindow from '../../components/chatbot';
 import CulturalInfo from '../../components/culturalinfo';
 import SearchBox from '../../components/searchbox'
+import Header from '../../components/header'
+
 
 export default function Home() {
   const router = useRouter();
@@ -428,6 +430,21 @@ export default function Home() {
     }
   };
 
+  // In your Home component, add this at the top of your useEffect blocks:
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Make toggleChatbot available globally
+      window.toggleChatbotWindow = () => {
+        setShowChatbot(prev => !prev);
+      };
+      
+      return () => {
+        // Clean up when component unmounts
+        window.toggleChatbotWindow = undefined;
+      };
+    }
+  }, []); // Empty dependency array so it only runs once
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -559,6 +576,10 @@ export default function Home() {
       console.error("❌ Error saving recipes:", error);
       setError("Failed to save recipes. Please try again later.");
     }
+  };
+
+  const toggleChatbot = () => {
+    setShowChatbot(prev => !prev);
   };
 
   const handleOrderPlanIngredients = async () => {
@@ -696,8 +717,8 @@ export default function Home() {
   return ( 
     <>
       <div className="absolute inset-0 bg-white/90 backdrop-blur-sm"></div>
-  
-      <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
+      <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[3rem] pb-[5rem]">
+        <Header toggleChatbot={toggleChatbot} />
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 border-none w-full max-w-4xl flex-grow flex flex-col">
           <div className="flex justify-between items-center mb-6">
             {/* Your header content could go here */}
@@ -925,15 +946,15 @@ export default function Home() {
         
         {showChatbot && (
           <ChatbotWindow
-            user={user}
-            preferences={preferences}
-            mealType={mealType}
-            isVisible={showChatbot}
-            onClose={() => setShowChatbot(false)}
-            onChatComplete={handleChatComplete}
-            onMealPlanReady={() => setMealPlanReady(true)}
-            mealPlanReady={mealPlanReady}
-          />
+          user={user}
+          preferences={preferences}
+          mealType={mealType}
+          isVisible={showChatbot}
+          onClose={() => setShowChatbot(false)}
+          onChatComplete={handleChatComplete}
+          onMealPlanReady={() => setMealPlanReady(true)}
+          mealPlanReady={mealPlanReady}
+        />
         )}
       </main>
     </>
