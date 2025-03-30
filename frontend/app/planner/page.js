@@ -433,55 +433,78 @@ export default function MealPlannerCalendar() {
     }
   };
 
-  // Load a plan to the calendar
   const loadPlanToCalendar = (plan) => {
     if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
+      console.error("Invalid plan structure:", plan);
       return;
     }
     
-    // Fix any malformed meal data
-    plan.meals.forEach(mealItem => {
-      if (mealItem.meal && typeof mealItem.meal === 'object') {
-        // Fix name field if missing
-        if (!mealItem.meal.name && mealItem.meal.title) {
-          mealItem.meal.name = mealItem.meal.title;
-        }
-        
-        // Fix calories field if it's missing or just "cal"
-        if (!mealItem.meal.calories && mealItem.meal.nutrition?.calories) {
-          mealItem.meal.calories = mealItem.meal.nutrition.calories;
-        }
-        
-        // Convert calories to number if it's a string
-        if (typeof mealItem.meal.calories === 'string') {
-          const caloriesNum = parseInt(mealItem.meal.calories);
-          if (!isNaN(caloriesNum)) {
-            mealItem.meal.calories = caloriesNum;
-          }
-        }
-      }
-    });
-    
     setActivePlanId(plan.id);
-    setPlanName(plan.name);
+    setPlanName(plan.name || "Unnamed Plan");
     
     // Convert plan format to mealPlan state format
     const newMealPlan = {};
     
+    // Process each meal in the plan
     plan.meals.forEach(mealItem => {
+      // Ensure we have the date and meal type
+      if (!mealItem.date || !mealItem.mealType) {
+        console.error("Skipping invalid meal item:", mealItem);
+        return;
+      }
+      
       const dateKey = mealItem.date;
       const mealType = mealItem.mealType;
-      const meal = mealItem.meal;
       
+      // Initialize the date entry if it doesn't exist
       if (!newMealPlan[dateKey]) {
         newMealPlan[dateKey] = {};
       }
       
-      newMealPlan[dateKey][mealType] = meal;
+      // Process the meal data - handle both direct and nested formats
+      let mealData;
+      
+      if (mealItem.meal && typeof mealItem.meal === 'object') {
+        // Backend returns meal in a nested 'meal' property
+        mealData = {
+          id: mealItem.meal.id || mealItem.mealId,
+          name: mealItem.meal.name || mealItem.meal.title || "Unnamed Meal",
+          calories: mealItem.meal.calories || 
+                  (mealItem.meal.nutrition && mealItem.meal.nutrition.calories) || 0,
+          protein: (mealItem.meal.nutrition && mealItem.meal.nutrition.protein) || 0,
+          carbs: (mealItem.meal.nutrition && mealItem.meal.nutrition.carbs) || 0,
+          fat: (mealItem.meal.nutrition && mealItem.meal.nutrition.fat) || 0,
+          image: mealItem.meal.imageUrl || mealItem.meal.image_url || "",
+          ingredients: mealItem.meal.ingredients || [],
+          instructions: mealItem.meal.instructions || ""
+        };
+      } else if (mealItem.mealId) {
+        // For cases where we only have an ID (should be rare)
+        mealData = {
+          id: mealItem.mealId,
+          name: "Loading...", // Placeholder until full data is available
+          calories: 0,
+          image: ""
+        };
+        
+        // You might want to fetch the full meal details here
+        // This could be an async operation, in which case you'd want to
+        // update the mealPlan state after the fetch completes
+      } else {
+        console.error("Unable to process meal item:", mealItem);
+        return;
+      }
+      
+      // Store the processed meal in our mealPlan state
+      newMealPlan[dateKey][mealType] = mealData;
     });
     
+    // Update the state with the fully processed meal plan
+    console.log("Setting meal plan state:", newMealPlan);
     setMealPlan(newMealPlan);
-    toast.success(`Loaded meal plan: ${plan.name}`);
+    
+    // Show success message
+    toast.success(`Loaded meal plan: ${plan.name || "Unnamed Plan"}`);
   };
 
   // Fetch saved meals from API
