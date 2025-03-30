@@ -12,12 +12,15 @@ import CalorieProgressBar from '../../components/features/profile/caloriebar';
 import SavedMeals from '../../components/features/profile/savedmeals';
 
 export default function ProfilePage() {
+  // Add this to track initial loading state
+  const [initialLoading, setInitialLoading] = useState(true);
   const router = useRouter();
   const { user, isLoading: isAuthLoading } = useUser();
   const isAuthenticated = !!user;
   const [accessToken, setAccessToken] = useState(null);
   const timelineRef = useRef(null);
   const autoSaveTimeoutRef = useRef(null);
+  const dataInitializedRef = useRef(false);
   const [savingMeals, setSavingMeals] = useState({});
 
   // States
@@ -159,7 +162,83 @@ export default function ProfilePage() {
         // Prepare request data
         const requestData = {
           userId: user.sub,
-          planName: `Daily Plan - ${new Date().toLocaleDateString()}`,
+          planName: `Daily Plan - ${new Date().toLocaleDateString(            <>
+              {/* Day Timeline Slider */}
+              <section className="mb-4 bg-white p-4 rounded-lg shadow-sm">
+                <DayTimelineSlider 
+                  currentDate={selectedDate}
+                  onDateChange={(date) => {
+                    setSelectedDate(date);
+                    loadDataForDate(date);
+                  }}
+                  timelineRef={timelineRef}
+                />
+              </section>
+
+              <section className="mb-6 bg-white p-4">
+                <h2 className="text-2xl font-semibold mb-3 flex items-center">
+                  {(() => {
+                    const Icon = { breakfast: Coffee, lunch: Utensils, snack: Apple, dinner: Moon }[nextMeal.type];
+                    return (
+                      <>
+                        <Icon className="w-6 h-6 mr-2 text-teal-600" />
+                        {nextMeal.type.charAt(0).toUpperCase() + nextMeal.type.slice(1)}
+                      </>
+                    );
+                  })()}
+                </h2>
+                <NextMealCard 
+                  meal={nextMeal} 
+                  onJustAte={handleJustAte} 
+                  handleCreateNewMeals={handleCreateNewMeals} 
+                />
+                <div className="mt-4">
+                  <CalorieProgressBar 
+                    consumed={calorieData.consumed} 
+                    target={calorieData.target}
+                    globalSettings={globalSettings}
+                  />
+                </div>
+              </section>
+              
+              {activeSection === 'timeline' ? (
+                <section className="mb-6 bg-white p-4">
+                  <h2 className="text-lg font-semibold mb-3">Your Meal Timeline</h2>
+                  <MealTimeline 
+                    meals={mealPlan} 
+                    onAddMeal={handleAddMeal}
+                    onRemoveMeal={handleRemoveMeal}
+                    toggleMealCompletion={toggleMealCompletion}
+                    completedMeals={completedMeals}
+                    savingMeals={savingMeals}
+                  />
+                </section>
+              ) : (
+                <section className="mb-6 bg-white p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold">Saved Meals</h2>
+                    <button 
+                      onClick={() => setActiveSection('timeline')}
+                      className="text-teal-600 hover:underline flex items-center"
+                    >
+                      <ArrowLeft className="w-4 h-4 mr-1" /> Back to Timeline
+                    </button>
+                  </div>
+                  <SavedMeals 
+                    mealType={selectedMealType} 
+                    onSelectMeal={handleSelectSavedMeal}
+                    savedMeals={savedMeals}
+                    isLoading={isLoadingSavedMeals}
+                    handleCreateNewMeals={handleCreateNewMeals}
+                  />
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+    </>
+  );`,
           meals: formattedMeals
         };
         
@@ -223,6 +302,8 @@ export default function ProfilePage() {
   };
 
   const saveMealCompletion = async (mealType, completed) => {
+    if (!user || !accessToken) return;
+    
     try {
       await makeAuthenticatedRequest('/user-profile/meal-completion', {
         method: 'POST',
@@ -240,6 +321,8 @@ export default function ProfilePage() {
   };
 
   const loadMealCompletions = async () => {
+    if (!user || !accessToken) return {};
+    
     try {
       const today = getTodayDateString();
       const completions = await makeAuthenticatedRequest(`/user-profile/meal-completion/${user.sub}/${today}`);
@@ -317,13 +400,13 @@ export default function ProfilePage() {
       setIsLoadingPlans(true);
       setIsDataReady(false);
       
-      // Load completions FIRST
-      const completions = await loadMealCompletions();
-      
-      // Then load plans
+      // Load plans first
       const userId = user.sub;
       const plans = await makeAuthenticatedRequest(`/api/user-plans/user/${userId}`);
       setUserPlans(plans);
+      
+      // Then load completions
+      const completions = await loadMealCompletions();
       
       if (plans.length > 0) {
         const sortedPlans = [...plans].sort((a, b) => 
@@ -332,8 +415,10 @@ export default function ProfilePage() {
         await loadPlanToCalendar(sortedPlans[0], completions);
       }
       
+      return { plans, completions };
     } catch (error) {
       console.error('Error fetching user meal plans:', error);
+      return { plans: [], completions: {} };
     } finally {
       setIsLoadingPlans(false);
       setIsDataReady(true);
@@ -363,32 +448,36 @@ export default function ProfilePage() {
       dinner: '7:00 PM'
     };
   
-    for (const mealItem of todaysMeals) {
-      const { mealType, meal, mealId } = mealItem;
-      const recipeId = mealId || (meal && (meal.recipe_id || meal.id));
-  
-      if (!recipeId) {
-        console.error("Invalid meal data for mealType:", mealType);
-        continue;
+    try {
+      for (const mealItem of todaysMeals) {
+        const { mealType, meal, mealId } = mealItem;
+        const recipeId = mealId || (meal && (meal.recipe_id || meal.id));
+      
+        if (!recipeId) {
+          console.error("Invalid meal data for mealType:", mealType);
+          continue;
+        }
+      
+        const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipeId}`);
+        const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+      
+        if (mealIndex !== -1) {
+          updatedMealPlan[mealIndex] = {
+            ...updatedMealPlan[mealIndex],
+            name: mealDetails.title || (meal && meal.title) || "",
+            calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
+            protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
+            carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
+            fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
+            image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
+            id: recipeId,
+            completed: initialCompletions[mealType] || false,
+            time: mealItem.time || mealTypeToTime[mealType]
+          };
+        }
       }
-  
-      const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipeId}`);
-      const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
-  
-      if (mealIndex !== -1) {
-        updatedMealPlan[mealIndex] = {
-          ...updatedMealPlan[mealIndex],
-          name: mealDetails.title || (meal && meal.title) || "",
-          calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
-          protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
-          carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
-          fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
-          image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
-          id: recipeId,
-          completed: initialCompletions[mealType] || false,
-          time: mealItem.time || mealTypeToTime[mealType]
-        };
-      }
+    } catch (error) {
+      console.error('Error loading meal details:', error);
     }
   
     setMealPlan(updatedMealPlan);
@@ -405,7 +494,7 @@ export default function ProfilePage() {
       const dateString = date.toISOString().split('T')[0];
       
       // If we have a loaded plan, just filter for the selected date
-      if (userPlans.length > 0 && activePlanId) {
+      if (userPlans.length > 0) {
         const activePlan = userPlans.find(plan => plan.id === activePlanId);
         if (activePlan) {
           // Filter meals for the selected date
@@ -428,21 +517,31 @@ export default function ProfilePage() {
           
           // Update with the day's meals
           for (const mealItem of dateMeals) {
-            const { mealType, meal } = mealItem;
-            const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+            const { mealType, meal, mealId } = mealItem;
+            if (!mealType) continue;
             
-            if (mealIndex !== -1 && meal) {
-              updatedMealPlan[mealIndex] = {
-                ...updatedMealPlan[mealIndex],
-                name: meal.name || meal.title || "",
-                calories: meal.calories || meal.nutrition?.calories || 0,
-                protein: meal.protein || meal.nutrition?.protein || 0,
-                carbs: meal.carbs || meal.nutrition?.carbs || 0,
-                fat: meal.fat || meal.nutrition?.fat || 0,
-                image: meal.image || meal.imageUrl || "",
-                id: meal.id,
-                completed: dateString === getTodayDateString() ? (completedMeals[mealType] || false) : false
-              };
+            const recipeId = mealId || (meal && (meal.recipe_id || meal.id));
+            if (!recipeId) continue;
+            
+            try {
+              const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipeId}`);
+              const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+              
+              if (mealIndex !== -1) {
+                updatedMealPlan[mealIndex] = {
+                  ...updatedMealPlan[mealIndex],
+                  name: mealDetails.title || (meal && meal.title) || "",
+                  calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
+                  protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
+                  carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
+                  fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
+                  image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
+                  id: recipeId,
+                  completed: dateString === getTodayDateString() ? (completedMeals[mealType] || false) : false
+                };
+              }
+            } catch (error) {
+              console.error(`Error loading meal details for ${mealType}:`, error);
             }
           }
           
@@ -450,7 +549,7 @@ export default function ProfilePage() {
           
           // If it's today, load completion status
           if (dateString === getTodayDateString()) {
-            loadMealCompletions();
+            await loadMealCompletions();
           } else {
             // Clear completion status for non-today dates
             setCompletedMeals({});
@@ -469,7 +568,7 @@ export default function ProfilePage() {
   };
 
   const fetchSavedMeals = async (mealType) => {
-    if (!user) return;
+    if (!user || !accessToken) return;
     
     if (savedMeals[mealType] && savedMeals[mealType].length > 0) {
       return;
@@ -493,26 +592,30 @@ export default function ProfilePage() {
             
           if (category !== mealType) continue;
   
-          const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
-  
-          const formattedMeal = {
-            id: recipe.recipe_id,
-            name: mealDetails.title || recipe.title,
-            calories: mealDetails.nutrition?.calories || 0,
-            protein: mealDetails.nutrition?.protein || 0,
-            carbs: mealDetails.nutrition?.carbs || 0,
-            fat: mealDetails.nutrition?.fat || 0,
-            image: mealDetails.imageUrl || recipe.imageUrl || "",
-            ingredients: mealDetails.ingredients || [],
-            instructions: mealDetails.instructions || ''
-          };
-  
-          if (!categorizedMeals[category]) {
-            categorizedMeals[category] = [];
+          try {
+            const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
+            
+            const formattedMeal = {
+              id: recipe.recipe_id,
+              name: mealDetails.title || recipe.title,
+              calories: mealDetails.nutrition?.calories || 0,
+              protein: mealDetails.nutrition?.protein || 0,
+              carbs: mealDetails.nutrition?.carbs || 0,
+              fat: mealDetails.nutrition?.fat || 0,
+              image: mealDetails.imageUrl || recipe.imageUrl || "",
+              ingredients: mealDetails.ingredients || [],
+              instructions: mealDetails.instructions || ''
+            };
+      
+            if (!categorizedMeals[category]) {
+              categorizedMeals[category] = [];
+            }
+            
+            categorizedMeals[category].push(formattedMeal);
+            addedMealNames.add(recipe.title);
+          } catch (error) {
+            console.error(`Error fetching meal details for recipe ${recipe.recipe_id}:`, error);
           }
-          
-          categorizedMeals[category].push(formattedMeal);
-          addedMealNames.add(recipe.title);
         }
       }
   
@@ -694,91 +797,74 @@ export default function ProfilePage() {
     }
   }, [isAuthenticated, isAuthLoading]);
 
+  // Main data loading effect - only run once when accessToken is available
   useEffect(() => {
-    if (accessToken) {
-      fetchUserMealPlans().then(() => {
-        loadDataForDate(selectedDate);
-      });
-    }
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (isAuthenticated && !isAuthLoading) {
-      fetchUserMealPlans();
-      
-      const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
-      if (Object.keys(savedSettings).length > 0) {
-        setGlobalSettings(savedSettings);
-        setCalorieData(prev => ({
-          ...prev,
-          target: savedSettings.calories || 2000
-        }));
-      }
-      
-      if (user && user.sub) {
-        const fetchUserSettings = async () => {
-          try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-            const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
-            
-            if (response.ok) {
-              const serverSettings = await response.json();
-              setGlobalSettings(serverSettings);
-              setCalorieData(prev => ({
-                ...prev,
-                target: serverSettings.calories || 2000
-              }));
-            }
-          } catch (error) {
-            console.error("Error fetching user settings:", error);
-          }
-        };
+    const loadInitialData = async () => {
+      if (accessToken && !dataInitializedRef.current) {
+        dataInitializedRef.current = true;
+        setInitialLoading(true);
         
-        fetchUserSettings();
+        try {
+          // Load user settings
+          if (user && user.sub) {
+            try {
+              const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+              const response = await fetch(`${apiUrl}/user-settings/${user.sub}`);
+              
+              if (response.ok) {
+                const serverSettings = await response.json();
+                setGlobalSettings(serverSettings);
+                setCalorieData(prev => ({
+                  ...prev,
+                  target: serverSettings.calories || 2000
+                }));
+              }
+            } catch (error) {
+              console.error("Error fetching user settings:", error);
+              // Fall back to local storage settings
+              const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
+              if (Object.keys(savedSettings).length > 0) {
+                setGlobalSettings(savedSettings);
+                setCalorieData(prev => ({
+                  ...prev,
+                  target: savedSettings.calories || 2000
+                }));
+              }
+            }
+          }
+          
+          // Load meal plans and completions in sequence to ensure proper data flow
+          const { plans } = await fetchUserMealPlans();
+          
+          // Make sure to load today's data by default
+          if (plans && plans.length > 0) {
+            await loadDataForDate(new Date());
+          }
+          
+          // Scroll to today's date in the timeline after data is ready
+          setTimeout(() => {
+            if (timelineRef.current) {
+              const todayElement = timelineRef.current.querySelector('[data-today="true"]');
+              if (todayElement) {
+                todayElement.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'nearest',
+                  inline: 'center'
+                });
+              }
+            }
+          }, 100);
+          
+        } catch (error) {
+          console.error('Error loading initial data:', error);
+        } finally {
+          setInitialLoading(false);
+        }
       }
-    }
-  }, [isAuthenticated, isAuthLoading]);
-  
-  useEffect(() => {
-    if (!isAuthenticated || isAuthLoading) return;
-    
-    const refreshMealPlans = () => {
-      fetchUserMealPlans();
     };
     
-    const handleFocus = () => refreshMealPlans();
-    window.addEventListener('focus', handleFocus);
-    
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadMealCompletions();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isAuthenticated, isAuthLoading]);
-
-  // Load meal completions when user is available
-  useEffect(() => {
-    if (user?.sub) {
-      loadMealCompletions();
-    }
-  }, [user]);
-
-  // Save completions when unmounting
-  useEffect(() => {
-    return () => {
-      if (user?.sub) {
-        Object.entries(completedMeals).forEach(([mealType, completed]) => {
-          saveMealCompletion(mealType, completed).catch(console.error);
-        });
-      }
-    };
-  }, [completedMeals, user]);
+    loadInitialData();
+  }, [accessToken, user]);
 
   // Check and update current meal periodically
   useEffect(() => {
@@ -791,24 +877,58 @@ export default function ProfilePage() {
     };
 
     checkCurrentMeal();
-    const intervalId = setInterval(checkCurrentMeal, 60000);
+    const intervalId = setInterval(checkCurrentMeal, 60000); // Check every minute
 
     return () => clearInterval(intervalId);
   }, [mealPlan, isDataReady]);
   
-  // Scroll to current day on load
+  // Handle date changes
   useEffect(() => {
-    if (timelineRef.current) {
-      const todayElement = timelineRef.current.querySelector('[data-today="true"]');
-      if (todayElement) {
-        todayElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-          inline: 'center'
+    if (accessToken && user) {
+      loadDataForDate(selectedDate);
+    }
+  }, [selectedDate, accessToken, user]);
+
+  // Auto-refresh data
+  useEffect(() => {
+    if (!isAuthenticated || isAuthLoading) return;
+    
+    const refreshMealPlans = () => {
+      if (accessToken && user) {
+        loadMealCompletions();
+      }
+    };
+    
+    const handleFocus = () => refreshMealPlans();
+    window.addEventListener('focus', handleFocus);
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshMealPlans();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Set up a periodic refresh
+    const refreshInterval = setInterval(refreshMealPlans, 300000); // Refresh every 5 minutes
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(refreshInterval);
+    };
+  }, [isAuthenticated, isAuthLoading, accessToken, user]);
+
+  // Save completions when unmounting
+  useEffect(() => {
+    return () => {
+      if (user?.sub && accessToken) {
+        Object.entries(completedMeals).forEach(([mealType, completed]) => {
+          saveMealCompletion(mealType, completed).catch(console.error);
         });
       }
-    }
-  }, [isDataReady]);
+    };
+  }, [completedMeals, user, accessToken]);
 
   return (
     <>
@@ -816,7 +936,11 @@ export default function ProfilePage() {
       <main className="relative z-10 flex flex-col items-center w-full min-h-screen pt-[4rem] pb-[5rem]">
         <div className="bg-white/90 backdrop-blur-sm rounded-xl p-6 border-none w-full max-w-4xl flex-grow flex flex-col">
           <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-2xl font-semibold text-gray-800">Today's Meals</h2>
+            <h2 className="text-2xl font-semibold text-gray-800">
+              {selectedDate.toDateString() === new Date().toDateString() 
+                ? "Today's Meals" 
+                : `Meals for ${selectedDate.toLocaleDateString()}`}
+            </h2>
             <button
               onClick={handleViewMealPlanner}
               className="flex items-center text-teal-600 hover:text-teal-800 transition-colors"
@@ -825,13 +949,13 @@ export default function ProfilePage() {
             </button>
           </div>
           
-          {isLoadingPlans && (
+          {(isLoadingPlans || initialLoading) && (
             <div className="flex justify-center items-center py-8">
               <div className="animate-pulse text-gray-500">Loading your meal plan...</div>
             </div>
           )}
           
-          {!isLoadingPlans && isDataReady && (
+          {!isLoadingPlans && !initialLoading && isDataReady && (
             <>
               {/* Day Timeline Slider */}
               <section className="mb-4 bg-white p-4 rounded-lg shadow-sm">
