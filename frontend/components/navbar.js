@@ -23,10 +23,11 @@ export function BottomNavbar({ children }) {
     mealGenerationComplete,
     setMealGenerationComplete,
     currentMealPlanId,
-    setCurrentMealPlanId
+    hasViewedGeneratedMeals,
+    setHasViewedGeneratedMeals,
+    resetMealGeneration
   } = useMealGeneration();
   
-  const [hasViewedGeneratedMeals, setHasViewedGeneratedMeals] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
@@ -60,57 +61,36 @@ export function BottomNavbar({ children }) {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const checkLoading = () => {
-        const currentLoading = window.mealLoading || false;
-        setIsGenerating(prev => {
-          if (prev !== currentLoading) {
-            if (currentLoading) {
-              localStorage.setItem('isGenerating', 'true');
-            } else {
-              localStorage.removeItem('isGenerating');
-            }
-            return currentLoading;
-          }
-          return prev;
-        });
+      window.numDays = numDays;
+      window.setNumDays = setNumDays;
+      
+      // Make toggleChatbot available globally
+      window.toggleChatbotWindow = () => {
+        if (typeof window.toggleChatbot === 'function') {
+          window.toggleChatbot();
+        }
       };
       
-      checkLoading();
-      const interval = setInterval(checkLoading, 250);
-      return () => clearInterval(interval);
+      return () => {
+        window.numDays = undefined;
+        window.setNumDays = undefined;
+        window.toggleChatbotWindow = undefined;
+      };
     }
-  }, []);
+  }, [numDays]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const loadingState = localStorage.getItem('isGenerating');
-      if (loadingState === 'true') {
-        setIsGenerating(true);
-      }
-      
-      const completionStatus = localStorage.getItem('mealGenerationComplete');
-      if (completionStatus === 'true') {
-        setMealGenerationComplete(true);
-      }
-      
-      const viewedStatus = localStorage.getItem('hasViewedGeneratedMeals');
-      if (viewedStatus === 'true') {
-        setHasViewedGeneratedMeals(true);
-      }
-  
-      const visitedStatus = localStorage.getItem('visitedMealsPage');
-      if (visitedStatus === 'true') {
-        setVisitedMealsPage(true);
-      }
-  
       const currentPath = window.location.pathname;
       setPathname(currentPath);
       
       if (currentPath === '/meals') {
         setVisitedMealsPage(true);
         localStorage.setItem('visitedMealsPage', 'true');
+      } else if (localStorage.getItem('visitedMealsPage') === 'true') {
+        setVisitedMealsPage(true);
       }
-  
+      
       const handleRouteChange = () => {
         const newPath = window.location.pathname;
         setPathname(newPath);
@@ -122,6 +102,7 @@ export function BottomNavbar({ children }) {
       
       window.addEventListener('popstate', handleRouteChange);
       
+      // Use MutationObserver to detect client-side navigation
       const observer = new MutationObserver(() => {
         const newPath = window.location.pathname;
         if (newPath !== pathname) {
@@ -138,6 +119,7 @@ export function BottomNavbar({ children }) {
         subtree: true 
       });
       
+      // Load Pro status
       const proStatus = localStorage.getItem('userIsPro');
       if (proStatus === 'true') {
         setIsPro(true);
@@ -150,16 +132,6 @@ export function BottomNavbar({ children }) {
     }
   }, [pathname]);
 
-  useEffect(() => {
-    return () => {
-      setIsGenerating(false);
-      if (typeof window !== 'undefined') {
-        window.mealLoading = false;
-        localStorage.removeItem('isGenerating');
-      }
-    };
-  }, []);
-  
   useEffect(() => {
     if ((fabMenuOpen || daysMenuOpen) && typeof document !== 'undefined') {
       const handleGlobalClick = (event) => {
@@ -187,51 +159,66 @@ export function BottomNavbar({ children }) {
   };
 
   const handleFabClick = async (e) => {
+    // If on meal card view, handle the action menu toggle
     if (isMealCardView()) {
       e.stopPropagation();
       setFabMenuOpen(!fabMenuOpen);
       return;
     }
     
+    // If on meals page and not in card view, toggle days selector
     if (pathname === '/meals' && !isMealCardView()) {
       e.stopPropagation();
       setDaysMenuOpen(!daysMenuOpen);
       return;
     }
     
+    // If meal plan is ready but not yet viewed, go to meals page
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       setHasViewedGeneratedMeals(true);
       localStorage.setItem('hasViewedGeneratedMeals', 'true');
-      router.push('/meals');
+      router.push('/meals?showMealCards=true');
       return;
     }
     
+    // If meal plan is ready and we're not on meals page, go to meals page
     if (mealGenerationComplete && pathname !== '/meals') {
-      router.push('/meals');
+      router.push('/meals?showMealCards=true');
       return;
     }
     
+    // If on meals page or have visited it, generate a new meal plan
     if (pathname === '/meals' || (visitedMealsPage && !pathname.startsWith('/meals'))) {
+      // Reset previous meal generation state before starting a new one
+      resetMealGeneration();
+      
+      // Start the loading spinner immediately
       setIsGenerating(true);
       localStorage.setItem('hasViewedGeneratedMeals', 'false');
       
       try {
         if (typeof window !== 'undefined') {
           if (window.generateMeals && typeof window.generateMeals === 'function') {
+            // Navigate to meals page if not already there
+            if (pathname !== '/meals') {
+              router.push('/meals');
+              // Wait for navigation to complete
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            
+            // Generate new meal plan
             await window.generateMeals();
-            setMealGenerationComplete(true);
           } else {
-            console.warn('generateMeals function not found, refreshing page');
-            window.location.reload();
+            console.warn('generateMeals function not found, navigating to meals page');
+            router.push('/meals');
           }
         }
       } catch (error) {
         console.error('Error generating meals:', error);
         setIsGenerating(false);
-      } finally {
-        setIsGenerating(false);
       }
     } else {
+      // If none of the above conditions are met, just navigate to meals page
       router.push('/meals');
     }
   };
@@ -291,7 +278,18 @@ export function BottomNavbar({ children }) {
   useEffect(() => {
     if (!isLoading && user) {
       fetchSubscriptionStatus();
+      
+      // Make user ID available globally
+      if (typeof window !== 'undefined' && user.sub) {
+        window.userId = user.sub;
+      }
     }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.userId = undefined;
+      }
+    };
   }, [user, isLoading]);
   
   const handleViewRecipe = (e) => {
@@ -333,80 +331,19 @@ export function BottomNavbar({ children }) {
     }
   };
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname;
-      setPathname(currentPath);
-      
-      if (currentPath === '/meals') {
-        setVisitedMealsPage(true);
-        localStorage.setItem('visitedMealsPage', 'true');
-      } else if (localStorage.getItem('visitedMealsPage') === 'true') {
-        setVisitedMealsPage(true);
-      }
-      
-      const completionStatus = localStorage.getItem('mealGenerationComplete');
-      if (completionStatus === 'true') {
-        setMealGenerationComplete(true);
-      }
-      
-      const handleRouteChange = () => {
-        const newPath = window.location.pathname;
-        setPathname(newPath);
-        if (newPath === '/meals') {
-          setVisitedMealsPage(true);
-          localStorage.setItem('visitedMealsPage', 'true');
-        }
-      };
-      
-      window.addEventListener('popstate', handleRouteChange);
-      
-      const observer = new MutationObserver(() => {
-        const newPath = window.location.pathname;
-        if (newPath !== pathname) {
-          setPathname(newPath);
-          if (newPath === '/meals') {
-            setVisitedMealsPage(true);
-            localStorage.setItem('visitedMealsPage', 'true');
-          }
-        }
-      });
-      
-      observer.observe(document.body, { 
-        childList: true, 
-        subtree: true 
-      });
-      
-      const proStatus = localStorage.getItem('userIsPro');
-      if (proStatus === 'true') {
-        setIsPro(true);
-      }
-      
-      return () => {
-        window.removeEventListener('popstate', handleRouteChange);
-        observer.disconnect();
-      };
-    }
-  }, [pathname]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.numDays = numDays;
-      window.setNumDays = setNumDays;
-      return () => {
-        window.numDays = undefined;
-        window.setNumDays = undefined;
-      };
-    }
-  }, [numDays]);
-
   const getFabColor = () => {
+    if (isGenerating) {
+      return "bg-orange-500 hover:bg-orange-600";
+    }
+    
     if (isMealCardView()) {
       return fabMenuOpen ? "bg-teal-700" : "bg-teal-600";
     }
     
     if (pathname === '/meals') {
       return daysMenuOpen ? "bg-teal-700" : "bg-teal-600 hover:bg-teal-700";
+    } else if (mealGenerationComplete && !hasViewedGeneratedMeals) {
+      return "bg-green-500 hover:bg-green-600";
     } else {
       return "bg-teal-500 hover:bg-teal-600";
     }
@@ -563,10 +500,10 @@ export function BottomNavbar({ children }) {
               
               <button
                 onClick={handleFabClick}
-                disabled={isGenerating && !isMealCardView()}
+                disabled={false} // Never disable the button to improve UX
                 className={`fab-button ${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
                   fabMenuOpen || daysMenuOpen ? 'rotate-45' : ''
-                } ${mealGenerationComplete && !hasViewedGeneratedMeals && pathname !== '/meals' && !isMealCardView() ? 'pulse-animation' : ''}`}
+                } ${mealGenerationComplete && !hasViewedGeneratedMeals ? 'pulse-animation' : ''}`}
               >
                 {getFabIcon()}
               </button>
@@ -721,6 +658,7 @@ export function BottomNavbar({ children }) {
   );
 }
 
+// Add pulse animation styles
 if (typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `

@@ -47,7 +47,7 @@ export default function Header({ toggleChatbot }) {
       {/* Logo Section */}
       <div 
         className="cursor-pointer"
-        onClick={() => router.push('/')}
+        onClick={() => router.push('/meals')}
       >
         <img 
           src="/logo.png" 

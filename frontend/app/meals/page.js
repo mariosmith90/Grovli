@@ -6,9 +6,8 @@ import { useMealGeneration } from '../../contexts/MealGenerationContext';
 import MealCard, { MealPlanDisplay } from '../../components/mealcard';
 import ChatbotWindow from '../../components/chatbot';
 import CulturalInfo from '../../components/culturalinfo';
-import SearchBox from '../../components/searchbox'
-import Header from '../../components/header'
-
+import SearchBox from '../../components/searchbox';
+import Header from '../../components/header';
 
 export default function Home() {
   const router = useRouter();
@@ -38,7 +37,9 @@ export default function Home() {
     currentMealPlanId,
     setCurrentMealPlanId,
     setBackgroundTaskId,
-    startTaskChecking
+    startTaskChecking,
+    setHasViewedGeneratedMeals,
+    resetMealGeneration
   } = useMealGeneration();
 
   const checkOnboardingStatus = async () => {
@@ -74,19 +75,34 @@ export default function Home() {
 
   const [calories, setCalories] = useState(globalSettings.calories);
 
+  // Share mealPlan with window for global access
   useEffect(() => {
-    if (typeof window !== 'undefined' && isGenerating) {
-      window.mealLoading = true;
+    if (typeof window !== 'undefined') {
+      window.mealPlan = mealPlan;
+      return () => {
+        window.mealPlan = undefined;
+      };
+    }
+  }, [mealPlan]);
+
+  // Sync up with window.mealLoading for cross-component state
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.mealLoading = isGenerating;
+      
+      // Create a function for toggling the chatbot
+      window.toggleChatbot = () => {
+        setShowChatbot(prev => !prev);
+      };
+      
+      return () => {
+        window.mealLoading = undefined;
+        window.toggleChatbot = undefined;
+      };
     }
   }, [isGenerating]);
 
-  useEffect(() => {
-    setGlobalSettings((prev) => ({
-      ...prev,
-      calories: globalSettings.calories,
-    }));
-  }, [calories]);
-
+  // Sync days selection with window
   useEffect(() => {
     if (typeof window !== 'undefined') {
       if (window.numDays !== undefined) {
@@ -105,9 +121,10 @@ export default function Home() {
     }
   }, [numDays]);
 
+  // Load saved inputs and settings
   useEffect(() => {
-    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs"));
-    if (savedData) {
+    const savedData = JSON.parse(localStorage.getItem("mealPlanInputs") || "{}");
+    if (savedData && Object.keys(savedData).length > 0) {
       setPreferences(savedData.preferences || '');
       setMealType(savedData.mealType || 'Breakfast');
       setNumDays(savedData.numDays || 1);
@@ -125,10 +142,14 @@ export default function Home() {
     
     const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
     if (Object.keys(savedSettings).length > 0) {
-      setGlobalSettings(savedSettings);
+      setGlobalSettings(prevSettings => ({
+        ...prevSettings,
+        ...savedSettings
+      }));
       setCalories(savedSettings.calories || 2400);
     }
     
+    // Load user settings from server if logged in
     if (user && user.sub) {
       const fetchUserSettings = async () => {
         try {
@@ -138,7 +159,10 @@ export default function Home() {
           if (response.ok) {
             const serverSettings = await response.json();
             console.log("Loaded server settings on meal plan page:", serverSettings);
-            setGlobalSettings(serverSettings);
+            setGlobalSettings(prevSettings => ({
+              ...prevSettings,
+              ...serverSettings
+            }));
             setCalories(serverSettings.calories || 2400);
             localStorage.setItem('globalMealSettings', JSON.stringify(serverSettings));
           }
@@ -151,6 +175,7 @@ export default function Home() {
     }
   }, [user]);
   
+  // Save meal plan inputs to localStorage
   useEffect(() => {
     const mealPlanToStore = Array.isArray(mealPlan) ? mealPlan : [];
     
@@ -161,11 +186,12 @@ export default function Home() {
         mealType,
         numDays,
         mealPlan: mealPlanToStore,
-        displayedMealType: displayedMealType
+        displayedMealType
       })
     );
   }, [preferences, mealType, numDays, mealPlan, displayedMealType]);
 
+  // Check subscription status
   const fetchSubscriptionStatus = async () => {
     if (!user) return;
   
@@ -197,6 +223,7 @@ export default function Home() {
     }
   };
 
+  // Handle meal selection for saving recipes
   const handleMealSelection = (id) => {
     setSelectedRecipes(prevSelected => {
       if (prevSelected.includes(id)) {
@@ -207,18 +234,22 @@ export default function Home() {
     });
   };
 
+  // Main function to generate a meal plan
   const fetchMealPlan = async () => {
+    // Enforce Pro restriction
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
     }
   
+    // Reset previous states
+    resetMealGeneration();
     setIsGenerating(true);
-    setMealGenerationComplete(false);
-    setCurrentMealPlanId(null);
     setError('');
     setLoading(true);
+    setHasViewedGeneratedMeals(false);
     
     try {
+      // Clear previous selections
       setSelectedRecipes([]);
       setShowChatbot(true);
       setMealPlanReady(false);
@@ -226,6 +257,7 @@ export default function Home() {
       setIngredients([]);
       setOrderingPlanIngredients(false);
   
+      // Get pantry ingredients if using pantry algorithm
       let pantryIngredients = [];
       if (mealAlgorithm === 'pantry' && user) {
         try {
@@ -248,6 +280,7 @@ export default function Home() {
         }
       }
       
+      // Prepare request headers
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const headers = { 'Content-Type': 'application/json' };
       
@@ -264,6 +297,7 @@ export default function Home() {
         }
       }
       
+      // Send meal plan request
       console.log("Sending meal plan request to:", `${apiUrl}/mealplan/`);
       const response = await fetch(`${apiUrl}/mealplan/`, {
         method: 'POST',
@@ -303,6 +337,7 @@ export default function Home() {
         setShowChatbot(false);
         setIsGenerating(false);
         setMealGenerationComplete(true);
+        setHasViewedGeneratedMeals(true);
         return;
       }
       
@@ -342,6 +377,17 @@ export default function Home() {
     }
   };
 
+  // Share the meal generation function with the global window object
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.generateMeals = fetchMealPlan;
+      return () => {
+        window.generateMeals = undefined;
+      };
+    }
+  }, [fetchMealPlan]);
+
+  // Handle chatbot completion - fetch meal plan if ready
   const handleChatComplete = async () => {
     setShowChatbot(false);
     
@@ -362,6 +408,7 @@ export default function Home() {
           setDisplayedMealType(mealType);
           setIsGenerating(false);
           setMealGenerationComplete(true);
+          setHasViewedGeneratedMeals(true);
         } else {
           throw new Error("No meal plan data found");
         }
@@ -375,6 +422,7 @@ export default function Home() {
     }
   };
 
+  // Load user profile data
   const loadUserProfileData = async () => {
     if (!user) return;
     
@@ -430,21 +478,7 @@ export default function Home() {
     }
   };
 
-  // In your Home component, add this at the top of your useEffect blocks:
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Make toggleChatbot available globally
-      window.toggleChatbotWindow = () => {
-        setShowChatbot(prev => !prev);
-      };
-      
-      return () => {
-        // Clean up when component unmounts
-        window.toggleChatbotWindow = undefined;
-      };
-    }
-  }, []); // Empty dependency array so it only runs once
-
+  // Handle URL parameters and load meal plan if needed
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -470,6 +504,7 @@ export default function Home() {
                 setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
                 setDisplayedMealType(mealType);
                 setShowChatbot(false);
+                setHasViewedGeneratedMeals(true);
               } else {
                 throw new Error("No meal plan data found");
               }
@@ -482,11 +517,15 @@ export default function Home() {
           };
           
           fetchMealPlanById();
-        } else if (Array.isArray(savedData?.mealPlan) && savedData.mealPlan.length > 0) {
-          // If we have a saved meal plan in localStorage, use that
-          setMealPlan(savedData.mealPlan);
-          setDisplayedMealType(savedData.displayedMealType || savedData.mealType);
-          setShowChatbot(false);
+        } else {
+          // Use local storage data if available
+          const savedData = JSON.parse(localStorage.getItem("mealPlanInputs") || "{}");
+          if (Array.isArray(savedData?.mealPlan) && savedData.mealPlan.length > 0) {
+            setMealPlan(savedData.mealPlan);
+            setDisplayedMealType(savedData.displayedMealType || savedData.mealType);
+            setShowChatbot(false);
+            setHasViewedGeneratedMeals(true);
+          }
         }
       }
       
@@ -497,9 +536,10 @@ export default function Home() {
     }
   }, [currentMealPlanId, mealGenerationComplete]);
 
+  // Check onboarding status and fetch subscription status
   useEffect(() => {
     if (!isLoading && user) {
-      // Add this line to make user ID available globally
+      // Make user ID available globally
       if (typeof window !== 'undefined' && user.sub) {
         window.userId = user.sub;
       }
@@ -517,6 +557,39 @@ export default function Home() {
     }
   }, [user, isLoading]);
 
+  // Check meal plan status periodically if user is logged in
+  useEffect(() => {
+    if (user && user.sub && isGenerating && showChatbot) {
+      const checkMealPlanStatus = async () => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
+            headers: { 'user-id': user.sub }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (data.meal_plan_ready && data.meal_plan_id) {
+              console.log("Found ready meal plan:", data.meal_plan_id);
+              setMealGenerationComplete(true);
+              setCurrentMealPlanId(data.meal_plan_id);
+              setIsGenerating(false);
+              setMealPlanReady(true);
+            }
+          }
+        } catch (error) {
+          console.error("Error checking meal plan status:", error);
+        }
+      };
+      
+      checkMealPlanStatus(); // Run immediately
+      const intervalId = setInterval(checkMealPlanStatus, 5000); // Then every 5 seconds
+      return () => clearInterval(intervalId);
+    }
+  }, [user, isGenerating, showChatbot]);
+
+  // Save selected recipes to user's profile
   const saveSelectedRecipes = async () => {
     if (!user) {
       router.push("/auth/login?returnTo=/dashboard");
@@ -578,6 +651,28 @@ export default function Home() {
     }
   };
 
+  // Share saveSelectedRecipes with window for global access
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.saveSelectedRecipes = saveSelectedRecipes;
+      return () => {
+        window.saveSelectedRecipes = undefined;
+      };
+    }
+  }, [saveSelectedRecipes]);
+
+  // Share selectedRecipes with window for global access
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.selectedRecipes = selectedRecipes;
+      window.setSelectedRecipes = setSelectedRecipes;
+      return () => {
+        window.selectedRecipes = undefined;
+        window.setSelectedRecipes = undefined;
+      };
+    }
+  }, [selectedRecipes]);
+
   const toggleChatbot = () => {
     setShowChatbot(prev => !prev);
   };
@@ -625,6 +720,17 @@ export default function Home() {
     }    
   };
 
+  // Share handleOrderIngredientsGlobal with window for global access
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.handleOrderIngredientsGlobal = handleOrderPlanIngredients;
+      return () => {
+        window.handleOrderIngredientsGlobal = undefined;
+      };
+    }
+  }, [handleOrderPlanIngredients]);
+
+  // Load meal algorithm from localStorage
   useEffect(() => {
     const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
     if (savedSettings.mealAlgorithm) {
@@ -636,83 +742,6 @@ export default function Home() {
       }
     }
   }, [user]);
-
-  useEffect(() => {
-    if (user && user.sub && !mealGenerationComplete && showChatbot) {
-      const checkMealPlanStatus = async () => {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-            headers: { 'user-id': user.sub }
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            
-            if (data.meal_plan_ready && data.meal_plan_id) {
-              console.log("Found ready meal plan:", data.meal_plan_id);
-              setMealGenerationComplete(true);
-              setCurrentMealPlanId(data.meal_plan_id);
-              setIsGenerating(false);
-            }
-          }
-        } catch (error) {
-          console.error("Error checking meal plan status:", error);
-        }
-      };
-      
-      checkMealPlanStatus();
-      const intervalId = setInterval(checkMealPlanStatus, 5000);
-      return () => clearInterval(intervalId);
-    }
-  }, [user, mealGenerationComplete, showChatbot]);
-
-  useEffect(() => {
-    if (!isLoading && user) {
-      fetchSubscriptionStatus();
-    }
-  }, [user, isLoading]);
-  
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (menuOpen && 
-          !event.target.closest(".mobile-menu") && 
-          !event.target.closest(".mobile-menu-content")) {
-        setMenuOpen(false);
-      }
-    };
-  
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [menuOpen]);
-  
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.generateMeals = fetchMealPlan;
-      window.mealLoading = isGenerating;
-      
-      return () => {
-        window.generateMeals = undefined;
-        window.mealLoading = undefined;
-      };
-    }
-  }, [fetchMealPlan, isGenerating]);
-
-  useEffect(() => {
-    window.saveSelectedRecipes = saveSelectedRecipes;
-    return () => {
-      window.saveSelectedRecipes = undefined;
-    };
-  }, [saveSelectedRecipes]);
-
-  useEffect(() => {
-    window.selectedRecipes = selectedRecipes;
-    window.setSelectedRecipes = setSelectedRecipes;
-    return () => {
-      window.selectedRecipes = undefined;
-      window.setSelectedRecipes = undefined;
-    };
-  }, [selectedRecipes, setSelectedRecipes]);
 
   return ( 
     <>
@@ -940,21 +969,27 @@ export default function Home() {
             showChatbot={showChatbot}
             onReturnToInput={() => {
               setMealPlan([]);
+              resetMealGeneration();
             }}
           />
         )}
         
         {showChatbot && (
           <ChatbotWindow
-          user={user}
-          preferences={preferences}
-          mealType={mealType}
-          isVisible={showChatbot}
-          onClose={() => setShowChatbot(false)}
-          onChatComplete={handleChatComplete}
-          onMealPlanReady={() => setMealPlanReady(true)}
-          mealPlanReady={mealPlanReady}
-        />
+            user={user}
+            preferences={preferences}
+            mealType={mealType}
+            isVisible={showChatbot}
+            onClose={() => {
+              setShowChatbot(false);
+              if (mealGenerationComplete && currentMealPlanId) {
+                handleChatComplete();
+              }
+            }}
+            onChatComplete={handleChatComplete}
+            onMealPlanReady={() => setMealPlanReady(true)}
+            mealPlanReady={mealPlanReady}
+          />
         )}
       </main>
     </>
