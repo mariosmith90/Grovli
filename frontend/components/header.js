@@ -61,7 +61,7 @@ export default function Header({ toggleChatbot }) {
         {/* Chatbot Toggle Button */}
         <button 
           onClick={() => window.toggleChatbotWindow?.()} 
-          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600 rounded-full shadow-sm" 
+          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
           aria-label="Open Chatbot Assistant"
         >
           <Bot className="w-6 h-6" />
@@ -70,7 +70,7 @@ export default function Header({ toggleChatbot }) {
         {/* Settings Button */}
         <button 
           onClick={() => router.push('/settings')} 
-          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600 rounded-full shadow-sm" 
+          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
           aria-label="Settings"
         >
           <Settings className="w-6 h-6" />
