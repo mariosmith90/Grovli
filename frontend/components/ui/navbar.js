@@ -259,13 +259,21 @@ export function BottomNavbar({ children }) {
       return;
     }
     
-    // In all other cases, navigate to the meals selection page
+    // For navigation to the meals page, we need to be careful not to clear cached meal plans
     if (pathname !== '/meals' || isMealCardView()) {
-      // If we're on meal cards view, reset to selection view
-      if (isMealCardView() && typeof window !== 'undefined') {
-        window.mealPlan = [];
+      if (isMealCardView()) {
+        // If we're on meal cards view, we want to go back to selection view
+        // Don't clear window.mealPlan - it may be needed by the meals page
+        console.log("[Navbar] Returning to meal selection view - keeping cached plan");
+        
+        // Use replaceState to avoid keeping the showMealCards param in history
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({}, document.title, '/meals');
+        }
+      } else {
+        // We're navigating to meals page from elsewhere
+        router.push('/meals');
       }
-      router.push('/meals');
       return;
     }
     
@@ -399,6 +407,13 @@ export function BottomNavbar({ children }) {
     // Very simple approach: Just poll the API directly
     if (!isGenerating || !user) return;
     
+    // Update fabButtonState to match isGenerating immediately
+    setFabButtonState(prev => ({
+      ...prev,
+      isLoading: true,
+      isReady: false
+    }));
+    
     // Set up simple polling for the special user
     let pollTimer;
     const checkForCompletedMeal = async () => {
@@ -406,9 +421,9 @@ export function BottomNavbar({ children }) {
         // Only check if we're still generating
         if (!isGenerating) return;
         
-        // Check API
+        // Check API - add the checkReadyPlans flag to also check for immediately ready plans
         console.log("[Navbar] Checking for completed meal plan");
-        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}`);
+        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}&checkReadyPlans=true`);
         
         if (response.ok) {
           const data = await response.json();
@@ -428,6 +443,15 @@ export function BottomNavbar({ children }) {
             if (data.notification.meal_plan_id) {
               console.log(`[Navbar] Setting meal plan ID: ${data.notification.meal_plan_id}`);
               setCurrentMealPlanId(data.notification.meal_plan_id);
+              
+              // Also store in context state to ensure persistence
+              const currentState = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
+              localStorage.setItem('mealGenerationState', JSON.stringify({
+                ...currentState,
+                isGenerating: false,
+                mealGenerationComplete: true,
+                currentMealPlanId: data.notification.meal_plan_id
+              }));
             }
             
             // Critical: Make sure hasViewedGeneratedMeals is FALSE 
@@ -445,7 +469,8 @@ export function BottomNavbar({ children }) {
                 detail: {
                   mealPlanId: data.notification.meal_plan_id,
                   userId: data.notification.user_id,
-                  timestamp: new Date().toISOString()
+                  timestamp: new Date().toISOString(),
+                  source: 'navbar_poll'
                 }
               }));
             }
@@ -459,7 +484,7 @@ export function BottomNavbar({ children }) {
     // Start polling every 5 seconds
     pollTimer = setInterval(checkForCompletedMeal, 5000);
     
-    // Initial check
+    // Initial check - run immediately
     checkForCompletedMeal();
     
     // Also listen for direct events

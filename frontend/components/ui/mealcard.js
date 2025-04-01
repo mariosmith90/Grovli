@@ -64,77 +64,129 @@ export function MealPlanDisplay({
   if (!Array.isArray(mealPlan) || mealPlan.length === 0 || showChatbot) {
     return null;
   }
-
+  
   // Process meal data
   const totalDays = numDays;
   // Hard-code mealsPerDay for 'Full Day' to ensure 4 meals are expected
   const mealsPerDay = mealType === 'Full Day' ? 4 : 1;
-  console.log(`MealCard: Processing ${mealPlan.length} meals for ${mealType} with ${mealsPerDay} meals per day`);
+  // Create meal structure organized by day and type
   const mealsByDay = {};
   
-  // Create day groupings
-  for (let i = 0; i < totalDays; i++) {
-    const dayNum = i + 1;
-    mealsByDay[dayNum] = [];
+  // Define the standard meal types for a full day in correct order
+  const standardMealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+  
+  // Special handling for full day meal plans - organize by day and meal type
+  if (mealType === 'Full Day') {
+    // Check if meal types are already set correctly
+    const hasMealTypes = mealPlan.some(meal => 
+      meal.meal_type && ['breakfast', 'lunch', 'dinner', 'snack'].includes(meal.meal_type.toLowerCase())
+    );
     
-    // Calculate which meals belong to this day
-    const startIdx = i * mealsPerDay;
-    const endIdx = startIdx + mealsPerDay;
-    
-    // Ensure we don't try to access beyond the array bounds
-    const dayMeals = mealPlan.slice(startIdx, Math.min(endIdx, mealPlan.length));
-    
-    console.log(`Day ${dayNum}: Processing ${dayMeals.length} meals from indices ${startIdx}-${Math.min(endIdx, mealPlan.length)-1}`);
-    
-    // Get meal types for this day
-    if (mealType === 'Full Day') {
-      // For Full Day, we ALWAYS want to have 4 specific meal types in a specific order
-      const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+    // Create day groupings
+    for (let i = 0; i < totalDays; i++) {
+      const dayNum = i + 1;
+      mealsByDay[dayNum] = [];
       
-      // Force Full Day meals to have explicit meal types in the right order
-      // This is the most important fix to ensure meal cards display correctly
-      for (let idx = 0; idx < Math.min(dayMeals.length, mealTypes.length); idx++) {
-        const meal = dayMeals[idx];
-        if (meal) {  // Check if meal exists
-          // Always use the meal type based on index for predictable results
-          const specificMealType = mealTypes[idx];
+      // Get all meals for this day (4 meals per day)
+      const dayStartIdx = i * mealsPerDay;
+      const dayEndIdx = Math.min(dayStartIdx + mealsPerDay, mealPlan.length);
+      const dayMeals = mealPlan.slice(dayStartIdx, dayEndIdx);
+      
+      // If the meal plan already has meal types specified, use them
+      if (hasMealTypes) {
+        // Ensure meals are added in the correct order (breakfast, lunch, dinner, snack)
+        standardMealTypes.forEach((mealType, typeIndex) => {
+          // Find a meal of this type for this day
+          const matchingMeal = dayMeals.find(meal => 
+            meal.meal_type && meal.meal_type.toLowerCase() === mealType.toLowerCase()
+          );
           
-          console.log(`Meal ${idx+1} type: ${specificMealType} (original: ${meal.meal_type || 'none'}, idx: ${idx})`);
-          
-          // Create a meal with the proper meal type
-          mealsByDay[dayNum].push({
-            ...meal,
-            mealType: specificMealType,  // Use our assigned meal type
-            meal_type: specificMealType, // Also update the original property for consistency
-            dayNumber: dayNum            // Add day number to each meal
-          });
-        }
+          if (matchingMeal) {
+            // Found a meal with this type
+            mealsByDay[dayNum].push({
+              ...matchingMeal,
+              mealType: mealType,
+              meal_type: mealType,
+              dayNumber: dayNum
+            });
+          } else if (dayMeals[typeIndex]) {
+            // Fallback: Use position in array and assign the type
+            mealsByDay[dayNum].push({
+              ...dayMeals[typeIndex],
+              mealType: mealType,
+              meal_type: mealType,
+              dayNumber: dayNum
+            });
+          }
+        });
+      } else {
+        // No meal types specified, assign types in order
+        dayMeals.forEach((meal, idx) => {
+          if (idx < standardMealTypes.length) {
+            const mealType = standardMealTypes[idx];
+            
+            mealsByDay[dayNum].push({
+              ...meal,
+              mealType: mealType,
+              meal_type: mealType,
+              dayNumber: dayNum
+            });
+          }
+        });
       }
+    }
+  } else {
+    // For non-Full Day meal types, use the original logic
+    for (let i = 0; i < totalDays; i++) {
+      const dayNum = i + 1;
+      mealsByDay[dayNum] = [];
       
-      // Log what meals we actually processed for this day
-      console.log(`Day ${dayNum}: Added ${mealsByDay[dayNum].length} meals with types:`, 
-                 mealsByDay[dayNum].map(m => m.mealType));
-    } else {
+      // Calculate which meals belong to this day
+      const startIdx = i * mealsPerDay;
+      const endIdx = startIdx + mealsPerDay;
+      
+      // Ensure we don't try to access beyond the array bounds
+      const dayMeals = mealPlan.slice(startIdx, Math.min(endIdx, mealPlan.length));
+      
+      // Assign the mealType to each meal
       dayMeals.forEach(meal => {
-        if (meal) {  // Check if meal exists
+        if (meal) {
           mealsByDay[dayNum].push({
             ...meal,
             mealType: mealType,
-            dayNumber: dayNum  // Add day number to each meal
+            dayNumber: dayNum
           });
         }
       });
     }
   }
 
-  // Flatten meals for swiping - this handles multiple days correctly
-  const allMeals = Object.values(mealsByDay).flat();
+  // Create a flattened array of meals for easier navigation
+  const allMeals = [];
   
-  // Add extra logging about the actual meals we're displaying
-  console.log("==== MEAL DISPLAY DEBUG ====");
-  console.log(`Total meals in mealPlan array: ${mealPlan.length}`);
-  console.log(`Processed meals by day:`, mealsByDay);
-  console.log(`Flattened allMeals length: ${allMeals.length}`);
+  // Process meals by day (and by type for Full Day plans)
+  Object.keys(mealsByDay).forEach(dayNum => {
+    // For Full Day plans, ensure meals are in the correct order (breakfast, lunch, dinner, snack)
+    const dayMeals = mealType === 'Full Day' 
+      ? mealsByDay[dayNum].sort((a, b) => {
+          // Define the meal type order
+          const mealTypeOrder = { 'breakfast': 0, 'lunch': 1, 'dinner': 2, 'snack': 3 };
+          
+          // Get the meal types for comparison (case-insensitive)
+          const typeA = (a.meal_type || a.mealType || '').toLowerCase();
+          const typeB = (b.meal_type || b.mealType || '').toLowerCase();
+          
+          // Sort by meal type order
+          return (mealTypeOrder[typeA] || 0) - (mealTypeOrder[typeB] || 0);
+        })
+      : mealsByDay[dayNum];
+    
+    // Add meals from this day to the flattened array
+    allMeals.push(...dayMeals);
+  });
+  
+  // Log minimal information about the processed meals
+  console.log(`Processed ${mealPlan.length} meals into ${allMeals.length} organized meals`);
   
   // NOW add the useEffect that needs access to allMeals - AFTER it's defined
   useEffect(() => {
@@ -145,11 +197,8 @@ export function MealPlanDisplay({
       window.mealPlan = mealPlan;
       window.currentMealId = allMeals[currentMealIndex]?.id;
       
-      // Log the meals for debugging
-      console.log("Meal plan days:", Object.keys(mealsByDay).length);
-      console.log("Total meals:", allMeals.length);
-      console.log("Current meal index:", currentMealIndex);
-      console.log("Current meal:", allMeals[currentMealIndex]);
+      // Set global access to meal data
+      // (No debugging logs needed)
       
       // Set action functions
       window.handleSaveMealGlobal = function(e) {
@@ -183,19 +232,6 @@ export function MealPlanDisplay({
       }
     };
   }, [currentMealIndex, allMeals, mealPlan, router, saveSelectedRecipes, handleOrderPlanIngredients]);
-  
-  // Validate before proceeding
-  if (!allMeals.length || currentMealIndex >= allMeals.length) {
-    return null;
-  }
-
-  // Get current meal
-  const currentMeal = allMeals[currentMealIndex];
-  
-  // Additional validation for the current meal
-  if (!currentMeal || !currentMeal.nutrition) {
-    return null;
-  }
 
   // Navigation functions
   const goToNextMeal = () => {
@@ -292,6 +328,9 @@ export function MealPlanDisplay({
     }
   };
 
+  // Get current meal
+  const currentMeal = allMeals[currentMealIndex] || {};
+  
   // Get the day number directly from the current meal
   const mealDayNumber = currentMeal.dayNumber || 1;
 
@@ -320,7 +359,20 @@ export function MealPlanDisplay({
             {Object.keys(mealsByDay).map(dayNum => (
               <div key={`day-${dayNum}`} className="bg-gray-50 rounded-lg p-4">
                 <h3 className="font-semibold text-lg mb-3">Day {dayNum}</h3>
-                {mealsByDay[dayNum].map((meal, idx) => {
+                {/* Sort meals by meal type for consistent display */}
+                {mealsByDay[dayNum]
+                  .sort((a, b) => {
+                    // Define the order: Breakfast, Lunch, Dinner, Snack
+                    const mealTypeOrder = { 'breakfast': 0, 'lunch': 1, 'dinner': 2, 'snack': 3 };
+                    
+                    // Get the meal types in lowercase for consistent comparison
+                    const typeA = (a.meal_type || a.mealType || '').toLowerCase();
+                    const typeB = (b.meal_type || b.mealType || '').toLowerCase();
+                    
+                    // Compare based on the predefined order
+                    return (mealTypeOrder[typeA] || 0) - (mealTypeOrder[typeB] || 0);
+                  })
+                  .map((meal, idx) => {
                   // Find the actual index in the allMeals array
                   const globalIndex = allMeals.findIndex(m => m.id === meal.id);
                   return (
@@ -346,9 +398,9 @@ export function MealPlanDisplay({
                           <p className="font-medium text-sm text-gray-900 line-clamp-1">{meal.title}</p>
                         </div>
                         <div className="flex items-center mt-1">
-                          <span className="text-xs text-teal-600 font-medium">{meal.mealType}</span>
+                          <span className="text-xs text-teal-600 font-medium">{meal.meal_type || meal.mealType || ''}</span>
                           <span className="mx-2 text-xs text-gray-400">•</span>
-                          <span className="text-xs text-gray-500">{meal.nutrition.calories} kcal</span>
+                          <span className="text-xs text-gray-500">{meal.nutrition?.calories} kcal</span>
                         </div>
                       </div>
                       <button 
@@ -420,7 +472,8 @@ export function MealPlanDisplay({
         {/* Meal type & day label centered below the progress counter */}
         <div className="bg-white/90 rounded-full px-3 py-1 shadow-sm">
           <p className="text-xs font-medium text-gray-800 capitalize">
-            {currentMeal.mealType.toLowerCase()} · Day {mealDayNumber}
+            {/* Ensure we get the meal type from either property, using a consistent display */}
+            {(currentMeal.meal_type || currentMeal.mealType || '')?.toLowerCase()} · Day {mealDayNumber}
           </p>
         </div>
       </div>
@@ -467,52 +520,54 @@ export function MealPlanDisplay({
               </h3>
               
               {/* Nutrition Information */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
-                  <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
-                  Nutritional Information
-                </h4>
+              {currentMeal.nutrition && (
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3 flex items-center">
+                    <Activity className="w-4 h-4 mr-1 text-teal-600" /> 
+                    Nutritional Information
+                  </h4>
 
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  {/* Calories spans full row */}
-                  <div className="col-span-3 sm:col-span-6">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                    {/* Calories spans full row */}
+                    <div className="col-span-3 sm:col-span-6">
+                      <NutrientMetric 
+                        icon={<Flame className="w-4 h-4 text-orange-500" />} 
+                        value={currentMeal.nutrition.calories} 
+                        unit="kcal"
+                        label="Calories"
+                        highlight={true} 
+                      />
+                    </div>
+
+                    {/* Macros */}
                     <NutrientMetric 
-                      icon={<Flame className="w-4 h-4 text-orange-500" />} 
-                      value={currentMeal.nutrition.calories} 
-                      unit="kcal"
-                      label="Calories"
-                      highlight={true} 
+                      value={currentMeal.nutrition.protein} 
+                      unit="g" 
+                      label="Protein" 
+                    />
+                    <NutrientMetric 
+                      value={currentMeal.nutrition.carbs} 
+                      unit="g" 
+                      label="Carbs" 
+                    />
+                    <NutrientMetric 
+                      value={currentMeal.nutrition.fat} 
+                      unit="g" 
+                      label="Fat" 
+                    />
+                    <NutrientMetric 
+                      value={currentMeal.nutrition.fiber || 0} 
+                      unit="g" 
+                      label="Fiber" 
+                    />
+                    <NutrientMetric 
+                      value={currentMeal.nutrition.sugar || 0} 
+                      unit="g" 
+                      label="Sugar" 
                     />
                   </div>
-
-                  {/* Macros */}
-                  <NutrientMetric 
-                    value={currentMeal.nutrition.protein} 
-                    unit="g" 
-                    label="Protein" 
-                  />
-                  <NutrientMetric 
-                    value={currentMeal.nutrition.carbs} 
-                    unit="g" 
-                    label="Carbs" 
-                  />
-                  <NutrientMetric 
-                    value={currentMeal.nutrition.fat} 
-                    unit="g" 
-                    label="Fat" 
-                  />
-                  <NutrientMetric 
-                    value={currentMeal.nutrition.fiber} 
-                    unit="g" 
-                    label="Fiber" 
-                  />
-                  <NutrientMetric 
-                    value={currentMeal.nutrition.sugar} 
-                    unit="g" 
-                    label="Sugar" 
-                  />
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

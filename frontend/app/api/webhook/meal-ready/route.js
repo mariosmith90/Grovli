@@ -64,6 +64,7 @@ export async function GET(request) {
     // Extract user_id from search params
     const url = new URL(request.url);
     const user_id = url.searchParams.get('user_id');
+    const checkReadyPlans = url.searchParams.get('checkReadyPlans') === 'true';
     
     if (!user_id) {
       return NextResponse.json(
@@ -72,13 +73,52 @@ export async function GET(request) {
       );
     }
     
-    // Check the cache for notifications for this user
-    const cacheKey = `meal_ready:${user_id}`;
+    // Initialize global objects if needed
     global.mealReadyCache = global.mealReadyCache || {};
+    global.lastMealReadyCheck = global.lastMealReadyCheck || {};
+    global.readyMealPlans = global.readyMealPlans || {};
+    
+    // First, check if we have a ready meal plan for this user in our special cache
+    // This handles the case where a notification came in via webhook but the client
+    // hasn't fetched it yet
+    if (checkReadyPlans) {
+      const readyPlans = Object.entries(global.readyMealPlans)
+        .filter(([_, data]) => data.user_id === user_id && !data.handled)
+        .map(([planId, data]) => ({ 
+          meal_plan_id: planId,
+          timestamp: data.timestamp,
+          notification_source: 'webhook'
+        }));
+      
+      if (readyPlans.length > 0) {
+        // Mark these plans as handled so we don't send duplicate notifications
+        readyPlans.forEach(plan => {
+          if (global.readyMealPlans[plan.meal_plan_id]) {
+            global.readyMealPlans[plan.meal_plan_id].handled = true;
+          }
+        });
+        
+        console.log(`Found ${readyPlans.length} ready meal plans for user ${user_id} via readyMealPlans cache`);
+        
+        // Return the first ready meal plan (usually there should only be one anyway)
+        const readyPlan = readyPlans[0];
+        return NextResponse.json({
+          has_notification: true,
+          notification: {
+            user_id: user_id,
+            meal_plan_id: readyPlan.meal_plan_id,
+            timestamp: readyPlan.timestamp,
+            from_ready_cache: true
+          }
+        });
+      }
+    }
+    
+    // Check the regular notification cache
+    const cacheKey = `meal_ready:${user_id}`;
     const cachedNotification = global.mealReadyCache[cacheKey];
     
     // Track when this endpoint was last queried to prevent rapid polling
-    global.lastMealReadyCheck = global.lastMealReadyCheck || {};
     const now = Date.now();
     const lastCheck = global.lastMealReadyCheck[user_id] || 0;
     
@@ -92,7 +132,7 @@ export async function GET(request) {
       });
     }
     
-    // For special test user, we'll still log but not throttle
+    // Special user handling
     if (now - lastCheck < 10000 && user_id === "auth0|67b82eb657e61f81cdfdd503") {
       console.log(`Special user ${user_id} checking notifications - allowing without throttle`);
     }
@@ -140,6 +180,24 @@ export async function GET(request) {
 - time: ${new Date().toISOString()}
 ==================================================
       `);
+      
+      // Since this is a server-side API route, we can't directly update window variables
+      // However, we can create a special cache entry to indicate this meal plan is ready
+      // This will be read by client-side code during polling
+      global.readyMealPlans = global.readyMealPlans || {};
+      global.readyMealPlans[cachedNotification.meal_plan_id] = {
+        timestamp: Date.now(),
+        user_id: user_id,
+        handled: false  // This flag helps prevent duplicate handling
+      };
+      
+      // Keeping this special ready cache entry for a while to ensure it's picked up
+      // even if the client takes some time to poll
+      setTimeout(() => {
+        if (global.readyMealPlans && global.readyMealPlans[cachedNotification.meal_plan_id]) {
+          delete global.readyMealPlans[cachedNotification.meal_plan_id];
+        }
+      }, 300000); // 5 minutes
       
       // Add a timestamp to help with debugging
       return NextResponse.json({

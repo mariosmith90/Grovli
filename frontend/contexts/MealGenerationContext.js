@@ -45,14 +45,34 @@ export const MealGenerationProvider = ({ children }) => {
     if (typeof window !== 'undefined') {
       window.mealLoading = isGenerating;
       window.mealPlanReady = mealGenerationComplete;
+      
+      // Also update localStorage to maintain state across refreshes
+      if (isGenerating !== undefined && mealGenerationComplete !== undefined) {
+        const currentState = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
+        localStorage.setItem('mealGenerationState', JSON.stringify({
+          ...currentState,
+          isGenerating,
+          mealGenerationComplete
+        }));
+      }
     }
   }, [isGenerating, mealGenerationComplete]);
 
-  // Simple function to start meal generation
+  // Function to start meal generation
   const startTaskChecking = (taskId) => {
+    // Store task ID before we set any other state
+    if (taskId) {
+      setCurrentMealPlanId(taskId);
+      
+      // Also store in localStorage for persistence
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('currentMealPlanId', taskId);
+        console.log(`[MealContext] Stored currentMealPlanId in localStorage: ${taskId}`);
+      }
+    }
+    
     setIsGenerating(true);
     setMealGenerationComplete(false);
-    setCurrentMealPlanId(taskId);
     setHasViewedGeneratedMeals(false);
     
     if (typeof window !== 'undefined') {
@@ -67,10 +87,25 @@ export const MealGenerationProvider = ({ children }) => {
     setMealGenerationComplete(false);
     setCurrentMealPlanId(null);
     setHasViewedGeneratedMeals(false);
+    setBackgroundTaskId(null);
     
     if (typeof window !== 'undefined') {
       window.mealLoading = false;
       window.mealPlanReady = false;
+      
+      // Clear localStorage values to prevent stale state
+      localStorage.removeItem('currentMealPlanId');
+      
+      // Update localStorage state
+      const stateToStore = {
+        isGenerating: false,
+        mealGenerationComplete: false,
+        currentMealPlanId: null,
+        hasViewedGeneratedMeals: false,
+        backgroundTaskId: null
+      };
+      localStorage.setItem('mealGenerationState', JSON.stringify(stateToStore));
+      console.log('[MealContext] Reset meal generation state in localStorage');
     }
   };
 
