@@ -233,12 +233,38 @@ export default function ProfilePage() {
       return {};
     }
     
-    // Get most up-to-date token (either from state or localStorage)
-    const currentToken = accessToken || localStorage.getItem('accessToken');
+    // Get the most reliable token available
+    let currentToken = accessToken;
+    if (!currentToken) {
+      // Try to get a token from various sources if we don't have one
+      // 1. Try auth context
+      if (getAuthTokenFromContext) {
+        try {
+          currentToken = await getAuthTokenFromContext();
+        } catch (err) {
+          console.error("Error getting token from context in loadMealCompletions:", err);
+        }
+      }
+      
+      // 2. Try window auth token
+      if (!currentToken && typeof window !== 'undefined' && window.__auth0_token) {
+        currentToken = window.__auth0_token;
+      }
+      
+      // 3. Finally try localStorage
+      if (!currentToken && typeof window !== 'undefined') {
+        currentToken = localStorage.getItem('accessToken');
+      }
+      
+      // Save token for future use if we found one
+      if (currentToken) {
+        setAccessToken(currentToken);
+      }
+    }
     
     // Verify we have a token
     if (!currentToken) {
-      console.error("Cannot load meal completions - missing accessToken");
+      console.error("Cannot load meal completions - missing accessToken after all attempts");
       return {};
     }
     
@@ -335,13 +361,41 @@ export default function ProfilePage() {
       return;
     }
     
-    if (!accessToken) {
-      console.error("Missing accessToken in fetchUserMealPlans");
-      return;
+    // Get a token if we don't already have one
+    let token = accessToken;
+    if (!token) {
+      console.log("No accessToken in fetchUserMealPlans, trying to get one");
+      
+      // Try from auth context
+      if (getAuthTokenFromContext) {
+        try {
+          token = await getAuthTokenFromContext();
+        } catch (err) {
+          console.error("Error getting token from context in fetchUserMealPlans:", err);
+        }
+      }
+      
+      // Try from window.__auth0_token
+      if (!token && typeof window !== 'undefined' && window.__auth0_token) {
+        token = window.__auth0_token;
+      }
+      
+      // Try from localStorage
+      if (!token && typeof window !== 'undefined') {
+        token = localStorage.getItem('accessToken');
+      }
+      
+      // Save token if we found one
+      if (token) {
+        setAccessToken(token);
+      } else {
+        console.error("No token available for fetchUserMealPlans");
+        return; // Exit if no token is available
+      }
     }
 
     try {
-      console.log("Starting fetchUserMealPlans with token:", accessToken.substring(0, 10) + "...");
+      console.log("Starting fetchUserMealPlans with token available:", !!token);
       setIsLoadingPlans(true);
       setIsDataReady(false);
       
@@ -357,7 +411,7 @@ export default function ProfilePage() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       const response = await fetch(`${apiUrl}/api/user-plans/user/${userId}`, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -425,9 +479,24 @@ export default function ProfilePage() {
       const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
   
       if (mealIndex !== -1) {
+        // Add debugging to see what we're getting from the backend
+        console.log(`Loading meal details for ${mealType}:`, { 
+          mealDetails: { 
+            title: mealDetails.title, 
+            name: mealDetails.name 
+          }, 
+          meal: { 
+            title: meal?.title, 
+            name: meal?.name 
+          }
+        });
+        
         updatedMealPlan[mealIndex] = {
           ...updatedMealPlan[mealIndex],
-          name: mealDetails.title || (meal && meal.title) || "",
+          // Primary name property for UI display
+          name: mealDetails.title || mealDetails.name || (meal && (meal.title || meal.name)) || "Unnamed Meal",
+          // Also keep title for compatibility
+          title: mealDetails.title || mealDetails.name || (meal && (meal.title || meal.name)) || "Unnamed Meal",
           calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
           protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
           carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
@@ -725,82 +794,60 @@ export default function ProfilePage() {
     setActiveSection('timeline');
   };
 
-  // Fixed token retrieval without hooks inside callbacks
+  // Token retrieval - simpler and more reliable
   useEffect(() => {
     async function getAndSetToken() {
       if (isAuthenticated && !isAuthLoading) {
         try {
-          // Log the state for debugging
-          console.log("Profile page auth state:", { 
-            isAuthenticated, 
-            user: user?.sub,
-            hasUserToken: !!user?.accessToken
-          });
+          console.log("Profile page: Getting auth token");
           
-          // Try each token source in order of preference
+          // 1. Try auth context first (most reliable)
           let token = null;
-          
-          // 1. Direct from Auth0 user object (most reliable source)
-          if (user?.accessToken) {
-            console.log("Using token directly from Auth0 user object");
-            token = user.accessToken;
-          } 
-          // 2. From auth context using the already retrieved function
-          else if (getAuthTokenFromContext) {
-            console.log("Attempting to get token from auth context");
+          if (getAuthTokenFromContext) {
             try {
               token = await getAuthTokenFromContext();
-              console.log("Got token from context:", !!token);
+              console.log("Profile page: Got token from auth context:", !!token);
             } catch (err) {
               console.error("Error getting token from context:", err);
             }
           }
           
-          // 3. Try getIdTokenClaims if available
-          if (!token && user && typeof user.getIdTokenClaims === 'function') {
-            try {
-              console.log("Trying getIdTokenClaims from user object");
-              const claims = await user.getIdTokenClaims();
-              if (claims && claims.__raw) {
-                token = claims.__raw;
-                console.log("Got token from claims");
-              }
-            } catch (err) {
-              console.error("Error getting token claims:", err);
-            }
+          // 2. Try to get token directly from Auth0
+          if (!token && auth?.accessToken) {
+            token = auth.accessToken;
+            console.log("Profile page: Got token from auth object:", !!token);
           }
           
-          // 4. From localStorage as fallback
+          // 3. Check window.__auth0_token which is set by our AuthContext
+          if (!token && typeof window !== 'undefined' && window.__auth0_token) {
+            token = window.__auth0_token;
+            console.log("Profile page: Got token from window.__auth0_token");
+          }
+          
+          // 4. Check localStorage as last resort
           if (!token) {
-            console.log("Falling back to localStorage token");
             token = localStorage.getItem('accessToken');
+            console.log("Profile page: Got token from localStorage:", !!token);
           }
           
-          // 5. Special case for test user - use a hardcoded token for testing purposes
-          if (!token && user?.sub === "auth0|67b82eb657e61f81cdfdd503") {
-            console.log("Using special test user fallback token");
-            // This is just a placeholder token that will be replaced by the backend
-            // with a valid token for the test user
-            token = "test_user_special_token";
-          }
-          
-          // If we found a token, use it
+          // If we found a token, set it and proceed
           if (token) {
-            console.log("Setting access token from valid source");
-            
+            console.log("Profile page: Setting access token");
             setAccessToken(token);
             localStorage.setItem('accessToken', token);
             
-            // Fetch meal plans once we have the token
-            console.log("Fetching meal plans with token");
+            // Fetch user data now that we have a token
+            console.log("Profile page: Fetching meal plans with token");
             await fetchUserMealPlans();
             loadDataForDate(selectedDate);
           } else {
             console.error("Failed to get access token from any source");
-            // Try to redirect to login if we can't get a token
+            // Try to get a new token by redirecting to login
             setTimeout(() => {
-              if (!localStorage.getItem('accessToken') && window.location.pathname === '/profile') {
-                console.log("No token available, redirecting to login");
+              if (typeof window !== 'undefined' && 
+                  !localStorage.getItem('accessToken') && 
+                  window.location.pathname === '/profile') {
+                console.log("No token available after 2s, redirecting to login");
                 window.location.href = '/api/auth/login?returnTo=/profile';
               }
             }, 2000);
@@ -812,7 +859,7 @@ export default function ProfilePage() {
     }
     
     getAndSetToken();
-  }, [isAuthenticated, isAuthLoading, user, selectedDate, getAuthTokenFromContext]);
+  }, [isAuthenticated, isAuthLoading, auth, user, selectedDate, getAuthTokenFromContext]);
 
   // Load user settings effect - separate from token logic
   useEffect(() => {
