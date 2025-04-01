@@ -697,7 +697,7 @@ def generate_meal_plan(
             delete_cache(generation_lock_key)
             logger.info(f"Released generation lock for meal plan: {request_hash}")
 
-@celery_app.task(name="notify_meal_plan_ready_task")
+@celery_app.task(name="notify_meal_plan_ready_task", max_retries=1)
 def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     """
     Sends a notification to the user that their meal plan is ready.
@@ -706,7 +706,7 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     try:
         logger.info(f"Starting notification task for session {session_id}, meal plan {meal_plan_id}")
         
-        # Use a consistent notification lock key in Redis
+        # Use a consistent notification lock key in Redis with longer timeout (5 minutes)
         notification_lock_key = f"notification_lock:{session_id}:{meal_plan_id}"
         
         # Try to acquire a lock using Redis SETNX operation (atomic)
@@ -722,11 +722,10 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
                 logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping (Redis)")
                 return {"status": "already_notified", "source": "redis_cache"}
                 
-            # Create a Redis lock with 60 second expiry to prevent concurrent notifications
+            # Create a Redis lock with 5 minute expiry to prevent concurrent notifications
             # Use your Redis client to set the key only if it doesn't exist
-            # This is a simple implementation - a real Redis lock would be more robust
             if not get_cache(notification_lock_key):
-                set_cache(notification_lock_key, True, 60)  # 60 second TTL for the lock
+                set_cache(notification_lock_key, True, 300)  # 300 second TTL for the lock (5 minutes)
                 lock_acquired = True
             else:
                 logger.info(f"Another process is already sending notification for {meal_plan_id}, skipping")
@@ -740,43 +739,55 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
             
             logger.info(f"Found chat session: {session_id}")
             
-            # Check if notification has already been sent by checking for a dedicated flag
+            # Multiple redundant checks to prevent duplicate notifications
+            
+            # Check 1: Dedicated notification flag in MongoDB
             if chat_session.get("notification_sent_for", {}).get(meal_plan_id):
-                logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping (MongoDB)")
+                logger.info(f"Notification for meal plan {meal_plan_id} already sent, skipping (MongoDB flag)")
                 # Mark as sent in Redis too for future fast checks
                 set_cache(cache_key, True, 86400)  # 24 hours
                 return {"status": "already_notified", "source": "mongodb_flag"}
             
-            # Also check messages as a backup
+            # Check 2: Check existing messages for this notification
             existing_messages = chat_session.get("messages", [])
+            notification_count = 0
             for msg in existing_messages:
                 if (msg.get("is_notification") and 
                     msg.get("meal_plan_id") == meal_plan_id):
-                    logger.info(f"Notification for meal plan {meal_plan_id} already in messages, skipping")
-                    # Mark as sent in Redis and MongoDB
-                    set_cache(cache_key, True, 86400)  # 24 hours
-                    chat_collection.update_one(
-                        {"session_id": session_id},
-                        {"$set": {f"notification_sent_for.{meal_plan_id}": True}}
-                    )
-                    return {"status": "already_notified", "source": "message_check"}
+                    notification_count += 1
+                    
+            if notification_count > 0:
+                logger.info(f"Already found {notification_count} notification(s) for meal plan {meal_plan_id} in messages, skipping")
+                # Mark as sent in Redis and MongoDB to prevent future attempts
+                set_cache(cache_key, True, 86400)  # 24 hours
+                chat_collection.update_one(
+                    {"session_id": session_id},
+                    {"$set": {f"notification_sent_for.{meal_plan_id}": True}}
+                )
+                return {"status": "already_notified", "source": "message_check"}
             
-            # Create notification message
+            # Create notification message with a unique timestamp to prevent duplicates
             current_time = datetime.datetime.now()
+            notification_id = f"notification_{meal_plan_id}_{current_time.timestamp()}"
             notification_message = {
                 "role": "assistant",
                 "content": "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
                 "timestamp": current_time,
                 "meal_plan_id": meal_plan_id,
                 "is_notification": True,
-                "notification_id": f"notification_{meal_plan_id}_{current_time.timestamp()}"  # Add unique ID
+                "notification_id": notification_id
             }
             
-            logger.info(f"Adding notification message for meal plan {meal_plan_id}")
+            logger.info(f"Adding notification message for meal plan {meal_plan_id} with ID {notification_id}")
             
             # Update the chat session in MongoDB with BOTH the new message and a dedicated flag
-            update_result = chat_collection.update_one(
-                {"session_id": session_id},
+            # Use findAndModify pattern to ensure atomic update
+            update_result = chat_collection.find_one_and_update(
+                {
+                    "session_id": session_id,
+                    # Only update if a notification for this meal plan hasn't been sent yet
+                    f"notification_sent_for.{meal_plan_id}": {"$ne": True}
+                },
                 {
                     "$push": {"messages": notification_message},
                     "$set": {
@@ -784,15 +795,27 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
                         "meal_plan_ready": True,
                         "meal_plan_id": meal_plan_id,
                         "meal_plan_processing": False,
+                        "all_meals_ready": True,  # Set this flag too
                         f"notification_sent_for.{meal_plan_id}": True  # Dedicated flag for this meal plan
                     }
-                }
+                },
+                return_document=False  # Return the document before update
             )
             
-            logger.info(f"Update result: modified={update_result.modified_count}")
+            # If update_result is None, it means the document wasn't updated because condition wasn't met
+            if update_result is None:
+                logger.info(f"MongoDB update skipped - notification was already sent for meal plan {meal_plan_id}")
+                set_cache(cache_key, True, 86400)  # 24 hours TTL
+                return {"status": "already_notified", "source": "mongodb_atomic_update"}
             
-            # Cache notification status to prevent duplicates
+            logger.info(f"Added notification message to MongoDB for meal plan {meal_plan_id}")
+            
+            # Cache notification status to prevent duplicates in future checks
             set_cache(cache_key, True, 86400)  # 24 hours TTL
+            
+            # Only call the webhook if we actually updated the database
+            # This ensures we're not spamming the frontend with notifications
+            notify_frontend_webhook(user_id, meal_plan_id, session_id)
             
             logger.info(f"✅ Successfully sent meal plan ready notification to chat session {session_id}")
             return {"status": "success"}
@@ -805,6 +828,71 @@ def notify_meal_plan_ready_task(session_id, user_id, meal_plan_id):
     except Exception as e:
         logger.error(f"❌ Error sending meal plan ready notification: {str(e)}")
         return {"status": "error", "message": str(e)}
+        
+def notify_frontend_webhook(user_id, meal_plan_id, session_id):
+    """
+    Sends a direct webhook notification to the frontend to update UI immediately.
+    This prevents the UI from having to poll for updates.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    
+    try:
+        # Check if we've recently notified this user about this meal plan
+        webhook_notification_key = f"webhook_sent:{user_id}:{meal_plan_id}"
+        already_sent = get_cache(webhook_notification_key)
+        
+        if already_sent:
+            logger.info(f"Webhook notification for meal plan {meal_plan_id} already sent recently, skipping")
+            return True
+        
+        # Get the frontend webhook URL from environment variable or use a default
+        frontend_url = os.getenv("FRONTEND_WEBHOOK_URL", "http://frontend:3000/api/webhook/meal-ready")
+        
+        # Prepare the payload
+        payload = {
+            "user_id": user_id,
+            "meal_plan_id": meal_plan_id,
+            "session_id": session_id,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "notification_id": f"webhook_{meal_plan_id}_{datetime.datetime.now().timestamp()}"
+        }
+        
+        # Create a session with retry logic
+        session = requests.Session()
+        retries = Retry(
+            total=2,  # Maximum of 2 retries
+            backoff_factor=0.5,  # Exponential backoff
+            status_forcelist=[500, 502, 503, 504],  # Retry on these status codes
+            allowed_methods=["POST"]  # Only retry POST requests
+        )
+        session.mount('http://', HTTPAdapter(max_retries=retries))
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+        
+        # Set a reasonable timeout
+        timeout = 5  # seconds
+        
+        # Send the POST request to the frontend webhook
+        response = session.post(
+            frontend_url,
+            json=payload,
+            timeout=timeout,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            # Cache that we've sent this notification to prevent duplicates
+            set_cache(webhook_notification_key, True, 300)  # 5 minute TTL
+            logger.info(f"✅ Successfully sent webhook notification to frontend for meal plan {meal_plan_id}")
+            return True
+        else:
+            logger.warning(f"⚠️ Frontend webhook returned non-200 status: {response.status_code}, {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Error sending frontend webhook notification: {str(e)}")
+        return False
 
 # ===================== HELPER FUNCTIONS =====================
 

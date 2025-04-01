@@ -169,9 +169,39 @@ def try_notify_meal_plan_ready(session_id, user_id, meal_plan_id):
     """
     Sends a notification to the chat service that the meal plan is ready.
     Now simply delegates to the Celery task.
+    
+    IMPORTANT: This should ONLY be called when ALL meals and ALL images are completely generated.
     """
-    # First, immediately mark the session as having a meal plan ready
-    # This ensures the UI can pick up the status change even if notification hasn't been processed
+    # First, verify that all expected meals are properly generated with images
+    try:
+        # Find all meals for this plan
+        meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
+        
+        # Verify we have all meals and that all meals have images
+        if not meals:
+            logger.warning(f"⚠️ No meals found for meal_plan_id: {meal_plan_id}. Delaying notification.")
+            return False
+        
+        # Check meal types to determine if this is a Full Day plan
+        meal_types = set(meal.get("meal_type", "") for meal in meals)
+        expected_meal_count = 4 if "Full Day" in meal_types or len(meal_types) == 4 else 1
+        
+        if len(meals) < expected_meal_count:
+            logger.warning(f"⚠️ Only {len(meals)} of {expected_meal_count} meals generated for meal_plan_id: {meal_plan_id}. Delaying notification.")
+            return False
+        
+        # Check if all meals have images
+        meals_missing_images = [meal.get("meal_name", "Unknown") for meal in meals if not meal.get("imageUrl")]
+        if meals_missing_images:
+            logger.warning(f"⚠️ Some meals missing images for meal_plan_id: {meal_plan_id}: {meals_missing_images}. Delaying notification.")
+            return False
+            
+        logger.info(f"✅ Verified all {len(meals)} meals have proper images for meal_plan_id: {meal_plan_id}")
+    except Exception as e:
+        logger.error(f"Error verifying meal completeness: {str(e)}")
+        # Continue anyway to avoid blocking in case of verification errors
+    
+    # Mark the session as having a meal plan ready
     try:
         chat_collection.update_one(
             {"session_id": session_id},
@@ -180,11 +210,12 @@ def try_notify_meal_plan_ready(session_id, user_id, meal_plan_id):
                     "meal_plan_ready": True,
                     "meal_plan_id": meal_plan_id,
                     "meal_plan_processing": False,
+                    "all_meals_ready": True,  # Add a new flag to indicate ALL meals and images are ready
                     "updated_at": datetime.datetime.now()
                 }
             }
         )
-        logger.info(f"Updated chat session {session_id} status: meal plan ready")
+        logger.info(f"Updated chat session {session_id} status: meal plan fully ready with all images")
     except Exception as e:
         logger.error(f"Failed to update chat session status: {str(e)}")
     
@@ -454,6 +485,23 @@ async def get_latest_meal_session(request: Request):
                 detail="user-id header is required"
             )
         
+        # Implement throttling to prevent excessive calls
+        cache_key = f"session_check:{user_id}"
+        last_check = get_cache(cache_key) or 0
+        current_time = datetime.datetime.now().timestamp()
+        
+        # Significantly increase throttling to 30 seconds to prevent excessive calls
+        if current_time - last_check < 30:
+            logger.info(f"Throttling session check for user {user_id} - checked too recently")
+            return {
+                "throttled": True,
+                "message": "Request throttled. Please try again later.",
+                "retry_after": 30
+            }
+        
+        # Update last check time with longer TTL
+        set_cache(cache_key, current_time, 180)  # 3 minute TTL for better rate limiting
+        
         # Find the active session
         session_id = get_active_session_id(user_id)
         if not session_id:
@@ -470,12 +518,14 @@ async def get_latest_meal_session(request: Request):
                 detail=f"Session not found: {session_id}"
             )
         
-        # Return meal plan status information
+        # Return meal plan status information, including the new all_meals_ready flag
         return {
             "session_id": session_id,
             "meal_plan_ready": chat_session.get("meal_plan_ready", False),
             "meal_plan_id": chat_session.get("meal_plan_id"),
-            "meal_plan_processing": chat_session.get("meal_plan_processing", False)
+            "meal_plan_processing": chat_session.get("meal_plan_processing", False),
+            "all_meals_ready": chat_session.get("all_meals_ready", False),  # Include the new flag
+            "throttled": False
         }
     except HTTPException:
         raise
@@ -547,23 +597,56 @@ async def get_meal_by_id(meal_id: str):
         raise HTTPException(status_code=500, detail=f"Internal server error")
 
 @router.get("/by_id/{meal_plan_id}")
-async def get_meal_plan_by_id(meal_plan_id: str):
+async def get_meal_plan_by_id(meal_plan_id: str, full: bool = False, nocache: bool = False, request: Request = None):
     """
     Retrieves a meal plan by its ID using Redis cache.
+    
+    Parameters:
+    - meal_plan_id: The ID of the meal plan to retrieve
+    - full: If True, forces the endpoint to return all meals associated with this plan
+    - nocache: If True, bypasses Redis cache and fetches directly from MongoDB
     """
     try:
-        # Check Redis cache first
-        cache_key = f"meal_plan_id:{meal_plan_id}"
-        cached_meals = get_cache(cache_key)
+        # Implement throttling to prevent excessive calls
+        # Extract a user ID if possible from headers for better throttling
+        user_id = "anonymous"
+        if request:
+            user_id = request.headers.get("user-id") or request.headers.get("x-user-id") or "anonymous"
         
-        if cached_meals:
+        throttle_key = f"meal_plan_check:{meal_plan_id}:{user_id}"
+        last_check = get_cache(throttle_key) or 0
+        current_time = datetime.datetime.now().timestamp()
+        
+        # Only allow checks once every 15 seconds
+        if current_time - last_check < 15:
+            logger.info(f"Throttling meal plan check for {meal_plan_id} - checked too recently")
+            return {
+                "throttled": True,
+                "message": "Request throttled. Please try again later."
+            }
+        
+        # Update last check time
+        set_cache(throttle_key, current_time, 60)  # 60 second TTL
+        
+        # Check if we should use cache
+        use_cache = not nocache
+        
+        # Check Redis cache first if allowed
+        cache_key = f"meal_plan_id:{meal_plan_id}"
+        cached_meals = get_cache(cache_key) if use_cache else None
+        
+        if cached_meals and not full:  # Only use cache if not requesting full meal plan
             logger.info(f"Found meal plan in Redis cache: {meal_plan_id}")
             formatted_meals = []
             for meal in cached_meals:
+                # Get meal type - for Full Day plans, ensure we have 4 distinct meal types
+                meal_type = meal.get("meal_type", "")
+                
+                # Create formatted meal
                 formatted_meal = {
                     "id": meal["meal_id"],
                     "title": meal.get("meal_name", ""),
-                    "meal_type": meal.get("meal_type", ""),
+                    "meal_type": meal_type,
                     "nutrition": meal.get("macros", {}),
                     "ingredients": meal.get("ingredients", []),
                     "instructions": meal.get("meal_text", ""),
@@ -571,34 +654,67 @@ async def get_meal_plan_by_id(meal_plan_id: str):
                 }
                 formatted_meals.append(formatted_meal)
             
-            return {"meal_plan": formatted_meals, "cache_source": "redis"}
+            # If we're requesting the full meal plan, make sure we have all meals
+            if full and (not cached_meals or len(cached_meals) < 4):
+                logger.info("Cached meal plan might be incomplete, fetching from DB")
+            else:
+                return {"meal_plan": formatted_meals, "cache_source": "redis"}
         
-        # If not in cache, find meals in MongoDB
-        meals = list(meals_collection.find({"meal_plan_id": meal_plan_id}))
+        # If not in cache or requesting full meal plan, find meals in MongoDB
+        query = {"meal_plan_id": meal_plan_id}
         
-        # Remove the expected count check - return whatever meals are available
+        # If requesting full meal plan, don't use limit (return all matching meals)
+        meals = list(meals_collection.find(query))
+        
+        # If no meals found, try request_hash
         if not meals:
-            # Also try searching by request_hash if meal_plan_id is actually a request hash
             meals = list(meals_collection.find({"request_hash": meal_plan_id}))
             if not meals:
                 raise HTTPException(status_code=404, detail="Meal plan still generating")
         
-        # Cache the results in Redis
-        set_cache(cache_key, meals, MEAL_CACHE_TTL)
+        # Log found meals for debugging
+        logger.info(f"Found {len(meals)} meals in MongoDB for meal_plan_id: {meal_plan_id}")
+        
+        # If a full day meal plan, ensure we have all 4 meals
+        meal_types_found = set(meal.get("meal_type") for meal in meals)
+        logger.info(f"Meal types found: {meal_types_found}")
+        
+        # Cache the results in Redis (unless nocache was specified)
+        if use_cache:
+            set_cache(cache_key, meals, MEAL_CACHE_TTL)
         
         # Format the meals for return
         formatted_meals = []
-        for meal in meals:
+        
+        # For Full Day meal plans, ensure we categorize meals by type
+        meal_types_needed = []
+        if len(meal_types_found) == 1 and list(meal_types_found)[0] == "Full Day" and len(meals) >= 4:
+            # If all meals have the same "Full Day" type, assign them breakfast, lunch, dinner, snack
+            logger.info("Detected Full Day meal plan, assigning specific meal types to individual meals")
+            meal_types_needed = ["Breakfast", "Lunch", "Dinner", "Snack"]
+        
+        for idx, meal in enumerate(meals):
+            # Determine the meal type
+            if meal_types_needed and idx < len(meal_types_needed):
+                # For Full Day plans, assign the appropriate meal type based on index
+                meal_type = meal_types_needed[idx]
+                logger.info(f"Assigning meal type {meal_type} to meal {idx+1}")
+            else:
+                meal_type = meal.get("meal_type", "")
+            
             formatted_meal = {
                 "id": meal["meal_id"],
                 "title": meal.get("meal_name", ""),
-                "meal_type": meal.get("meal_type", ""),
+                "meal_type": meal_type,
                 "nutrition": meal.get("macros", {}),
                 "ingredients": meal.get("ingredients", []),
                 "instructions": meal.get("meal_text", ""),
                 "imageUrl": meal.get("imageUrl", "")
             }
             formatted_meals.append(formatted_meal)
+        
+        # Log how many meals we're returning
+        logger.info(f"Returning {len(formatted_meals)} meals for meal_plan_id: {meal_plan_id}")
         
         return {"meal_plan": formatted_meals, "cache_source": "mongodb"}
     except HTTPException:

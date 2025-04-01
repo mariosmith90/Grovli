@@ -1,33 +1,46 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
+import { useAuth } from '../../contexts/AuthContext';
 import { useMealGeneration } from '../../contexts/MealGenerationContext';
-import MealCard, { MealPlanDisplay } from '../../components/ui/mealcard';
+import { MealPlanDisplay } from '../../components/ui/mealcard';
 import ChatbotWindow from '../../components/features/meals/chatbot';
-import CulturalInfo from '../../components/features/meals/culturalinfo';
 import SearchBox from '../../components/features/meals/searchbox';
+import CuisineSelector from '../../components/features/meals/cuisineselector';
+import MealTypeSelector from '../../components/features/meals/mealtypeselector';
+import MealPlanGenerator from '../../components/features/meals/mealplangenerator';
 import Header from '../../components/ui/header';
 
 export default function Home() {
   const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [preferences, setPreferences] = useState('');
   const [mealType, setMealType] = useState('Breakfast');
   const [numDays, setNumDays] = useState(1);
   const [mealPlan, setMealPlan] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [ingredients, setIngredients] = useState([]);  
   const [orderingPlanIngredients, setOrderingPlanIngredients] = useState(false);
-  const { user, isLoading } = useUser();
   const [isPro, setIsPro] = useState(false);
   const [selectedRecipes, setSelectedRecipes] = useState([]);
   const [showChatbot, setShowChatbot] = useState(false);
   const [mealPlanReady, setMealPlanReady] = useState(false);
   const [displayedMealType, setDisplayedMealType] = useState('');
   const [selectedCuisine, setSelectedCuisine] = useState('');
-  const [mealAlgorithm, setMealAlgorithm] = useState('experimental');
+  
+  // Use our centralized auth context
+  const auth = useAuth();
+  const user = auth?.user || null;
+  const isLoading = auth?.isLoading !== false;
+  const authIsPro = auth?.isPro === true;
+  const userId = auth?.userId || null;
+  const getAuthHeaders = auth?.getAuthHeaders || (async () => ({}));
+  
+  // Set the isPro state from the auth context
+  useEffect(() => {
+    if (authIsPro) {
+      setIsPro(true);
+    }
+  }, [authIsPro]);
 
   const { 
     isGenerating, 
@@ -85,22 +98,106 @@ export default function Home() {
     }
   }, [mealPlan]);
 
-  // Sync up with window.mealLoading for cross-component state
+  // Simple polling to check meal plan status
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      // Set global state
       window.mealLoading = isGenerating;
       
-      // Create a function for toggling the chatbot
-      window.toggleChatbot = () => {
-        setShowChatbot(prev => !prev);
-      };
+      // Create chatbot toggle function
+      window.toggleChatbot = () => setShowChatbot(prev => !prev);
+      
+      // Poll for meal plan status
+      let intervalId = null;
+      
+      if (isGenerating && currentMealPlanId) {
+        console.log(`Polling for meal plan: ${currentMealPlanId}`);
+        
+        // Function to check meal status
+        const checkMealStatus = async () => {
+          try {
+            if (!isGenerating || mealGenerationComplete) {
+              if (intervalId) clearInterval(intervalId);
+              return;
+            }
+            
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            
+            // Avoid "ea is not a function" error by ensuring ID is valid
+            if (!currentMealPlanId || typeof currentMealPlanId !== 'string') {
+              console.error("Invalid meal plan ID for status check:", currentMealPlanId);
+              return;
+            }
+            
+            let idToUse = currentMealPlanId;
+            // DO NOT extract the numeric part - backend expects the full ID format
+            // The meal plan ID format is type_cuisines_num1_num2_num3_num4_num5_num6_suffix
+            // Keep the full ID for the API call
+            console.log(`Using full meal plan ID for API call: ${idToUse}`);
+            
+            const response = await fetch(`${apiUrl}/mealplan/by_id/${idToUse}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              
+              if (data && data.meal_plan && Array.isArray(data.meal_plan)) {
+                console.log(`Meal plan loaded with ${data.meal_plan.length} meals`);
+                
+                // Update state
+                setIsGenerating(false);
+                setMealGenerationComplete(true);
+                
+                // Process meal plan
+                let processedMealPlan = [...data.meal_plan];
+                
+                // Handle full day plans
+                if (mealType === 'Full Day' && data.meal_plan.length >= 4) {
+                  const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+                  processedMealPlan = data.meal_plan.map((meal, idx) => {
+                    if (idx < 4) return { ...meal, meal_type: mealTypes[idx] };
+                    return meal;
+                  });
+                }
+                
+                // Update UI
+                setMealPlan(processedMealPlan);
+                setDisplayedMealType(mealType);
+                setShowChatbot(false);
+                setHasViewedGeneratedMeals(true);
+                
+                // Dispatch event to notify other components
+                if (typeof window !== 'undefined') {
+                  const event = new CustomEvent('mealPlanReady', { 
+                    detail: { mealPlanId: currentMealPlanId }
+                  });
+                  window.dispatchEvent(event);
+                  window.mealPlanReady = true;
+                }
+                
+                // Stop polling
+                if (intervalId) clearInterval(intervalId);
+              }
+            }
+          } catch (error) {
+            console.error("Error checking meal plan status:", error);
+            // Just continue polling
+          }
+        };
+        
+        // Check immediately
+        checkMealStatus();
+        
+        // Then check every 5 seconds
+        intervalId = setInterval(checkMealStatus, 5000);
+      }
       
       return () => {
+        if (intervalId) clearInterval(intervalId);
         window.mealLoading = undefined;
         window.toggleChatbot = undefined;
       };
     }
-  }, [isGenerating]);
+  }, [isGenerating, mealGenerationComplete, currentMealPlanId, mealType, setIsGenerating, setMealGenerationComplete, setHasViewedGeneratedMeals]);
 
   // Sync days selection with window
   useEffect(() => {
@@ -123,6 +220,20 @@ export default function Home() {
 
   // Load saved inputs and settings
   useEffect(() => {
+    // Clean up any global status flags on first load
+    if (typeof window !== 'undefined') {
+      // Clear all status tracking flags
+      window._statusCheckInProgress = false;
+      window._notificationPollingActive = false;
+      window._mealPageCheckingNotification = false;
+      
+      // Force a reset of the meal generation state if needed
+      if (window.forceResetOnLoad) {
+        resetMealGeneration();
+        window.forceResetOnLoad = false;
+      }
+    }
+    
     const savedData = JSON.parse(localStorage.getItem("mealPlanInputs") || "{}");
     if (savedData && Object.keys(savedData).length > 0) {
       setPreferences(savedData.preferences || '');
@@ -191,37 +302,28 @@ export default function Home() {
     );
   }, [preferences, mealType, numDays, mealPlan, displayedMealType]);
 
-  // Check subscription status
-  const fetchSubscriptionStatus = async () => {
-    if (!user) return;
-  
-    try {
-      if (user.sub === "auth0|67b82eb657e61f81cdfdd503") {
-        setIsPro(true);
-        console.log("✅ Special user detected - Pro features enabled");
-        return;
-      }
-  
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
+  // Simplified Pro status checking
+  useEffect(() => {
+    // Check for special user with highest priority
+    if (authIsPro || userId === "auth0|67b82eb657e61f81cdfdd503" || 
+        (typeof window !== 'undefined' && (
+          window.specialProUser === true || 
+          localStorage.getItem('userIsPro') === 'true'
+        ))) {
+      setIsPro(true);
       
-      if (!token) {
-        throw new Error("Failed to retrieve access token.");
+      // Special user ID handling
+      if (userId === "auth0|67b82eb657e61f81cdfdd503" && typeof window !== 'undefined') {
+        window.specialProUser = true;
+        localStorage.setItem('userIsPro', 'true');
       }
-  
-      const tokenPayload = JSON.parse(atob(token.split(".")[1]));
-      const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
-      setIsPro(userSubscription === "pro");
-    } catch (err) {
-      console.error("Error fetching subscription status:", err);
     }
+    
+    // Apply meal type restriction if needed
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
     }
-  };
+  }, [isPro, mealType, userId, authIsPro]);
 
   // Handle meal selection for saving recipes
   const handleMealSelection = (id) => {
@@ -234,148 +336,92 @@ export default function Home() {
     });
   };
 
-  // Main function to generate a meal plan
-  const fetchMealPlan = async () => {
-    // Enforce Pro restriction
+  // Use the MealPlanGenerator as a custom hook
+  const { generateMealPlan: mealPlanGenerator } = MealPlanGenerator({
+    preferences,
+    mealType,
+    numDays,
+    globalSettings,
+    isPro,
+    getAuthHeaders,
+    onError: (errorMessage) => setError(errorMessage),
+    onProcessingStarted: () => {
+      setSelectedRecipes([]);
+      setShowChatbot(true);
+      setMealPlanReady(false);
+      setMealPlan([]);
+      setOrderingPlanIngredients(false);
+    },
+    showChatbot
+  });
+  
+  // Main function to generate a meal plan - memoized to avoid recreation on every render
+  const fetchMealPlan = useCallback(async () => {
+    // Enforce Pro restriction - rely on state from the useEffect that runs earlier
     if (!isPro && mealType === 'Full Day') {
       setMealType('Breakfast');
+      return;
     }
   
     // Reset previous states
     resetMealGeneration();
-    setIsGenerating(true);
     setError('');
     setLoading(true);
     setHasViewedGeneratedMeals(false);
     
     try {
-      // Clear previous selections
-      setSelectedRecipes([]);
-      setShowChatbot(true);
-      setMealPlanReady(false);
-      setMealPlan([]);
-      setIngredients([]);
-      setOrderingPlanIngredients(false);
-  
-      // Get pantry ingredients if using pantry algorithm
-      let pantryIngredients = [];
-      if (mealAlgorithm === 'pantry' && user) {
-        try {
-          const token = await getAccessToken({
-            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-          });
-          
-          const pantryResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/items`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          
-          if (pantryResponse.ok) {
-            const pantryData = await pantryResponse.json();
-            pantryIngredients = pantryData.items.map(item => item.name);
-          }
-        } catch (error) {
-          console.error("Error fetching pantry ingredients:", error);
-        }
-      }
+      // Use the generated meal plan function
+      const result = await mealPlanGenerator();
       
-      // Prepare request headers
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const headers = { 'Content-Type': 'application/json' };
-      
-      if (user?.sub) {
-        headers['user-id'] = user.sub;
+      // Handle the result based on whether it's immediate or background processing
+      if (result?.immediate && result.mealPlan) {
+        // Process meal plan data
+        let processedMealPlan = [...result.mealPlan];
         
-        try {
-          const token = await getAccessToken({
-            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+        // Ensure all meals are included, especially for Full Day
+        if (mealType === 'Full Day' && result.mealPlan.length >= 4) {
+          const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+          
+          // Assign meal types based on index for the first 4 meals
+          processedMealPlan = result.mealPlan.map((meal, idx) => {
+            if (idx < 4) return { ...meal, meal_type: mealTypes[idx] };
+            return meal;
           });
-          if (token) headers['Authorization'] = `Bearer ${token}`;
-        } catch (tokenError) {
-          console.error("Error retrieving access token:", tokenError);
         }
-      }
-      
-      // Send meal plan request
-      console.log("Sending meal plan request to:", `${apiUrl}/mealplan/`);
-      const response = await fetch(`${apiUrl}/mealplan/`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          dietary_preferences: preferences,
-          meal_type: mealType,
-          num_days: numDays,
-          carbs: globalSettings.carbs,
-          calories: globalSettings.calories,
-          protein: globalSettings.protein,
-          sugar: globalSettings.sugar,
-          fat: globalSettings.fat,
-          fiber: globalSettings.fiber,
-          meal_algorithm: mealAlgorithm,
-          pantry_ingredients: pantryIngredients
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.message || 
-          errorData.detail || 
-          `HTTP error ${response.status}`
-        );
-      }
-      
-      const data = await response.json();
-      console.log("API Response Data:", data);
-  
-      // Case 1: Immediate meal plan data
-      if (data.meal_plan && Array.isArray(data.meal_plan)) {
-        console.log("Received immediate meal plan");
-        setMealPlan(data.meal_plan);
+        
+        // Update UI
+        setMealPlan(processedMealPlan);
         setDisplayedMealType(mealType);
         setShowChatbot(false);
         setIsGenerating(false);
         setMealGenerationComplete(true);
         setHasViewedGeneratedMeals(true);
-        return;
+      } else if (result?.error) {
+        setShowChatbot(false);
+        setIsGenerating(false);
       }
-      
-      // Case 2: Background processing response
-      if (data.status === "processing" && data.meal_plan_id) {
-        console.log("Meal plan processing in background");
-        setCurrentMealPlanId(data.meal_plan_id);
-        
-        // Use request_hash if available, otherwise fallback to meal_plan_id
-        const taskIdentifier = data.request_hash || data.meal_plan_id;
-        setBackgroundTaskId(taskIdentifier);
-        startTaskChecking(taskIdentifier);
-        return;
-      }
-      
-      // Case 3: Unexpected response format
-      console.error("Unexpected API response format:", data);
-      throw new Error(
-        `Invalid API response format. Expected either:
-         - meal_plan array, or
-         - processing status with meal_plan_id
-         Received: ${JSON.stringify(data, null, 2)}`
-      );
-      
     } catch (error) {
-      console.error('Error fetching meal plan:', error);
+      console.error('Error in fetchMealPlan:', error);
       setError(`Error: ${error.message}`);
       setShowChatbot(false);
       setIsGenerating(false);
-      
-      // Optional: Show more detailed error to user in development
-      if (process.env.NODE_ENV === 'development') {
-        setError(`Error: ${error.message}\n\nResponse: ${JSON.stringify(error.response?.data, null, 2)}`);
-      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    isPro, 
+    mealType, 
+    resetMealGeneration, 
+    setError, 
+    setLoading, 
+    setHasViewedGeneratedMeals,
+    mealPlanGenerator, 
+    setMealPlan, 
+    setDisplayedMealType, 
+    setShowChatbot,
+    setIsGenerating, 
+    setMealGenerationComplete
+  ]);
 
   // Share the meal generation function with the global window object
   useEffect(() => {
@@ -395,16 +441,66 @@ export default function Home() {
       try {
         setLoading(true);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+        
+        // Fetch the meal plan - we know it's ready because the backend notified us
+        // that both meal data and all images are ready
+        console.log("Backend notification indicates meal plan is fully ready, fetching plan:", currentMealPlanId);
+        
+        // We need to use the full ID for the API call, not just the numeric part
+        const mealPlanApiId = currentMealPlanId;
+        console.log(`Using full meal plan ID for API call: ${mealPlanApiId}`);
+        
+        // CRITICAL: Store this ID in localStorage to ensure it's available
+        // for other components and page reloads
+        if (typeof window !== 'undefined') {
+          console.log(`Storing currentMealPlanId in localStorage: ${currentMealPlanId}`);
+          localStorage.setItem('currentMealPlanId', currentMealPlanId);
+        }
+        
+        const fullUrl = `${apiUrl}/mealplan/by_id/${mealPlanApiId}`;
+        console.log(`Making API request to: ${fullUrl}`);
+        const response = await fetch(fullUrl);
         
         if (!response.ok) {
           throw new Error(`HTTP error ${response.status}`);
         }
         
-        const data = await response.json();
+        let data = await response.json();
         
-        if (data && data.meal_plan) {
-          setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+        // Validate the meal plan data
+        if (data && data.meal_plan && Array.isArray(data.meal_plan)) {
+          console.log("Chat complete: Received meal plan with", data.meal_plan.length, "meals");
+          
+          // Additional validation for Full Day plans
+          if (mealType === 'Full Day' && data.meal_plan.length < 4) {
+            console.warn("Expected 4 meals for Full Day but received:", data.meal_plan.length);
+            // This should not happen if the backend correctly implements the all_meals_ready flag,
+            // but we leave this warning for debugging purposes
+          }
+          
+          // For Full Day plans, ensure all 4 meal types are assigned
+          if (mealType === 'Full Day' && data.meal_plan.length > 0) {
+            const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+            
+            // Check if we have distinct meal types or need to assign them
+            const existingTypes = new Set(data.meal_plan.map(meal => meal.meal_type));
+            if (existingTypes.size < 4 || existingTypes.has('Full Day')) {
+              console.log("Assigning specific meal types to meals");
+              
+              // Assign meal types based on index
+              data.meal_plan = data.meal_plan.map((meal, idx) => {
+                if (idx < mealTypes.length) {
+                  return {
+                    ...meal,
+                    meal_type: mealTypes[idx]
+                  };
+                }
+                return meal;
+              });
+            }
+          }
+          
+          setMealPlan(data.meal_plan);
           setDisplayedMealType(mealType);
           setIsGenerating(false);
           setMealGenerationComplete(true);
@@ -484,15 +580,99 @@ export default function Home() {
       const url = new URL(window.location.href);
       const params = new URLSearchParams(url.search);
       const showMealCards = params.get('showMealCards');
+      const urlMealPlanId = params.get('mealPlanId'); // Check for ID in URL parameters
       
-      if (showMealCards === 'true' && mealGenerationComplete) {
+      console.log('URL check - showMealCards param:', showMealCards);
+      console.log('URL check - mealPlanId param:', urlMealPlanId);
+      console.log('Current meal generation state:', {
+        mealGenerationComplete,
+        currentMealPlanId,
+        hasMealPlan: Array.isArray(mealPlan) && mealPlan.length > 0
+      });
+      
+      // Always mark as viewed when parameter is present, even if not yet complete
+      if (showMealCards === 'true') {
+        console.log('[Meals Page] showMealCards=true parameter detected, loading meal plan');
+        
+        // First check URL parameter, then localStorage, then context
+        const localMealPlanId = localStorage.getItem('currentMealPlanId');
+        // URL parameter takes highest priority
+        const mealPlanIdToUse = urlMealPlanId || currentMealPlanId || localMealPlanId;
+        
+        console.log(`[Meals Page] Using meal plan ID: ${mealPlanIdToUse || 'None'}`);
+        
+        // Set mealGenerationComplete to true if we're explicitly showing meal cards
+        if (!mealGenerationComplete) {
+          setMealGenerationComplete(true);
+        }
+        
         // If we have a stored mealPlanId, load that meal plan
-        if (currentMealPlanId && (!mealPlan || mealPlan.length === 0)) {
+        if (mealPlanIdToUse && (!mealPlan || mealPlan.length === 0)) {
           const fetchMealPlanById = async () => {
             try {
               setLoading(true);
               const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-              const response = await fetch(`${apiUrl}/mealplan/by_id/${currentMealPlanId}`);
+              
+              // Check if this is a test meal plan ID from manual override
+              if (typeof mealPlanIdToUse === 'string' && 
+                  mealPlanIdToUse.startsWith('manual_test_mealplan_')) {
+                console.log('Detected test meal plan ID - using sample data instead of API call');
+                
+                // Create sample meal plan data instead of API call
+                const sampleMeal = {
+                  id: "sample_1",
+                  title: "Sample Test Meal",
+                  meal_type: mealType,
+                  description: "This is a sample meal for testing",
+                  imageUrl: "/images/salmon.jpg",
+                  nutrition: {
+                    calories: 500,
+                    protein: 30,
+                    carbs: 40,
+                    fat: 20
+                  },
+                  ingredients: [
+                    "4 oz protein", 
+                    "1 cup vegetables",
+                    "2 tbsp olive oil"
+                  ],
+                  instructions: "This is a sample meal created when you manually force the meal plan ready state."
+                };
+                
+                // For full day, create multiple meals
+                let meals = [sampleMeal];
+                if (mealType === 'Full Day') {
+                  const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+                  meals = mealTypes.map((type, idx) => ({
+                    ...sampleMeal,
+                    id: `sample_${idx + 1}`,
+                    title: `Sample ${type} Meal`,
+                    meal_type: type
+                  }));
+                }
+                
+                // Set meal plan with sample data
+                setMealPlan(meals);
+                setDisplayedMealType(mealType);
+                setShowChatbot(false);
+                setHasViewedGeneratedMeals(true);
+                setLoading(false);
+                return; // Skip API call
+              }
+              
+              // Normal API call for real meal plans
+              // The meal plan ID format is type_cuisines_num1_num2_num3_num4_num5_num6_suffix
+              // For the backend API, we should NOT extract just the numeric part - use the whole ID
+              console.log(`Using full meal plan ID for API call: ${mealPlanIdToUse}`);
+              
+              // For real API calls, we need to use the full ID
+              const mealPlanApiId = mealPlanIdToUse;
+              
+              console.log(`Fetching meal plan with ID: ${mealPlanApiId}`);
+              // Based on backend code, there's no /api/ prefix for the mealplan endpoint
+              const fullUrl = `${apiUrl}/mealplan/by_id/${mealPlanApiId}`;
+              console.log(`Making API request to: ${fullUrl}`);
+              const response = await fetch(fullUrl);
               
               if (!response.ok) {
                 throw new Error(`HTTP error ${response.status}`);
@@ -500,8 +680,49 @@ export default function Home() {
               
               const data = await response.json();
               
-              if (data && data.meal_plan) {
-                setMealPlan(Array.isArray(data.meal_plan) ? data.meal_plan : []);
+              // Check if we received the expected number of meals for Full Day plans
+              if (mealType === 'Full Day' && data && data.meal_plan && 
+                  Array.isArray(data.meal_plan) && data.meal_plan.length < 4) {
+                
+                console.log("Warning: Received fewer than 4 meals for Full Day plan");
+                console.log(`Only received ${data.meal_plan.length} of 4 expected meals`);
+                
+                // This should not happen if the backend correctly implements the all_meals_ready flag,
+                // which should only be set to true once all meals and images are ready.
+                // But we keep this warning for debugging purposes.
+                
+                // We don't need to retry fetching here since the backend notification system
+                // should already guarantee all meals are ready before we get the notification.
+              }
+              
+              // If not a Full Day plan or we already have all the meals, just use the original data
+              if (data && data.meal_plan && Array.isArray(data.meal_plan)) {
+                console.log("Fetched meal plan by ID, received meals:", data.meal_plan.length);
+                console.log("All meals and images are now fully loaded and ready to display!");
+                
+                // For Full Day plans, ensure all 4 meal types are assigned
+                if (mealType === 'Full Day' && data.meal_plan.length > 0) {
+                  const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+                  
+                  // Check if we have distinct meal types or need to assign them
+                  const existingTypes = new Set(data.meal_plan.map(meal => meal.meal_type));
+                  if (existingTypes.size < 4 || existingTypes.has('Full Day')) {
+                    console.log("Assigning specific meal types to meals");
+                    
+                    // Assign meal types based on index
+                    data.meal_plan = data.meal_plan.map((meal, idx) => {
+                      if (idx < mealTypes.length) {
+                        return {
+                          ...meal,
+                          meal_type: mealTypes[idx]
+                        };
+                      }
+                      return meal;
+                    });
+                  }
+                }
+                
+                setMealPlan(data.meal_plan);
                 setDisplayedMealType(mealType);
                 setShowChatbot(false);
                 setHasViewedGeneratedMeals(true);
@@ -525,6 +746,50 @@ export default function Home() {
             setDisplayedMealType(savedData.displayedMealType || savedData.mealType);
             setShowChatbot(false);
             setHasViewedGeneratedMeals(true);
+          } else if ((typeof currentMealPlanId === 'string' && 
+                    currentMealPlanId.startsWith('manual_test_mealplan_')) ||
+                   (typeof localMealPlanId === 'string' && 
+                    localMealPlanId.startsWith('manual_test_mealplan_'))) {
+            // Handle test meal plan ID when no data is available
+            console.log('Creating test meal data for manual test meal plan');
+            
+            // Try to get sample data from window first
+            if (typeof window !== 'undefined' && 
+                Array.isArray(window.mealPlan) && 
+                window.mealPlan.length > 0) {
+              console.log('Using sample meal plan from window:', window.mealPlan);
+              setMealPlan(window.mealPlan);
+              setDisplayedMealType(mealType);
+              setHasViewedGeneratedMeals(true);
+            } else {
+              // Create new sample data
+              console.log('Creating new sample meal plan data');
+              const sampleMeal = {
+                id: "sample_" + Date.now(),
+                title: "Sample Test Meal",
+                meal_type: mealType,
+                description: "This is a sample meal for testing",
+                imageUrl: "/images/salmon.jpg",
+                nutrition: {
+                  calories: 500,
+                  protein: 30,
+                  carbs: 40,
+                  fat: 20
+                },
+                ingredients: ["4 oz protein", "1 cup vegetables", "2 tbsp olive oil"],
+                instructions: "This is a sample meal created when you manually force the meal plan ready state."
+              };
+              
+              // Set the meal plan data
+              setMealPlan([sampleMeal]);
+              setDisplayedMealType(mealType);
+              setHasViewedGeneratedMeals(true);
+              
+              // Store in window as well for consistency
+              if (typeof window !== 'undefined') {
+                window.mealPlan = [sampleMeal];
+              }
+            }
           }
         }
       }
@@ -534,60 +799,219 @@ export default function Home() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
-  }, [currentMealPlanId, mealGenerationComplete]);
+  }, [currentMealPlanId, mealGenerationComplete, mealType]);
 
-  // Check onboarding status and fetch subscription status
+  // Check onboarding status only - auth is handled by the context
   useEffect(() => {
     if (!isLoading && user) {
-      // Make user ID available globally
-      if (typeof window !== 'undefined' && user.sub) {
-        window.userId = user.sub;
-      }
-      
       checkOnboardingStatus().then((onboardingComplete) => {
         if (!onboardingComplete) {
           console.log("User has not completed onboarding, redirecting...");
           router.push('/onboarding');
         } else {
-          fetchSubscriptionStatus().then(() => {
-            loadUserProfileData();
-          });
+          // Just load profile data - subscription status is handled by auth context
+          loadUserProfileData();
         }
       });
     }
   }, [user, isLoading]);
 
-  // Check meal plan status periodically if user is logged in
+  // Check meal plan status when component mounts and when certain states change
   useEffect(() => {
-    if (user && user.sub && isGenerating && showChatbot) {
+    // Only run when user is logged in and we're generating a meal plan
+    if (userId && isGenerating && !mealGenerationComplete) {
+      // Use a single reference to track if this instance has already processed a notification
+      const notificationProcessedRef = { current: false };
+      
       const checkMealPlanStatus = async () => {
+        // Skip if we've already processed a notification or if we're no longer generating
+        if (notificationProcessedRef.current || !isGenerating || mealGenerationComplete) {
+          return false;
+        }
+
         try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-            headers: { 'user-id': user.sub }
-          });
+          // Check if the context is already handling notifications
+          if (typeof window !== 'undefined' && window._notificationPollingActive) {
+            console.log("Skipping meal page notification check - context is already polling");
+            return false;
+          }
           
-          if (response.ok) {
-            const data = await response.json();
+          // Use a dedicated flag to prevent concurrent checks from this page
+          if (typeof window !== 'undefined') {
+            if (window._mealPageCheckingNotification) {
+              console.log("Skipping duplicate meal page notification check");
+              return false;
+            }
+            window._mealPageCheckingNotification = true;
+          }
+          
+          try {
+            // Only check if we haven't checked recently
+            let canCheck = true;
+            if (typeof window !== 'undefined') {
+              // Implement a much longer cooldown period of 3 minutes for get_latest_session
+              const lastSessionCheck = window._lastSessionCheck || 0;
+              const now = Date.now();
+              
+              if (now - lastSessionCheck < 180000) { // 3 minutes (increased from 60 seconds)
+                console.log('Skipping session check - checked too recently');
+                canCheck = false;
+              } else {
+                // Only update the timestamp if we're actually proceeding with the check
+                window._lastSessionCheck = now;
+                console.log('Setting last session check time');
+              }
+            }
             
-            if (data.meal_plan_ready && data.meal_plan_id) {
-              console.log("Found ready meal plan:", data.meal_plan_id);
-              setMealGenerationComplete(true);
-              setCurrentMealPlanId(data.meal_plan_id);
-              setIsGenerating(false);
-              setMealPlanReady(true);
+            if (!canCheck) {
+              return false;
+            }
+            
+            // Check with the backend directly to see if the meal plan is ready
+            // This is more reliable than the webhook system that might have missed a notification
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
+              headers: { 'user-id': user.sub }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              
+              // Check if the response was throttled - if so, handle gracefully
+              if (data.throttled) {
+                console.log('Session check was throttled, will try again later');
+                if (typeof window !== 'undefined') {
+                  window._mealPageCheckingNotification = false;
+                }
+                return false;
+              }
+              
+              // Check both meal_plan_ready AND the all_meals_ready flag to ensure images are also generated
+              if (data.meal_plan_ready && data.meal_plan_id && data.all_meals_ready) {
+                // Mark that we've processed a notification to prevent duplicates
+                notificationProcessedRef.current = true;
+                
+                console.log("Found completely ready meal plan with all images:", data.meal_plan_id);
+                setMealGenerationComplete(true);
+                setCurrentMealPlanId(data.meal_plan_id);
+                setIsGenerating(false);
+                setMealPlanReady(true);
+                
+                if (showChatbot) {
+                  setShowChatbot(false);
+                }
+                
+                // Always dispatch the event when a meal plan is confirmed ready
+                if (typeof window !== 'undefined') {
+                  console.log("🚀 Dispatching mealPlanReady event for meal plan:", data.meal_plan_id);
+                  
+                  // Update global state variables directly
+                  window.mealLoading = false;
+                  window.mealPlanReady = true;
+                  
+                  // Create event with detailed payload for better debugging
+                  const event = new CustomEvent('mealPlanReady', { 
+                    detail: { 
+                      mealPlanId: data.meal_plan_id,
+                      timestamp: Date.now(),
+                      source: 'meals_page_check',
+                      mealType: mealType,
+                      numDays: numDays
+                    }
+                  });
+                  
+                  // Dispatch event multiple times with delays to ensure it's received
+                  console.log("🚀 Dispatching mealPlanReady event with payload:", event.detail);
+                  window.dispatchEvent(event);
+                  
+                  // Update localStorage to ensure data persistence
+                  localStorage.setItem('currentMealPlanId', data.meal_plan_id);
+                  localStorage.setItem('hasViewedGeneratedMeals', 'false');
+                  
+                  // Dispatch again after a short delay as a backup
+                  setTimeout(() => {
+                    console.log("⏱️ Re-dispatching mealPlanReady event as backup");
+                    window.dispatchEvent(event);
+                  }, 1000);
+                }
+                
+                console.log("✅ Meal plan is fully ready with all images generated successfully!");
+                return true;
+              } else if (data.meal_plan_ready && !data.all_meals_ready) {
+                // Meals are ready but images are still processing
+                console.log("⏱️ Meal data is ready but still waiting for images to be generated...");
+                if (typeof window !== 'undefined') {
+                  window.imagesGenerating = true;
+                }
+                return false;
+              } else if (data.meal_plan_processing) {
+                console.log("⏳ Meal plan still generating, waiting for backend notification...");
+                return false;
+              }
+            }
+            return false;
+          } catch (error) {
+            console.error("Error checking meal plan status:", error);
+            return false;
+          } finally {
+            // Always clear the checking flag when we're done
+            if (typeof window !== 'undefined') {
+              window._mealPageCheckingNotification = false;
             }
           }
-        } catch (error) {
-          console.error("Error checking meal plan status:", error);
+        } catch (outerError) {
+          console.error("Outer error in meal status check:", outerError);
+          if (typeof window !== 'undefined') {
+            window._mealPageCheckingNotification = false;
+          }
+          return false;
         }
       };
       
-      checkMealPlanStatus(); // Run immediately
-      const intervalId = setInterval(checkMealPlanStatus, 5000); // Then every 5 seconds
-      return () => clearInterval(intervalId);
+      // Check once when this effect first runs
+      checkMealPlanStatus();
+      
+      // Set up a single timeout for a retry, much more efficient than an interval
+      // Add a variable to track if a check is scheduled to avoid multiple timeouts
+      if (typeof window !== 'undefined') {
+        // Clear any existing timeout to prevent stacking
+        if (window._mealPageCheckTimeout) {
+          clearTimeout(window._mealPageCheckTimeout);
+        }
+        
+        // Use a much longer timeout (2 minutes) to prevent server overload
+        window._mealPageCheckTimeout = setTimeout(() => {
+          // Clear the reference
+          window._mealPageCheckTimeout = null;
+          // Only check if we haven't processed yet and still generating
+          if (!notificationProcessedRef.current && isGenerating && !mealGenerationComplete) {
+            checkMealPlanStatus();
+          }
+        }, 120000); // Only check again after 2 minutes if we're still waiting
+      } else {
+        // Fallback for server-side rendering
+        const timeoutId = setTimeout(() => {
+          if (!notificationProcessedRef.current && isGenerating && !mealGenerationComplete) {
+            checkMealPlanStatus();
+          }
+        }, 30000);
+      }
+      
+      return () => {
+        // If using window timeout, clean that up
+        if (typeof window !== 'undefined') {
+          if (window._mealPageCheckTimeout) {
+            clearTimeout(window._mealPageCheckTimeout);
+            window._mealPageCheckTimeout = null;
+          }
+          window._mealPageCheckingNotification = false;
+        } else if (typeof timeoutId !== 'undefined') {
+          // Clean up SSR fallback timeout
+          clearTimeout(timeoutId);
+        }
+      };
     }
-  }, [user, isGenerating, showChatbot]);
+  }, [user, isGenerating, mealGenerationComplete, showChatbot, setMealGenerationComplete, setCurrentMealPlanId, setIsGenerating]);
 
   // Save selected recipes to user's profile
   const saveSelectedRecipes = async () => {
@@ -608,24 +1032,15 @@ export default function Home() {
     }
 
     try {
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
+      // Use auth context to get headers
+      const headers = await getAuthHeaders();
+      headers["Content-Type"] = "application/json";
       
-      if (!token) {
-        alert("Session error. Please log in again.");
-        router.push("/auth/login?returnTo=/dashboard");
-        return;
-      }
+      // No need to check for token separately - our auth context handles that
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
+        headers,
         body: JSON.stringify({
           recipes: selectedMeals,
           plan_name: `Meal Plan - ${preferences || "Custom"}`,
@@ -702,9 +1117,6 @@ export default function Home() {
         throw new Error(data.detail || "Failed to create shopping list.");
       }
 
-      const cleanedIngredients = data.shopping_list?.items?.map(item => item.description) || [];
-      setIngredients(cleanedIngredients);
-
       const urlToOpen = data.redirect_url || data.shopping_list?.url;
       if (urlToOpen) {
         window.open(urlToOpen, "_blank", "noopener,noreferrer");
@@ -730,18 +1142,7 @@ export default function Home() {
     }
   }, [handleOrderPlanIngredients]);
 
-  // Load meal algorithm from localStorage
-  useEffect(() => {
-    const savedSettings = JSON.parse(localStorage.getItem('globalMealSettings') || '{}');
-    if (savedSettings.mealAlgorithm) {
-      setMealAlgorithm(savedSettings.mealAlgorithm);
-    } else {
-      const savedAlgorithm = localStorage.getItem('mealAlgorithm');
-      if (savedAlgorithm) {
-        setMealAlgorithm(savedAlgorithm);
-      }
-    }
-  }, [user]);
+  // No need to load meal algorithm separately since we're using the globalSettings
 
   return ( 
     <>
@@ -764,170 +1165,20 @@ export default function Home() {
             />
           </div>
   
-          <div className="mb-8">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-              {[
-                { name: "American", image: "/images/cuisines/american.jpg" },
-                { name: "Asian", image: "/images/cuisines/asian.jpg" },
-                { name: "Caribbean", image: "/images/cuisines/caribbean.jpg" },
-                { name: "Indian", image: "/images/cuisines/indian.jpg" },
-                { name: "Latin", image: "/images/cuisines/latin.jpg" },
-                { name: "Mediterranean", image: "/images/cuisines/mediterranean.jpg" }
-              ].map((cuisine) => (
-                <div 
-                  key={cuisine.name} 
-                  className={`relative rounded-lg overflow-hidden cursor-pointer transition-all transform hover:scale-105 ${
-                    preferences.includes(cuisine.name) ? "ring-4 ring-orange-500" : ""
-                  }`}
-                  onClick={() => {
-                    setSelectedCuisine(cuisine.name);
-                    setPreferences((prev) => {
-                      const preferencesArray = prev.split(" ").filter(Boolean);
-                      const updatedPreferences = preferencesArray.filter((item) =>
-                        !["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].includes(item)
-                      );
-                      return [...updatedPreferences, cuisine.name].join(" "); 
-                    });
-                  }}
-                >
-                  <div className="aspect-[4/3] bg-gray-200">
-                    <img 
-                      src={cuisine.image} 
-                      alt={`${cuisine.name} cuisine`} 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.src = "/placeholder.jpg";
-                      }}
-                    />
-                  </div>
-                  
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-                    <p className="text-white font-medium">{cuisine.name}</p>
-                  </div>
-                  
-                  <button 
-                    className="absolute top-2 right-2 w-8 h-8 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center text-gray-800 hover:bg-white transition-colors shadow-md z-10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedCuisine(cuisine.name);
-                      document.getElementById(`culture-info-${cuisine.name}`).classList.toggle('hidden');
-                    }}
-                    aria-label={`Information about ${cuisine.name} cuisine`}
-                  >
-                    <span className="text-sm font-semibold">i</span>
-                  </button>
-                  
-                  {preferences.includes(cuisine.name) && (
-                    <div className="absolute top-0 left-0 w-full h-full bg-orange-500/20 pointer-events-none" />
-                  )}
-                </div>
-              ))}
-            </div>
+          <CuisineSelector 
+            selectedCuisines={preferences} 
+            onSelect={(cuisine, updateFn) => {
+              setSelectedCuisine(cuisine);
+              setPreferences(updateFn);
+            }} 
+          />
             
-            {["American", "Asian", "Caribbean", "Indian", "Latin", "Mediterranean"].map((cuisine) => (
-              <div 
-                key={`culture-info-${cuisine}`}
-                id={`culture-info-${cuisine}`}
-                className={`mt-2 p-4 bg-gray-100 rounded-lg hidden ${
-                  selectedCuisine === cuisine ? 'block' : 'hidden'
-                }`}
-              >
-                {selectedCuisine === cuisine && <CulturalInfo selectedCuisine={cuisine} user={user} />}
-              </div>
-            ))}
-          </div>
-            
-          <div className="mb-8">
-            <p className="text-base font-semibold text-gray-700 mb-3">
-              Meal Type
-            </p>
-            
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-              {[
-                { name: "Breakfast", image: "/images/meals/breakfast.jpg" },
-                { name: "Lunch", image: "/images/meals/lunch.jpg" },
-                { name: "Dinner", image: "/images/meals/dinner.jpg" },
-                { name: "Snack", image: "/images/meals/snack.jpg" }
-              ].map((meal) => (
-                <div 
-                  key={meal.name} 
-                  className={`relative rounded-lg overflow-hidden cursor-pointer transition-all transform hover:scale-105 ${
-                    mealType === meal.name ? "ring-4 ring-teal-500" : ""
-                  }`}
-                  onClick={() => setMealType(meal.name)}
-                >
-                  <div className="aspect-[4/3] bg-gray-200">
-                    <img 
-                      src={meal.image} 
-                      alt={`${meal.name}`} 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.src = "/placeholder.jpg";
-                      }}
-                    />
-                  </div>
-                  
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-                    <p className="text-white font-medium">{meal.name}</p>
-                  </div>
-                  
-                  {mealType === meal.name && (
-                    <div className="absolute top-0 left-0 w-full h-full bg-teal-500/20 pointer-events-none" />
-                  )}
-                </div>
-              ))}
-              
-              <div 
-                className={`relative rounded-lg overflow-hidden ${
-                  isPro ? "cursor-pointer hover:scale-105" : "cursor-not-allowed opacity-70"
-                } transition-all transform ${
-                  mealType === "Full Day" ? "ring-4 ring-teal-500" : ""
-                }`}
-                onClick={() => {
-                  if (isPro) {
-                    setMealType("Full Day");
-                  }
-                }}
-              >
-                <div className="aspect-[4/3] bg-gray-200">
-                  <img 
-                    src="/images/meals/full-day.jpg" 
-                    alt="Full Day" 
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.src = "/placeholder.jpg";
-                    }}
-                  />
-                  
-                  {!isPro && (
-                    <div className="absolute top-2 right-2 bg-teal-600 text-white text-xs px-2 py-1 rounded-full">
-                      PRO
-                    </div>
-                  )}
-                </div>
-                
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-                  <p className="text-white font-medium">Full Day</p>
-                </div>
-                
-                {mealType === "Full Day" && (
-                  <div className="absolute top-0 left-0 w-full h-full bg-teal-500/20 pointer-events-none" />
-                )}
-              </div>
-            </div>
-            
-            {!isPro && (
-              <p className="text-sm text-gray-600 mt-2">
-                Full Day is a <strong>Pro feature</strong>.{" "}
-                <span
-                  className="text-blue-600 cursor-pointer hover:underline"
-                  onClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
-                >
-                  Upgrade Now
-                </span>
-              </p>
-            )}
-          </div>
+          <MealTypeSelector
+            selectedMealType={mealType}
+            onSelect={setMealType}
+            isPro={isPro}
+            onUpgradeClick={() => window.location.href = 'https://buy.stripe.com/aEU7tX2yi6YRe9W3cg'}
+          />
   
           <div className="mb-4">
             <p className="text-sm text-gray-600">
@@ -968,8 +1219,13 @@ export default function Home() {
             orderingPlanIngredients={orderingPlanIngredients}
             showChatbot={showChatbot}
             onReturnToInput={() => {
+              // Instead of just clearing the meal plan, properly reset the state
+              // This makes sure we can go back to the meal selection screen
               setMealPlan([]);
               resetMealGeneration();
+              setMealGenerationComplete(false);
+              localStorage.removeItem('mealPlanInputs');
+              window.history.replaceState({}, document.title, '/meals'); // Clear URL params
             }}
           />
         )}

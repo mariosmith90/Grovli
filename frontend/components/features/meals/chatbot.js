@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const ChatbotWindow = ({ 
-  user, 
   preferences, 
   mealType, 
   isVisible, 
@@ -12,6 +12,8 @@ const ChatbotWindow = ({
   onMealPlanReady,
   mealPlanReady
 }) => {
+  // Get user from auth context instead of props
+  const { user, userId, getAuthHeaders } = useAuth();
   // Core state management
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -117,7 +119,7 @@ const ChatbotWindow = ({
           // Create a synthetic notification if none exists
           const syntheticNotification = {
             role: 'assistant',
-            content: "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
+            content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
             timestamp: new Date().toISOString(),
             meal_plan_id: data.meal_plan_id,
             is_notification: true,
@@ -227,7 +229,7 @@ useEffect(() => {
               // No notification found but meal plan is ready, create one
               const syntheticNotification = {
                 role: 'assistant',
-                content: "Great news! Your meal plan is now ready. You can view it by clicking the 'View Meal Plan' button.",
+                content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
                 timestamp: new Date().toISOString(),
                 meal_plan_id: data.meal_plan_id,
                 is_notification: true,
@@ -245,24 +247,26 @@ useEffect(() => {
       }
     };
     
-    // Run immediately once
+    // Just check once initially - we'll rely on the backend notification system
+    // instead of constant polling
     checkMealPlanStatus();
-    
-    // Set up interval
-    const intervalId = setInterval(checkMealPlanStatus, 3000);
-    return () => clearInterval(intervalId);
   }
-}, [sessionId, mealPlanNotification, apiUrl, user, onMealPlanReady]);
+}, [sessionId, mealPlanNotification, apiUrl, userId, user, onMealPlanReady]);
 
   // Start chat session
   const startChatSession = useCallback(async () => {
     try {
       setIsLoading(true);
+      // Get auth headers from context
+      const authHeaders = await getAuthHeaders();
+      // Add content type
+      authHeaders['Content-Type'] = 'application/json';
+      
       const response = await fetch(`${apiUrl}/chatbot/start_session`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({
-          user_id: user?.sub || 'anonymous',
+          user_id: userId || 'anonymous',
           user_name: user?.name || user?.nickname,
           message: 'Hello',
           dietary_preferences: preferences,
@@ -285,7 +289,7 @@ useEffect(() => {
       console.error('Error starting chat session:', error);
       setMessages([{
         role: 'assistant',
-        content: "I'm preparing your meal plan. Just a moment!",
+        content: "I'm preparing your meal plan and generating meal images. This might take a moment!",
         messageId: generateMessageId()
       }]);
     } finally {
@@ -315,21 +319,28 @@ useEffect(() => {
     setSuggestedResponses([]);
 
     try {
-      await fetch(`${apiUrl}/chatbot/send_message`, {
+      // Get auth headers from context
+      const authHeaders = await getAuthHeaders();
+      // Add content type
+      authHeaders['Content-Type'] = 'application/json';
+      
+      const sendResponse = await fetch(`${apiUrl}/chatbot/send_message`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({
-          user_id: user?.sub || 'anonymous',
+          user_id: userId || 'anonymous',
           session_id: sessionId,
           message: messageText,
           dietary_preferences: preferences,
           meal_type: mealType
         })
       });
-
-      // Start polling for response
-      const pollInterval = setInterval(fetchMessages, 2000);
-      setTimeout(() => clearInterval(pollInterval), 20000);
+      
+      // We fetch messages directly after sending, rather than setting up polling
+      if (sendResponse.ok) {
+        // Add a small delay to allow the backend to process the message
+        setTimeout(() => fetchMessages(), 500);
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages(prev => [...prev, {
@@ -340,11 +351,13 @@ useEffect(() => {
     }
   }, [
     sessionId, 
+    userId,
     user, 
     preferences, 
     mealType, 
     apiUrl, 
-    fetchMessages
+    fetchMessages,
+    getAuthHeaders
   ]);
 
   // Effect to start chat session
@@ -354,11 +367,22 @@ useEffect(() => {
     }
   }, [isVisible, sessionId, startChatSession]);
 
-  // Effect to fetch messages periodically
+  // Effect to fetch messages once when sessionId changes
   useEffect(() => {
     if (sessionId && !mealPlanNotification) {
-      const interval = setInterval(fetchMessages, 5000);
-      return () => clearInterval(interval);
+      // Instead of polling, just fetch messages once
+      // The message system should work with server-sent events or websockets
+      // for real-time updates, rather than constant polling
+      fetchMessages();
+      
+      // Setup an event source for server-sent events if using that technique
+      // This is just a comment as an example of the intent, not implemented yet
+      // const eventSource = new EventSource(`${apiUrl}/chatbot/events/${sessionId}`);
+      // eventSource.onmessage = (event) => {
+      //   const data = JSON.parse(event.data);
+      //   // Process message
+      // };
+      // return () => eventSource.close();
     }
   }, [sessionId, mealPlanNotification, fetchMessages]);
 

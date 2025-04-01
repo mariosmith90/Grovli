@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@auth0/nextjs-auth0';
+import { useAuth } from "../../contexts/AuthContext";
 import { useMealGeneration } from '../../contexts/MealGenerationContext';
-import { useAuth } from '../../contexts/AuthContext';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,
@@ -15,20 +14,22 @@ export function BottomNavbar({ children }) {
   const router = useRouter();
   const [pathname, setPathname] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  // Get user from both auth systems - prefer Auth0 but fall back to our context
-  const { user: auth0User, error: auth0Error, isLoading: auth0Loading } = useUser();
-  const auth0Authenticated = !!auth0User;
+  // Use auth context with fallback
+  let user = null;
+  let isLoading = true;
+  let userId = null;
+  let isPro = false;
   
-  // Always use our auth context
-  const auth = useAuth();
-  const authUser = auth?.user;
-  const authLoading = auth?.isLoading !== false;
-  const authIsPro = auth?.isPro === true;
-  
-  // Use the most reliable source of user data
-  const user = auth0User || authUser;
-  const isLoading = auth0Loading && authLoading;
-  const isAuthenticated = auth0Authenticated || !!user;
+  try {
+    const auth = useAuth();
+    user = auth?.user || null;
+    isLoading = auth?.isLoading !== false; 
+    userId = auth?.userId || null;
+    isPro = auth?.isPro === true;
+  } catch (err) {
+    console.warn('Navbar: Auth context not available yet:', err);
+  }
+  const isAuthenticated = !!user;
   
   const { 
     isGenerating, 
@@ -36,13 +37,12 @@ export function BottomNavbar({ children }) {
     mealGenerationComplete,
     setMealGenerationComplete,
     currentMealPlanId,
-    setCurrentMealPlanId,
     hasViewedGeneratedMeals,
     setHasViewedGeneratedMeals,
     resetMealGeneration
   } = useMealGeneration();
   
-  const [isPro, setIsPro] = useState(false);
+  // isPro is now from auth context
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const [daysMenuOpen, setDaysMenuOpen] = useState(false);
@@ -59,19 +59,10 @@ export function BottomNavbar({ children }) {
   
   const isMealCardView = () => {
     if (!pathname) return false;
-    
-    // Regular check for meal plan array
-    const hasMealPlan = pathname === '/meals' && 
-                       typeof window !== 'undefined' && 
-                       Array.isArray(window.mealPlan) && 
-                       window.mealPlan.length > 0;
-    
-    // Check URL parameter - this is important for the transition from green checkmark
-    const hasShowCardsParam = typeof window !== 'undefined' && 
-                             window.location.search.includes('showMealCards=true');
-    
-    // Return true if either condition is met
-    return hasMealPlan || hasShowCardsParam;
+    return pathname === '/meals' && 
+           typeof window !== 'undefined' && 
+           Array.isArray(window.mealPlan) && 
+           window.mealPlan.length > 0;
   };
 
   const isActive = (path) => {
@@ -94,13 +85,65 @@ export function BottomNavbar({ children }) {
         }
       };
       
+      // Add event listener for meal plan ready notification
+      const handleMealPlanReady = (event) => {
+        console.log('🎉 Navbar detected meal plan ready event:', event.detail);
+        
+        // Prevent duplicate handling by tracking the last event time
+        if (!window._lastNavbarMealReadyTime) {
+          window._lastNavbarMealReadyTime = 0;
+        }
+        
+        const now = Date.now();
+        // If we've handled an event in the last 5 seconds, ignore this one
+        if (now - window._lastNavbarMealReadyTime < 5000) {
+          console.log('Ignoring duplicate meal plan ready event - handled recently');
+          return;
+        }
+        
+        // Update the last event time
+        window._lastNavbarMealReadyTime = now;
+        
+        // Force stop any loading state and clear all check flags
+        if (typeof window !== 'undefined') {
+          window.mealLoading = false;
+          window._statusCheckInProgress = false;
+          window._notificationPollingActive = false;
+          window._mealPageCheckingNotification = false;
+          
+          // Clear any pending timeouts
+          if (window._pendingNotificationCheck) {
+            clearTimeout(window._pendingNotificationCheck);
+            window._pendingNotificationCheck = null;
+          }
+          
+          if (window._mealPageCheckTimeout) {
+            clearTimeout(window._mealPageCheckTimeout);
+            window._mealPageCheckTimeout = null;
+          }
+        }
+        
+        // Update state to reflect the meal plan is ready
+        setMealGenerationComplete(true);
+        setIsGenerating(false);
+        setHasViewedGeneratedMeals(false); // Set to false to show pulse animation
+        
+        // Redirect to meal plan page if not already there
+        if (pathname !== '/meals') {
+          router.push('/meals?showMealCards=true');
+        }
+      };
+      
+      window.addEventListener('mealPlanReady', handleMealPlanReady);
+      
       return () => {
         window.numDays = undefined;
         window.setNumDays = undefined;
         window.toggleChatbotWindow = undefined;
+        window.removeEventListener('mealPlanReady', handleMealPlanReady);
       };
     }
-  }, [numDays]);
+  }, [numDays, pathname, router, setIsGenerating, setMealGenerationComplete, setHasViewedGeneratedMeals]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -142,11 +185,7 @@ export function BottomNavbar({ children }) {
         subtree: true 
       });
       
-      // Load Pro status
-      const proStatus = localStorage.getItem('userIsPro');
-      if (proStatus === 'true') {
-        setIsPro(true);
-      }
+      // Pro status is now handled by auth context
       
       return () => {
         window.removeEventListener('popstate', handleRouteChange);
@@ -198,64 +237,15 @@ export function BottomNavbar({ children }) {
     
     // If meal plan is ready but not yet viewed, go to meals page with cards view
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
-      console.log("[Navbar] ✅ Green checkmark clicked - navigating to meal cards view");
-      
-      // Important: Don't set hasViewedGeneratedMeals to true YET
-      // The meals page needs to see this is false to trigger data loading
-      
-      // Ensure we have the full meal plan ID format from the logs
-      if (currentMealPlanId) {
-        console.log(`[Navbar] Storing meal plan ID in localStorage: ${currentMealPlanId}`);
-        
-        // Store in localStorage to ensure persistence across page navigations
-        localStorage.setItem('currentMealPlanId', currentMealPlanId);
-        localStorage.setItem('hasViewedGeneratedMeals', 'false');
-        
-        // Explicitly dispatch event for any components that might be listening
-        if (typeof window !== 'undefined') {
-          const event = new CustomEvent('mealPlanReady', {
-            detail: {
-              mealPlanId: currentMealPlanId,
-              timestamp: new Date().toISOString()
-            }
-          });
-          window.dispatchEvent(event);
-        }
-        
-        // Additionally, set meal plan ID in URL to ensure it's passed to the meals page
-        router.push(`/meals?showMealCards=true&mealPlanId=${encodeURIComponent(currentMealPlanId)}`);
-      } else {
-        // Fallback if no meal plan ID is available
-        console.log("[Navbar] No meal plan ID available, using basic navigation");
-        router.push('/meals?showMealCards=true');
-      }
+      setHasViewedGeneratedMeals(true);
+      localStorage.setItem('hasViewedGeneratedMeals', 'true');
+      router.push('/meals?showMealCards=true');
       return;
     }
     
     // If meal plan is ready and we're not on meals page, go to meals page with cards
     if (mealGenerationComplete && pathname !== '/meals') {
-      console.log("[Navbar] Ready meal plan navigation - not on meals page");
-      
-      // Same approach - include the ID in both localStorage and URL
-      if (currentMealPlanId) {
-        localStorage.setItem('currentMealPlanId', currentMealPlanId);
-        localStorage.setItem('hasViewedGeneratedMeals', 'false');
-        
-        // Dispatch event here too for consistency
-        if (typeof window !== 'undefined') {
-          const event = new CustomEvent('mealPlanReady', {
-            detail: {
-              mealPlanId: currentMealPlanId,
-              timestamp: new Date().toISOString()
-            }
-          });
-          window.dispatchEvent(event);
-        }
-        
-        router.push(`/meals?showMealCards=true&mealPlanId=${encodeURIComponent(currentMealPlanId)}`);
-      } else {
-        router.push('/meals?showMealCards=true');
-      }
+      router.push('/meals?showMealCards=true');
       return;
     }
     
@@ -263,7 +253,16 @@ export function BottomNavbar({ children }) {
     if (pathname !== '/meals' || isMealCardView()) {
       // If we're on meal cards view, reset to selection view
       if (isMealCardView() && typeof window !== 'undefined') {
+        // Properly reset the meal plan state
         window.mealPlan = [];
+        window.mealPlanActive = false;
+        
+        // Reset the meal generation state through context
+        resetMealGeneration();
+        setMealGenerationComplete(false);
+        
+        // Clear local storage to ensure we start fresh
+        localStorage.removeItem('mealPlanInputs');
       }
       router.push('/meals');
       return;
@@ -310,67 +309,9 @@ export function BottomNavbar({ children }) {
     }
   };
 
-  // Check subscription once on load
-  useEffect(() => {
-    if (!isLoading && user) {
-      // Get Pro status from auth context first (most reliable source)
-      if (authIsPro) {
-        setIsPro(true);
-        localStorage.setItem('userIsPro', 'true');
-        return;
-      }
-      
-      // Check for special user 
-      const userId = user.sub || user.id;
-      const isSpecialUser = userId === "auth0|67b82eb657e61f81cdfdd503";
-      if (isSpecialUser) {
-        setIsPro(true);
-        localStorage.setItem('userIsPro', 'true');
-        
-        // Set global flag
-        if (typeof window !== 'undefined') {
-          window.specialProUser = true;
-          window.userId = user.sub;
-        }
-        return;
-      }
-      
-      // Check localStorage as fallback
-      if (localStorage.getItem('userIsPro') === 'true') {
-        setIsPro(true);
-        return;
-      }
-      
-      // Final check with token (async)
-      const checkToken = async () => {
-        try {
-          const token = await auth.getAuthToken();
-          if (token) {
-            const tokenPayload = JSON.parse(atob(token.split(".")[1]));
-            const userSubscription = tokenPayload?.["https://dev-rw8ff6vxgb7t0i4c.us.auth0.com/app_metadata"]?.subscription;
-            const proStatus = userSubscription === "pro";
-            setIsPro(proStatus);
-            localStorage.setItem('userIsPro', proStatus ? 'true' : 'false');
-          }
-        } catch (err) {
-          console.error("Error checking subscription in token:", err);
-        }
-      };
-      
-      checkToken();
-      
-      // Set userId in window
-      if (typeof window !== 'undefined' && user.sub) {
-        window.userId = user.sub;
-      }
-    }
-    
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.userId = undefined;
-      }
-    };
-  }, [user, isLoading, authIsPro, auth]);
+  // Replaced with useAuth hook - no more need for this function
+
+  // No longer need to set window.userId - it's handled by the auth context
   
   const handleViewRecipe = (e) => {
     e.stopPropagation();
@@ -388,170 +329,76 @@ export function BottomNavbar({ children }) {
     }
   };
 
-  // Track FAB state in component state for more reliable rendering
-  const [fabButtonState, setFabButtonState] = useState({
-    isLoading: false,
-    isReady: false
-  });
-  
-  // Listen for changes in generation state and poll for meal plan ready notifications
-  useEffect(() => {
-    // Very simple approach: Just poll the API directly
-    if (!isGenerating || !user) return;
+  const getFabIcon = () => {
+    // Direct check of window state to ensure we have the most up-to-date status
+    // This prevents the button from flashing between states
+    const actuallyGenerating = typeof window !== 'undefined' && window.mealLoading === true;
+    const actuallyComplete = typeof window !== 'undefined' && window.mealPlanReady === true;
     
-    // Set up simple polling for the special user
-    let pollTimer;
-    const checkForCompletedMeal = async () => {
-      try {
-        // Only check if we're still generating
-        if (!isGenerating) return;
-        
-        // Check API
-        console.log("[Navbar] Checking for completed meal plan");
-        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          // If we found a notification, update the state
-          if (data.has_notification && data.notification) {
-            console.log("[Navbar] 🎉 Found completed meal plan notification:", data.notification);
-            
-            // Update all states at once
-            setIsGenerating(false);
-            setMealGenerationComplete(true);
-            setFabButtonState({
-              isLoading: false,
-              isReady: true
-            });
-            
-            // Store the meal plan ID
-            if (data.notification.meal_plan_id) {
-              console.log(`[Navbar] Setting meal plan ID: ${data.notification.meal_plan_id}`);
-              setCurrentMealPlanId(data.notification.meal_plan_id);
-            }
-            
-            // Critical: Make sure hasViewedGeneratedMeals is FALSE 
-            // so that clicking the FAB will go to card view
-            setHasViewedGeneratedMeals(false);
-            localStorage.setItem('hasViewedGeneratedMeals', 'false');
-            
-            // Also update window globals
-            if (typeof window !== 'undefined') {
-              window.mealLoading = false;
-              window.mealPlanReady = true;
-              
-              // Trigger event for other components with the correct meal plan ID
-              window.dispatchEvent(new CustomEvent('mealPlanReady', {
-                detail: {
-                  mealPlanId: data.notification.meal_plan_id,
-                  userId: data.notification.user_id,
-                  timestamp: new Date().toISOString()
-                }
-              }));
-            }
-          }
-        }
-      } catch (error) {
-        console.error("[Navbar] Error checking for meal completion:", error);
-      }
-    };
-    
-    // Start polling every 5 seconds
-    pollTimer = setInterval(checkForCompletedMeal, 5000);
-    
-    // Initial check
-    checkForCompletedMeal();
-    
-    // Also listen for direct events
-    const handleMealReady = (event) => {
-      console.log("[Navbar] Received direct mealPlanReady event:", event?.detail);
-      
-      // Update all state at once
-      setIsGenerating(false);
-      setMealGenerationComplete(true);
-      setFabButtonState({
-        isLoading: false,
-        isReady: true
-      });
-      
-      // Store the meal plan id if provided
-      if (event?.detail?.mealPlanId) {
-        console.log(`[Navbar] Setting currentMealPlanId: ${event.detail.mealPlanId}`);
-        setCurrentMealPlanId(event.detail.mealPlanId);
-      }
-      
-      // Make sure to set the global window state too
-      if (typeof window !== 'undefined') {
-        window.mealLoading = false;
-        window.mealPlanReady = true;
-        
-        // Need to set hasViewedGeneratedMeals to false to make sure the FAB will link to meal cards
-        setHasViewedGeneratedMeals(false);
-        localStorage.setItem('hasViewedGeneratedMeals', 'false');
-      }
-    };
-    
-    if (typeof window !== 'undefined') {
-      window.addEventListener('mealPlanReady', handleMealReady);
-    }
-    
-    return () => {
-      clearInterval(pollTimer);
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('mealPlanReady', handleMealReady);
-      }
-    };
-  }, [isGenerating, user, setIsGenerating, setMealGenerationComplete]);
-  
-  // Get FAB state based on component state
-  const getFabState = () => {
-    // First determine the logical state based on all available signals
-    const isInLoadingState = fabButtonState.isLoading || isGenerating || 
-                          (typeof window !== 'undefined' && window.mealLoading === true);
-    
-    const isInReadyState = fabButtonState.isReady || 
-                         (mealGenerationComplete && !hasViewedGeneratedMeals) || 
-                         (typeof window !== 'undefined' && window.mealPlanReady === true && !hasViewedGeneratedMeals);
-    
-    const isInMenuOpenState = fabMenuOpen || daysMenuOpen;
-    
-    // Loading state takes precedence
-    if (isInLoadingState && !isInMenuOpenState && !isInReadyState) {
-      return {
-        icon: (
+    // If actually generating meals (from global state), show spinner
+    if (actuallyGenerating && !actuallyComplete) {
+      return (
+        <div className="relative">
           <svg className="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-        ),
-        color: "bg-orange-500 hover:bg-orange-600"
-      };
+          <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm rounded-full px-2 py-1 text-xs text-gray-800 whitespace-nowrap shadow-md">
+            {typeof window !== 'undefined' && window.imagesGenerating 
+              ? "Generating meal images..." 
+              : "Generating meals & images..."}
+          </div>
+        </div>
+      );
     }
     
-    // Menu open states
-    if (isInMenuOpenState) {
-      return {
-        icon: <X className="w-8 h-8" />,
-        color: "bg-teal-700"
-      };
+    // If we're showing meal cards, show appropriate menu icons
+    if (isMealCardView()) {
+      return fabMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
     }
     
-    // Ready state
-    if (isInReadyState) {
-      return {
-        icon: <Check className="w-8 h-8" />,
-        color: "bg-green-500 hover:bg-green-600"
-      };
+    // If on meals page showing the meal selection UI
+    if (pathname === '/meals' && !isMealCardView()) {
+      return daysMenuOpen ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />;
+    } 
+    // If meal plan is complete and ready to view
+    else if (actuallyComplete || (mealGenerationComplete && !hasViewedGeneratedMeals)) {
+      return <Check className="w-8 h-8" />;
+    } 
+    // Default state (plus button)
+    else {
+      return <Plus className="w-8 h-8" />;
     }
-    
-    // Default state
-    return {
-      icon: <Plus className="w-8 h-8" />,
-      color: pathname === '/meals' ? "bg-teal-600 hover:bg-teal-700" : "bg-teal-500 hover:bg-teal-600"
-    };
   };
-  
-  const fabState = getFabState();
+
+  const getFabColor = () => {
+    // Direct check of window state to ensure we have the most up-to-date status
+    const actuallyGenerating = typeof window !== 'undefined' && window.mealLoading === true;
+    const actuallyComplete = typeof window !== 'undefined' && window.mealPlanReady === true;
+    
+    // If actually generating meals (from global state), show orange
+    if (actuallyGenerating && !actuallyComplete) {
+      return "bg-orange-500 hover:bg-orange-600";
+    }
+    
+    // If we're showing meal cards, show teal
+    if (isMealCardView()) {
+      return fabMenuOpen ? "bg-teal-700" : "bg-teal-600";
+    }
+    
+    // If on meals page showing the meal selection UI
+    if (pathname === '/meals') {
+      return daysMenuOpen ? "bg-teal-700" : "bg-teal-600 hover:bg-teal-700";
+    } 
+    // If meal plan is complete and ready to view, show green
+    else if (actuallyComplete || (mealGenerationComplete && !hasViewedGeneratedMeals)) {
+      return "bg-green-500 hover:bg-green-600";
+    } 
+    // Default state (teal button)
+    else {
+      return "bg-teal-500 hover:bg-teal-600";
+    }
+  };
 
   return (
     <>
@@ -702,110 +549,16 @@ export function BottomNavbar({ children }) {
                 ></div>
               )}
               
-              <div className="relative">
-                <button
-                  onClick={handleFabClick}
-                  disabled={false} // Never disable the button to improve UX
-                  className={`fab-button ${fabState.color} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
-                    fabMenuOpen || daysMenuOpen ? 'rotate-45' : ''
-                  } ${mealGenerationComplete && !hasViewedGeneratedMeals ? 'pulse-animation' : ''}`}
-                >
-                  {fabState.icon}
-                </button>
-                
-                {/* Special debug button for special user - only visible when loading */}
-                {user?.sub === "auth0|67b82eb657e61f81cdfdd503" && isGenerating && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      console.log("⚠️ Manually forcing meal plan ready state");
-                      
-                      // Simple, direct approach - update everything at once
-                      setIsGenerating(false);
-                      setMealGenerationComplete(true);
-                      setFabButtonState({
-                        isLoading: false,
-                        isReady: true
-                      });
-                      
-                      // CRITICAL: Set hasViewedGeneratedMeals to false to ensure
-                      // clicking the checkmark takes you to the meal card view
-                      setHasViewedGeneratedMeals(false);
-                      localStorage.setItem('hasViewedGeneratedMeals', 'false');
-                      
-                      // Also ensure the global state reflects this
-                      if (typeof window !== 'undefined') {
-                        window.hasViewedGeneratedMeals = false;
-                      }
-                      
-                      // Update global window state
-                      if (typeof window !== 'undefined') {
-                        window.mealLoading = false;
-                        window.mealPlanReady = true;
-                        
-                        // Create a hardcoded meal plan ID matching the backend format
-                        // Format: mealType_cuisine_number_number_number_number_number_number_suffix
-                        // Example from logs: Breakfast_Clean Caribbean Vegetarian_2799_245_315_62_39_70_experimental
-                        // IMPORTANT: This exact format is expected by the backend API
-                        const testMealPlanId = `Breakfast_Test_${Date.now()}_100_200_300_400_500_600_test`;
-                        
-                        // Store it in context
-                        setCurrentMealPlanId(testMealPlanId);
-                        
-                        // Store in localStorage for persistence
-                        localStorage.setItem('currentMealPlanId', testMealPlanId);
-                        
-                        // Create a sample meal plan directly in window for instant availability
-                        window.mealPlan = [{
-                          id: "sample_1",
-                          title: "Sample Test Meal",
-                          meal_type: "Breakfast",
-                          description: "This is a sample meal created from the manual override",
-                          imageUrl: "/images/salmon.jpg",
-                          nutrition: {
-                            calories: 500,
-                            protein: 30,
-                            carbs: 40,
-                            fat: 20
-                          }
-                        }];
-                        
-                        // Also update the meal generation state in localStorage
-                        const current = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
-                        localStorage.setItem('mealGenerationState', JSON.stringify({
-                          ...current,
-                          currentMealPlanId: testMealPlanId,
-                          mealGenerationComplete: true,
-                          isGenerating: false,
-                          hasViewedGeneratedMeals: false
-                        }));
-                        
-                        // Store in mealPlanInputs as well (used by meals page)
-                        localStorage.setItem('mealPlanInputs', JSON.stringify({
-                          mealPlan: window.mealPlan,
-                          mealType: "Breakfast",
-                          displayedMealType: "Breakfast"
-                        }));
-                        
-                        // Dispatch event with the test meal plan ID
-                        const event = new CustomEvent('mealPlanReady', {
-                          detail: { 
-                            forced: true,
-                            mealPlanId: testMealPlanId,
-                            userId: user.sub || 'test-user',
-                            timestamp: new Date().toISOString()
-                          }
-                        });
-                        window.dispatchEvent(event);
-                      }
-                    }}
-                    className="absolute bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center -top-1 -right-1"
-                    title="Debug: Force meal ready state"
-                  >
-                    !
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={handleFabClick}
+                disabled={false} // Never disable the button to improve UX
+                className={`fab-button ${getFabColor()} text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${
+                  fabMenuOpen || daysMenuOpen ? 'rotate-45' : ''
+                } ${mealGenerationComplete && !hasViewedGeneratedMeals ? 'pulse-animation' : ''}`}
+                style={{ marginBottom: isGenerating ? '20px' : '0' }} // Add extra space when loading message is shown
+              >
+                {getFabIcon()}
+              </button>
             </div>
           )}
           

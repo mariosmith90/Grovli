@@ -19,7 +19,8 @@ export async function middleware(request) {
   
   // ✅ Enforce authentication only on protected routes
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
-    const session = await auth0.getSession();
+    // Pass the request object to getSession to ensure proper context
+    const session = await auth0.getSession(request);
     if (!session) {
       // Redirect to login, but set returnTo to the current URL
       return NextResponse.redirect(`${origin}/auth/login?returnTo=${encodeURIComponent(pathname + search)}`);

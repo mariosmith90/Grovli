@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Check, X, Loader } from "lucide-react";
-import { getAccessToken } from "@auth0/nextjs-auth0";
+import { useAuth } from "../../../contexts/AuthContext";
 import { toast } from "react-hot-toast";
 
 export function PlannerOverlay({ 
@@ -14,6 +14,7 @@ export function PlannerOverlay({
   currentMealId 
 }) {
   const router = useRouter();
+  const auth = useAuth(); // Get auth at the top level
   const [userPlans, setUserPlans] = useState([]);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
@@ -32,7 +33,7 @@ export function PlannerOverlay({
         setSelectedMealType(recipe.meal_type.toLowerCase());
       }
     }
-  }, [isOpen, user, recipe]);
+  }, [isOpen, user, recipe, auth]);
 
   const fetchUserMealPlans = async () => {
     if (!user) return;
@@ -40,9 +41,8 @@ export function PlannerOverlay({
     try {
       setLoadingPlans(true);
       
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
+      // Use the auth object from the component scope
+      const accessToken = await auth.getAuthToken();
       
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/user/${user.sub}`, {
         headers: {
@@ -171,9 +171,8 @@ export function PlannerOverlay({
     try {
       setAddingToPlanner(true);
       
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
+      // Use the auth object from the component scope
+      const accessToken = await auth.getAuthToken();
       
       const planResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/${selectedPlan}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }

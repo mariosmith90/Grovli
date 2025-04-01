@@ -3,7 +3,7 @@ import '../styles/globals.css';
 import Head from 'next/head';
 import BottomNavbar from '../components/ui/navbar';
 import Header from '../components/ui/header';
-import { MealGenerationProvider } from '../contexts/MealGenerationContext';
+import { Providers } from './providers'; // Import the client-side providers wrapper
 
 export const metadata = {
   title: 'Meal Plan App',
@@ -24,12 +24,12 @@ export default function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </Head>
       <body>
-        <MealGenerationProvider>
+        <Providers>
           <Header />
           <BottomNavbar>
             {children}
           </BottomNavbar>
-        </MealGenerationProvider>
+        </Providers>
       </body>
     </html>
   );

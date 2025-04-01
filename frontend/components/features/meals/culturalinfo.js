@@ -1,9 +1,14 @@
+"use client";
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast'; // Make sure this is imported
-import { getAccessToken } from "@auth0/nextjs-auth0";
+import { useAuth } from '../../../contexts/AuthContext';
 import { Plus } from 'lucide-react'; // Import the Plus icon
 
-const CulturalInfo = ({ selectedCuisine, user }) => {
+const CulturalInfo = ({ selectedCuisine }) => {
+  // Get user and auth helpers from context
+  const auth = useAuth(); // Always call hooks at the top level
+  const user = auth?.user || null;
+  const getAuthHeaders = auth?.getAuthHeaders || (async () => ({}));
   const [culturalInfo, setCulturalInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -52,19 +57,14 @@ const CulturalInfo = ({ selectedCuisine, user }) => {
     setAddingIngredient(ingredient);
     
     try {
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
+      // Get auth headers from context
+      const headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/api/user-pantry/add-item`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers,
         body: JSON.stringify({
           name: ingredient,
           quantity: 1,

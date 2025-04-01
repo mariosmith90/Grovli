@@ -17,6 +17,7 @@ services:
       - MONGO_URI=${MONGO_URI}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - PYTHONPATH=/app
+      - FRONTEND_WEBHOOK_URL=http://frontend:3000/api/webhook/meal-ready
     networks:
       - mealplan-network
     depends_on:
@@ -104,6 +105,7 @@ services:
       - USDA_API_KEY=${USDA_API_KEY}
       - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - FRONTEND_WEBHOOK_URL=http://frontend:3000/api/webhook/meal-ready
     volumes:
       - ./backend:/app
     networks:

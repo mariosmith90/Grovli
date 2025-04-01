@@ -10,20 +10,20 @@
   "dependencies": {
     "@auth0/auth0-react": "^2.3.0",
     "@auth0/nextjs-auth0": "^4.0.2",
-    "barcode-detector": "^2.2.0",
     "@capacitor-mlkit/barcode-scanning": "^5.1.0",
     "@capacitor/core": "^5.5.0",
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@heroicons/react": "^2.2.0",
+    "barcode-detector": "^2.2.0",
     "jwt-decode": "^3.1.2",
     "lucide-react": "^0.475.0",
     "next": "^15.2.3",
     "next-auth": "^4.24.11",
-    "@ducanh2912/next-pwa": "^10.2.9",
     "quagga": "^0.12.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-markdown": "^8.0.7",
-    "react-hot-toast": "^2.4.1"
+    "react-hot-toast": "^2.4.1",
+    "react-markdown": "^8.0.7"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.17",

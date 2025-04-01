@@ -50,6 +50,7 @@ export function MealPlanDisplay({
   const [swipeOffset, setSwipeOffset] = useState(0);
   const touchStartX = useRef(null);
   const isMounted = useRef(true);
+  const [showOverview, setShowOverview] = useState(true);
   
   // Setup mount/unmount tracking
   useEffect(() => {
@@ -66,7 +67,9 @@ export function MealPlanDisplay({
 
   // Process meal data
   const totalDays = numDays;
+  // Hard-code mealsPerDay for 'Full Day' to ensure 4 meals are expected
   const mealsPerDay = mealType === 'Full Day' ? 4 : 1;
+  console.log(`MealCard: Processing ${mealPlan.length} meals for ${mealType} with ${mealsPerDay} meals per day`);
   const mealsByDay = {};
   
   // Create day groupings
@@ -81,18 +84,36 @@ export function MealPlanDisplay({
     // Ensure we don't try to access beyond the array bounds
     const dayMeals = mealPlan.slice(startIdx, Math.min(endIdx, mealPlan.length));
     
+    console.log(`Day ${dayNum}: Processing ${dayMeals.length} meals from indices ${startIdx}-${Math.min(endIdx, mealPlan.length)-1}`);
+    
     // Get meal types for this day
     if (mealType === 'Full Day') {
+      // For Full Day, we ALWAYS want to have 4 specific meal types in a specific order
       const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
-      dayMeals.forEach((meal, idx) => {
+      
+      // Force Full Day meals to have explicit meal types in the right order
+      // This is the most important fix to ensure meal cards display correctly
+      for (let idx = 0; idx < Math.min(dayMeals.length, mealTypes.length); idx++) {
+        const meal = dayMeals[idx];
         if (meal) {  // Check if meal exists
+          // Always use the meal type based on index for predictable results
+          const specificMealType = mealTypes[idx];
+          
+          console.log(`Meal ${idx+1} type: ${specificMealType} (original: ${meal.meal_type || 'none'}, idx: ${idx})`);
+          
+          // Create a meal with the proper meal type
           mealsByDay[dayNum].push({
             ...meal,
-            mealType: mealTypes[idx % mealTypes.length],
-            dayNumber: dayNum  // Add day number to each meal
+            mealType: specificMealType,  // Use our assigned meal type
+            meal_type: specificMealType, // Also update the original property for consistency
+            dayNumber: dayNum            // Add day number to each meal
           });
         }
-      });
+      }
+      
+      // Log what meals we actually processed for this day
+      console.log(`Day ${dayNum}: Added ${mealsByDay[dayNum].length} meals with types:`, 
+                 mealsByDay[dayNum].map(m => m.mealType));
     } else {
       dayMeals.forEach(meal => {
         if (meal) {  // Check if meal exists
@@ -108,6 +129,12 @@ export function MealPlanDisplay({
 
   // Flatten meals for swiping - this handles multiple days correctly
   const allMeals = Object.values(mealsByDay).flat();
+  
+  // Add extra logging about the actual meals we're displaying
+  console.log("==== MEAL DISPLAY DEBUG ====");
+  console.log(`Total meals in mealPlan array: ${mealPlan.length}`);
+  console.log(`Processed meals by day:`, mealsByDay);
+  console.log(`Flattened allMeals length: ${allMeals.length}`);
   
   // NOW add the useEffect that needs access to allMeals - AFTER it's defined
   useEffect(() => {
@@ -197,6 +224,14 @@ export function MealPlanDisplay({
     }
   };
 
+  // Navigate to a specific meal
+  const goToMeal = (index) => {
+    if (index >= 0 && index < allMeals.length) {
+      setCurrentMealIndex(index);
+      setShowOverview(false);
+    }
+  };
+
   // Touch event handlers
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
@@ -260,32 +295,123 @@ export function MealPlanDisplay({
   // Get the day number directly from the current meal
   const mealDayNumber = currentMeal.dayNumber || 1;
 
+  // Render meal overview screen
+  if (showOverview) {
+    return (
+      <div className="fixed inset-0 pt-20 bg-white z-50 flex flex-col">
+        {/* Back button fixed at top-left */}
+        <button 
+          onClick={onReturnToInput}
+          className="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur-sm rounded-full p-2 hover:bg-gray-200 transition-colors shadow-md"
+          aria-label="Back to meal plan"
+        >
+          <ChevronLeft className="w-6 h-6 text-gray-700" />
+        </button>
+        
+        <div className="p-4">
+          <h2 className="text-2xl font-bold text-center mb-4">
+            Your {mealType} Plan
+          </h2>
+          <p className="text-center text-gray-600 mb-6">
+            {allMeals.length} meals generated {mealType === 'Full Day' ? `(${Object.keys(mealsByDay).length} days)` : ''}
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {Object.keys(mealsByDay).map(dayNum => (
+              <div key={`day-${dayNum}`} className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-lg mb-3">Day {dayNum}</h3>
+                {mealsByDay[dayNum].map((meal, idx) => {
+                  // Find the actual index in the allMeals array
+                  const globalIndex = allMeals.findIndex(m => m.id === meal.id);
+                  return (
+                    <div 
+                      key={meal.id} 
+                      className="flex items-center bg-white p-3 rounded-lg mb-2 shadow-sm cursor-pointer hover:bg-teal-50 transition-colors"
+                      onClick={() => goToMeal(globalIndex)}
+                    >
+                      <div className="w-12 h-12 bg-gray-200 rounded-md overflow-hidden mr-3 flex-shrink-0">
+                        {meal.imageUrl && (
+                          <img 
+                            src={meal.imageUrl} 
+                            alt={meal.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <p className="font-medium text-sm text-gray-900 line-clamp-1">{meal.title}</p>
+                        </div>
+                        <div className="flex items-center mt-1">
+                          <span className="text-xs text-teal-600 font-medium">{meal.mealType}</span>
+                          <span className="mx-2 text-xs text-gray-400">•</span>
+                          <span className="text-xs text-gray-500">{meal.nutrition.calories} kcal</span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMealSelection(meal.id);
+                        }}
+                        className={`ml-2 p-2 rounded-full ${
+                          selectedRecipes.includes(meal.id) 
+                            ? 'bg-teal-100 text-teal-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}
+                      >
+                        <CheckIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={() => setShowOverview(false)}
+              className="bg-teal-600 text-white px-6 py-3 rounded-full shadow hover:bg-teal-700 transition-colors"
+            >
+              View Details
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Render detailed meal view (original view)
   return (
     <div className="fixed inset-0 pt-20 bg-white z-50 flex flex-col">
-      {/* Back button fixed at top-left */}
-      <button 
-        onClick={onReturnToInput}
-        className="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur-sm rounded-full p-2 hover:bg-gray-200 transition-colors shadow-md"
-        aria-label="Back to meal plan"
-      >
-        <ChevronLeft className="w-6 h-6 text-gray-700" />
-      </button>
-      
-      {/* Meal selection button fixed at top-right */}
-      <button 
-        onClick={() => handleMealSelection(currentMeal.id)}
-        className={`absolute top-4 right-4 z-10 rounded-full p-2 transition-colors shadow-md ${
-          selectedRecipes.includes(currentMeal.id) 
-            ? 'bg-teal-100 text-teal-700 hover:bg-teal-200' 
-            : 'bg-white/80 backdrop-blur-sm text-gray-700 hover:bg-gray-200'
-        }`}
-        aria-label={selectedRecipes.includes(currentMeal.id) ? "Deselect meal" : "Select meal"}
-      >
-        <CheckIcon className="w-5 h-5" />
-      </button>
+      {/* Back buttons and navigation at top */}
+      <div className="absolute top-0 left-0 right-0 z-10 bg-white shadow-sm flex justify-between items-center p-4">
+        <button 
+          onClick={() => setShowOverview(true)}
+          className="flex items-center text-gray-700 font-medium hover:text-teal-600 transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 mr-1" />
+          Overview
+        </button>
+        
+        <button 
+          onClick={() => handleMealSelection(currentMeal.id)}
+          className={`rounded-full p-2 transition-colors ${
+            selectedRecipes.includes(currentMeal.id) 
+              ? 'bg-teal-100 text-teal-700' 
+              : 'bg-gray-100 text-gray-700'
+          }`}
+          aria-label={selectedRecipes.includes(currentMeal.id) ? "Deselect meal" : "Select meal"}
+        >
+          <CheckIcon className="w-5 h-5" />
+        </button>
+      </div>
       
       {/* Progress indicator at top-center with meal type label below it */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center">
+      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center">
         <div className="bg-white/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-md mb-2">
           <span className="text-sm font-medium text-gray-700">
             {currentMealIndex + 1} / {allMeals.length}
@@ -395,6 +521,25 @@ export function MealPlanDisplay({
         <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex justify-between items-center px-4 text-white/50">
           <ChevronLeft className={`w-12 h-12 ${currentMealIndex > 0 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
           <ChevronRight className={`w-12 h-12 ${currentMealIndex < allMeals.length - 1 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
+        </div>
+        
+        {/* Meal index indicators */}
+        <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+          <div className="flex space-x-2 bg-white/80 backdrop-blur-sm rounded-full px-3 py-2 shadow-sm">
+            {allMeals.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentMealIndex(idx);
+                }}
+                className={`w-2.5 h-2.5 rounded-full ${
+                  idx === currentMealIndex ? 'bg-teal-600' : 'bg-gray-300'
+                }`}
+                aria-label={`Go to meal ${idx + 1}`}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
