@@ -738,10 +738,10 @@ export function BottomNavbar({ children }) {
           
           <div className="max-w-screen-xl mx-auto px-4">
             {isAuthenticated ? (
-              <div className="flex items-center h-20">
+              <div className="flex items-center h-16">
                 <div className="flex justify-around w-full">
                   <NavButton 
-                    icon={<Calendar className="w-6 h-6" />} 
+                    icon={<Calendar className="w-5 h-5" />} 
                     label="Planner" 
                     path="/planner" 
                     isActive={isActive('/planner')}
@@ -749,17 +749,17 @@ export function BottomNavbar({ children }) {
                   />
                   
                   <NavButton 
-                    icon={<ShoppingBag className="w-6 h-6" />} 
+                    icon={<ShoppingBag className="w-5 h-5" />} 
                     label="Pantry" 
                     path="/pantry" 
                     isActive={isActive('/pantry')}
                     onClick={() => router.push('/pantry')}
                   />
                   
-                  <div className="w-16 flex-shrink-0"></div>
+                  <div className="w-14 flex-shrink-0"></div>
                   
                   <NavButton 
-                    icon={<Utensils className="w-6 h-6" />} 
+                    icon={<Utensils className="w-5 h-5" />} 
                     label="Meals" 
                     path="/saved-meals" 
                     isActive={isActive('/saved-meals')}
@@ -767,7 +767,7 @@ export function BottomNavbar({ children }) {
                   />
                   
                   <NavButton 
-                    icon={<User className="w-6 h-6" />} 
+                    icon={<User className="w-5 h-5" />} 
                     label="Profile" 
                     path="/profile" 
                     isActive={isActive('/profile')}
@@ -776,9 +776,9 @@ export function BottomNavbar({ children }) {
                 </div>
               </div>
             ) : (
-              <div className="flex justify-around items-center h-16">
+              <div className="flex justify-around items-center h-14">
                 <NavButton 
-                  icon={<Home className="w-8 h-8" />} 
+                  icon={<Home className="w-5 h-5" />} 
                   label="Home" 
                   path="/" 
                   isActive={isActive('/')}
@@ -786,7 +786,7 @@ export function BottomNavbar({ children }) {
                 />
                 
                 <NavButton 
-                  icon={<User className="w-8 h-8" />} 
+                  icon={<User className="w-5 h-5" />} 
                   label="Login" 
                   path="/auth/login" 
                   isActive={isActive('/auth/login')}
@@ -810,7 +810,7 @@ export function BottomNavbar({ children }) {
                     onClick={() => setMenuOpen(false)} 
                     className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
                   >
-                    <X size={24} />
+                    <X size={20} />
                   </button>
                 </div>
                 
@@ -824,8 +824,8 @@ export function BottomNavbar({ children }) {
                         }}
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
-                        <div className="w-12 h-12 flex items-center justify-center bg-teal-100 text-teal-600 rounded-full mb-2">
-                          <Utensils className="w-8 h-8" />
+                        <div className="w-10 h-10 flex items-center justify-center bg-teal-100 text-teal-600 rounded-full mb-2">
+                          <Utensils className="w-6 h-6" />
                         </div>
                         <span className="text-sm font-medium text-gray-700">Meals</span>
                       </button>
@@ -837,8 +837,8 @@ export function BottomNavbar({ children }) {
                         }}
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
-                        <div className="w-12 h-12 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full mb-2">
-                          <Settings className="w-8 h-8" />
+                        <div className="w-10 h-10 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full mb-2">
+                          <Settings className="w-6 h-6" />
                         </div>
                         <span className="text-sm font-medium text-gray-700">Settings</span>
                       </button>
@@ -850,8 +850,8 @@ export function BottomNavbar({ children }) {
                         }}
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
-                        <div className="w-12 h-12 flex items-center justify-center bg-red-100 text-red-600 rounded-full mb-2">
-                          <LogOut className="w-8 h-8" />
+                        <div className="w-10 h-10 flex items-center justify-center bg-red-100 text-red-600 rounded-full mb-2">
+                          <LogOut className="w-6 h-6" />
                         </div>
                         <span className="text-sm font-medium text-gray-700">Logout</span>
                       </button>
@@ -865,8 +865,8 @@ export function BottomNavbar({ children }) {
                         }}
                         className="flex flex-col items-center justify-center p-4 rounded-xl hover:bg-gray-50 transition-colors"
                       >
-                        <div className="w-12 h-12 flex items-center justify-center bg-green-100 text-green-600 rounded-full mb-2">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="w-10 h-10 flex items-center justify-center bg-green-100 text-green-600 rounded-full mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                           </svg>
                         </div>
