@@ -17,7 +17,7 @@ services:
       - MONGO_URI=${MONGO_URI}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - PYTHONPATH=/app
-      - FRONTEND_WEBHOOK_URL=http://frontend:3000/api/webhook/meal-ready
+      - FRONTEND_WEBHOOK_URL=${FRONTEND_WEBHOOK_URL}
     networks:
       - mealplan-network
     depends_on:
