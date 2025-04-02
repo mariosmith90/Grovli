@@ -192,6 +192,43 @@ export function BottomNavbar({ children }) {
       };
     }
   }, [fabMenuOpen, daysMenuOpen]);
+  
+  // Auto-center the FAB button perfectly
+  useEffect(() => {
+    if (typeof window === 'undefined' || !fabRef.current) return;
+    
+    const centerFabButton = () => {
+      // Get navbar width
+      const navbar = fabRef.current.closest('nav');
+      if (!navbar) return;
+      
+      // Get the empty center space width
+      const centerSpace = document.querySelector('.w-14.flex-shrink-0');
+      if (!centerSpace) return;
+      
+      // Calculate any offset needed to perfectly center the FAB
+      const centerSpaceWidth = centerSpace.getBoundingClientRect().width;
+      const fabWidth = fabRef.current.getBoundingClientRect().width;
+      
+      // Adjust for any asymmetry in the navbar layout
+      const leftOffset = (centerSpaceWidth - fabWidth) / 2;
+      
+      // Apply the calculated offset
+      fabRef.current.style.marginLeft = `${leftOffset}px`;
+    };
+    
+    // Run on mount and on window resize
+    centerFabButton();
+    window.addEventListener('resize', centerFabButton);
+    
+    // Run after a slight delay to ensure all elements are rendered properly
+    const timeoutId = setTimeout(centerFabButton, 300);
+    
+    return () => {
+      window.removeEventListener('resize', centerFabButton);
+      clearTimeout(timeoutId);
+    };
+  }, [pathname, fabRef.current]);
 
   const toggleDaysMenu = (e) => {
     if (isMealCardView()) return;
@@ -442,6 +479,9 @@ export function BottomNavbar({ children }) {
     isReady: false
   });
   
+  // Reference for FAB positioning
+  const fabRef = useRef(null);
+  
   // Special handler for checking if we've just clicked the FAB and need to reset its state
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -649,9 +689,10 @@ export function BottomNavbar({ children }) {
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
           {isAuthenticated && (
             <div 
+              ref={fabRef}
               className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" 
               style={{ 
-                marginLeft: '0px', 
+                marginLeft: '5px', 
                 background: 'transparent',
                 boxShadow: 'none',
                 border: 'none'
