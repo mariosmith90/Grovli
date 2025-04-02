@@ -651,7 +651,7 @@ export function BottomNavbar({ children }) {
             <div 
               className="absolute left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10" 
               style={{ 
-                marginLeft: '10px', 
+                marginLeft: '0px', 
                 background: 'transparent',
                 boxShadow: 'none',
                 border: 'none'
