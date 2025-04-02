@@ -66,6 +66,7 @@ services:
       - APP_BASE_URL=${APP_BASE_URL}
       # Client-side variables with NEXT_PUBLIC prefix
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - FRONTEND_WEBHOOK_URL=${FRONTEND_WEBHOOK_URL}
     networks:
       - mealplan-network
     depends_on:
