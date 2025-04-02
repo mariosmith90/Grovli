@@ -31,20 +31,29 @@ export function BottomNavbar({ children }) {
   const isLoading = auth0Loading && authLoading;
   const isAuthenticated = auth0Authenticated || !!user;
   
-  // Use our new Zustand store for better state management
-  const { 
-    isGenerating, 
-    setIsGenerating,
-    mealGenerationComplete,
-    setMealGenerationComplete,
-    currentMealPlanId,
-    setCurrentMealPlanId,
-    hasViewedGeneratedMeals,
-    setHasViewedGeneratedMeals,
-    resetMealGeneration,
-    updateGlobalState,
-    notifyMealPlanReady
-  } = useMealStore();
+  // Use our new Zustand store with safer destructuring
+  // First check if the hook is available and usable
+  const mealStore = useMealStore();
+  
+  // Safely destructure values with fallbacks to prevent errors
+  const isGenerating = mealStore?.isGenerating || false;
+  const mealGenerationComplete = mealStore?.mealGenerationComplete || false;
+  const currentMealPlanId = mealStore?.currentMealPlanId || null;
+  const hasViewedGeneratedMeals = mealStore?.hasViewedGeneratedMeals || false;
+  const currentJobId = mealStore?.currentJobId || null;
+  const taskTrackingId = mealStore?.taskTrackingId || null;
+  const backgroundTaskId = mealStore?.backgroundTaskId || null;
+  
+  // Safely access methods with noop fallbacks to prevent errors
+  const setIsGenerating = mealStore?.setIsGenerating || (() => {});
+  const setMealGenerationComplete = mealStore?.setMealGenerationComplete || (() => {});
+  const setCurrentMealPlanId = mealStore?.setCurrentMealPlanId || (() => {});
+  const setHasViewedGeneratedMeals = mealStore?.setHasViewedGeneratedMeals || (() => {});
+  const resetMealGeneration = mealStore?.resetMealGeneration || (() => {});
+  const updateGlobalState = mealStore?.updateGlobalState || (() => {});
+  const notifyMealPlanReady = mealStore?.notifyMealPlanReady || (() => {});
+  const notifyMealPlanComplete = mealStore?.handleMealPlanNotification || (() => false);
+  const markStoreHydrated = mealStore?.actions?.markHydrated || (() => {});
   
   const [isPro, setIsPro] = useState(false);
   const [visitedMealsPage, setVisitedMealsPage] = useState(false);
@@ -192,9 +201,8 @@ export function BottomNavbar({ children }) {
   const handleFabClick = async (e) => {
     console.log(`[Navbar] FAB clicked on path: ${pathname}, mealGenerationComplete: ${mealGenerationComplete}, hasViewedGeneratedMeals: ${hasViewedGeneratedMeals}`);
     
-    // Ensure the store is hydrated
-    const store = useMealStore.getState();
-    store.actions.markHydrated();
+    // Always use markHydrated from our component scope
+    markStoreHydrated();
     
     // If on meal card view, return to meal selection or go to overview
     if (isMealCardView()) {
@@ -223,11 +231,11 @@ export function BottomNavbar({ children }) {
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       console.log("[Navbar] ✅ Green checkmark clicked - navigating to meal cards view");
       
-      // Call viewGeneratedMeals for logging but proceed regardless
-      store.viewGeneratedMeals();
+      // Use state already in component scope
+      // No store.viewGeneratedMeals() needed
       
-      // Get the current meal plan ID from store for consistency
-      const mealPlanIdToUse = store.currentMealPlanId;
+      // Get the current meal plan ID from our component scope
+      const mealPlanIdToUse = currentMealPlanId;
       
       // Update only the visual button state immediately - don't update Zustand yet
       // This prevents the button from flashing between states during navigation
@@ -254,13 +262,12 @@ export function BottomNavbar({ children }) {
     if (mealGenerationComplete && pathname !== '/meals') {
       console.log("[Navbar] Ready meal plan navigation - not on meals page");
       
-      // Get the meal plan ID after ensuring store is fully ready
-      const mealPlanIdToUse = store.currentMealPlanId;
+      // Use state already in component scope
+      const mealPlanIdToUse = currentMealPlanId;
       
       console.log(`[Navbar] Navigating to meal cards from non-meals page with ID: ${mealPlanIdToUse || 'none'}`);
       
-      // Simply call viewGeneratedMeals for logging purposes but proceed regardless
-      store.viewGeneratedMeals();
+      // No need to call viewGeneratedMeals, just proceed
       
       // Use router.push for navigation - never block this operation
       if (mealPlanIdToUse) {
@@ -283,12 +290,16 @@ export function BottomNavbar({ children }) {
     if (pathname === '/meals' && !isMealCardView()) {
       console.log("[Navbar] On meals page, generating new meal plan");
       
-      // Reset previous meal generation state before starting a new one
+      // Reset previous meal generation state
       resetMealGeneration();
       
-      // Start the loading spinner immediately
+      // Start the loading spinner immediately using our imported method
       setIsGenerating(true);
-      localStorage.setItem('hasViewedGeneratedMeals', 'false');
+      
+      // Also set in localStorage for redundancy
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('hasViewedGeneratedMeals', 'false');
+      }
       
       try {
         if (typeof window !== 'undefined' && window.generateMeals && typeof window.generateMeals === 'function') {
@@ -441,80 +452,73 @@ export function BottomNavbar({ children }) {
   
   // Listen for changes in generation state and poll for meal plan ready notifications
   useEffect(() => {
-    // Very simple approach: Just poll the API directly
-    if (!isGenerating || !user) return;
+    // Only poll if we're generating or if a poll was interrupted
+    if ((!isGenerating && !window.interruptedPolling) || !user) return;
     
     // Update fabButtonState to match isGenerating immediately
     setFabButtonState(prev => ({
       ...prev,
-      isLoading: true,
-      isReady: false
+      isLoading: isGenerating,
+      isReady: mealGenerationComplete && !hasViewedGeneratedMeals
     }));
     
-    // Set up simple polling for the special user
+    // Use trackingId from selectors
+    const trackingId = taskTrackingId || backgroundTaskId;
+    
+    console.log(`[Navbar] Starting polling with jobId: ${currentJobId}, trackingId: ${trackingId}`);
+    
+    // Set up polling with proper job tracking
     let pollTimer;
     const checkForCompletedMeal = async () => {
       try {
         // Only check if we're still generating
-        if (!isGenerating) return;
+        if (!isGenerating && !window.interruptedPolling) return;
         
-        // Check API - add the checkReadyPlans flag to also check for immediately ready plans
+        // Always update the store hydration state first
+        markStoreHydrated();
+        
+        // Check API with added tracking params
         console.log("[Navbar] Checking for completed meal plan");
-        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}&checkReadyPlans=true`);
+        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}&checkReadyPlans=true` + 
+          (currentJobId ? `&jobId=${currentJobId}` : '') +
+          (trackingId ? `&taskId=${trackingId}` : '')
+        );
         
         if (response.ok) {
           const data = await response.json();
-          // If we found a notification, update the state
+          // If we found a notification, update the state through the Zustand store
           if (data.has_notification && data.notification) {
             console.log("[Navbar] 🎉 Found completed meal plan notification:", data.notification);
             
-            // Update all states at once
-            setIsGenerating(false);
-            setMealGenerationComplete(true);
-            setFabButtonState({
-              isLoading: false,
-              isReady: true
+            // Clear the interrupted polling flag
+            window.interruptedPolling = false;
+            
+            // Use the Zustand handler for atomic state update
+            const handled = notifyMealPlanComplete({
+              ...data.notification,
+              jobId: currentJobId,
+              taskId: trackingId,
+              timestamp: new Date().toISOString(),
+              source: 'navbar_poll'
             });
             
-            // Store the meal plan ID
-            if (data.notification.meal_plan_id) {
-              console.log(`[Navbar] Setting meal plan ID: ${data.notification.meal_plan_id}`);
-              setCurrentMealPlanId(data.notification.meal_plan_id);
-              
-              // Also store in context state to ensure persistence
-              const currentState = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
-              localStorage.setItem('mealGenerationState', JSON.stringify({
-                ...currentState,
-                isGenerating: false,
-                mealGenerationComplete: true,
-                currentMealPlanId: data.notification.meal_plan_id
-              }));
-            }
-            
-            // Critical: Make sure hasViewedGeneratedMeals is FALSE 
-            // so that clicking the FAB will go to card view
-            setHasViewedGeneratedMeals(false);
-            localStorage.setItem('hasViewedGeneratedMeals', 'false');
-            
-            // Also update window globals
-            if (typeof window !== 'undefined') {
-              window.mealLoading = false;
-              window.mealPlanReady = true;
-              
-              // Trigger event for other components with the correct meal plan ID
-              window.dispatchEvent(new CustomEvent('mealPlanReady', {
-                detail: {
-                  mealPlanId: data.notification.meal_plan_id,
-                  userId: data.notification.user_id,
-                  timestamp: new Date().toISOString(),
-                  source: 'navbar_poll'
-                }
-              }));
+            if (handled) {
+              // Update only the visual button state immediately - Zustand handles the rest
+              setFabButtonState({
+                isLoading: false,
+                isReady: true
+              });
+            } else {
+              console.log("[Navbar] Store declined to handle the notification");
             }
           }
         }
       } catch (error) {
         console.error("[Navbar] Error checking for meal completion:", error);
+        // Mark that polling was interrupted so we can resume on reload
+        if (typeof window !== 'undefined') {
+          window.interruptedPolling = true;
+        }
       }
     };
     
@@ -528,29 +532,19 @@ export function BottomNavbar({ children }) {
     const handleMealReady = (event) => {
       console.log("[Navbar] Received direct mealPlanReady event:", event?.detail);
       
-      // Update all state at once
-      setIsGenerating(false);
-      setMealGenerationComplete(true);
+      // Check if this notification's job ID matches our current job ID (if any)
+      const eventJobId = event?.detail?.jobId;
+      
+      if (currentJobId && eventJobId && currentJobId !== eventJobId) {
+        console.log(`[Navbar] Event job ID ${eventJobId} doesn't match current job ID ${currentJobId}, ignoring`);
+        return;
+      }
+      
+      // Update visual button state
       setFabButtonState({
         isLoading: false,
         isReady: true
       });
-      
-      // Store the meal plan id if provided
-      if (event?.detail?.mealPlanId) {
-        console.log(`[Navbar] Setting currentMealPlanId: ${event.detail.mealPlanId}`);
-        setCurrentMealPlanId(event.detail.mealPlanId);
-      }
-      
-      // Make sure to set the global window state too
-      if (typeof window !== 'undefined') {
-        window.mealLoading = false;
-        window.mealPlanReady = true;
-        
-        // Need to set hasViewedGeneratedMeals to false to make sure the FAB will link to meal cards
-        setHasViewedGeneratedMeals(false);
-        localStorage.setItem('hasViewedGeneratedMeals', 'false');
-      }
     };
     
     if (typeof window !== 'undefined') {
@@ -563,7 +557,17 @@ export function BottomNavbar({ children }) {
         window.removeEventListener('mealPlanReady', handleMealReady);
       }
     };
-  }, [isGenerating, user, setIsGenerating, setMealGenerationComplete]);
+  }, [
+    isGenerating, 
+    user, 
+    mealGenerationComplete, 
+    hasViewedGeneratedMeals, 
+    currentJobId, 
+    taskTrackingId, 
+    backgroundTaskId, 
+    markStoreHydrated,
+    notifyMealPlanComplete
+  ]);
   
   // Get FAB state based on component state
   const getFabState = () => {

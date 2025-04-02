@@ -61,6 +61,10 @@ export default function Home() {
     updateGlobalState,
     notifyMealPlanReady
   } = useMealStore();
+  
+  // Get additional actions needed for proper functionality
+  const markStoreHydrated = useMealStore(state => state.actions?.markHydrated) || (() => {});
+  const viewGeneratedMeals = useMealStore(state => state.viewGeneratedMeals) || (() => true);
 
   const checkOnboardingStatus = async () => {
     if (!user) return false;
@@ -818,8 +822,8 @@ export default function Home() {
         // First check if we already have a meal plan loaded
         if (Array.isArray(mealPlan) && mealPlan.length > 0) {
           console.log('[Meals Page] Already have meal plan in component state', mealPlan.length, 'meals');
-          // No need to load anything, just mark as viewed in Zustand
-          useMealStore.setState({ hasViewedGeneratedMeals: true });
+          // No need to load anything, just mark as viewed through our hook
+          setHasViewedGeneratedMeals(true);
           return;
         }
           
@@ -833,8 +837,8 @@ export default function Home() {
           setMealPlan(storeState.mealPlan);
           setDisplayedMealType(storeState.displayedMealType || mealType);
           
-          // Mark as viewed in Zustand (turns off green checkmark)
-          useMealStore.setState({ hasViewedGeneratedMeals: true });
+          // Mark as viewed through our hook (turns off green checkmark)
+          setHasViewedGeneratedMeals(true);
           
           // We're done - no need to load from API
           return;
@@ -1279,12 +1283,15 @@ export default function Home() {
     if (Array.isArray(mealPlan) && mealPlan.length > 0) {
       console.log('[Meals Page] Meal plan loaded with', mealPlan.length, 'meals - updating FAB state');
       
-      // Mark the store as hydrated and update the viewed state
-      const store = useMealStore.getState();
-      store.actions.markHydrated();
-      store.markMealsAsViewed();
+      // Always use the setHasViewedGeneratedMeals directly from the component scope
+      // This is more reliable than accessing the store directly
+      setHasViewedGeneratedMeals(true);
+      
+      // For compatibility with other views that might still be using the store directly
+      // we still need to mark the store as hydrated
+      markStoreHydrated();
     }
-  }, [mealPlan]);
+  }, [mealPlan, setHasViewedGeneratedMeals, markStoreHydrated]);
 
   return ( 
     <>

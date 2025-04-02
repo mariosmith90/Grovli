@@ -143,7 +143,23 @@ export const useMealStore = create(
       
       // Start meal plan generation process
       startMealGeneration: (preferences = {}) => {
-        get().actions.logAction('startMealGeneration', preferences);
+        // Generate a unique job ID for this generation request
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        get().actions.logAction('startMealGeneration', {
+          ...preferences,
+          jobId: jobId
+        });
+        
+        // First reset any old state
+        const oldState = get();
+        if (oldState.currentMealPlanId || oldState.mealGenerationComplete) {
+          console.log(`[MealStore] Clearing previous meal plan state before starting new generation`);
+          get().resetMealGeneration();
+        }
+        
+        // Explicitly clear any existing meal plan association
+        localStorage.removeItem('currentMealPlanId');
         
         // Reset state and start generation
         set({
@@ -151,16 +167,42 @@ export const useMealStore = create(
           mealGenerationComplete: false,
           hasViewedGeneratedMeals: false,
           // Store preferences if needed
-          ...(preferences ? { preferences } : {})
+          ...(preferences ? { preferences } : {}),
+          // Store the current job ID so we can verify when notifications come in
+          currentJobId: jobId,
+          lastGenerationTimestamp: new Date().toISOString()
         });
+        
+        // Store the job ID in localStorage for recovery
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('currentJobId', jobId);
+          localStorage.setItem('lastGenerationTimestamp', new Date().toISOString());
+        }
         
         // Sync with window globals
         get().actions.syncWithWindow();
+        
+        return jobId;
       },
       
       // Handle a successful meal plan fetch
       handleMealPlanSuccess: (mealPlan, mealPlanId) => {
-        get().actions.logAction('handleMealPlanSuccess', { mealPlanId, mealCount: mealPlan?.length });
+        const state = get();
+        const currentTimestamp = new Date().toISOString();
+        
+        get().actions.logAction('handleMealPlanSuccess', { 
+          mealPlanId, 
+          mealCount: mealPlan?.length,
+          currentJobId: state.currentJobId,
+          isGenerating: state.isGenerating,
+          timestamp: currentTimestamp
+        });
+        
+        // Only process this meal plan if we're actively generating meals or it matches our job ID
+        if (!state.isGenerating && state.currentMealPlanId && state.currentMealPlanId !== mealPlanId) {
+          console.log(`[MealStore] Ignoring incoming meal plan ${mealPlanId} because we're not generating and it doesn't match current meal plan ID ${state.currentMealPlanId}`);
+          return false;
+        }
         
         // Update state with the new meal plan
         set({
@@ -168,8 +210,17 @@ export const useMealStore = create(
           currentMealPlanId: mealPlanId,
           isGenerating: false,
           mealGenerationComplete: true,
-          hasViewedGeneratedMeals: false
+          hasViewedGeneratedMeals: false,
+          lastSuccessTimestamp: currentTimestamp,
+          notificationSource: 'direct_api'
         });
+        
+        // Persist to localStorage
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('currentMealPlanId', mealPlanId);
+          localStorage.setItem('lastSuccessTimestamp', currentTimestamp);
+          localStorage.setItem('mealGenerationComplete', 'true');
+        }
         
         // Sync with window globals
         get().actions.syncWithWindow();
@@ -179,7 +230,8 @@ export const useMealStore = create(
           window.dispatchEvent(new CustomEvent('mealPlanReady', {
             detail: {
               mealPlanId,
-              timestamp: new Date().toISOString(),
+              jobId: state.currentJobId,
+              timestamp: currentTimestamp,
               source: 'zustand'
             }
           }));
@@ -190,11 +242,38 @@ export const useMealStore = create(
       
       // Process notification of completed meal plan
       handleMealPlanNotification: (notification) => {
-        get().actions.logAction('handleMealPlanNotification', notification);
+        const state = get();
+        const currentTimestamp = new Date().toISOString();
+        
+        get().actions.logAction('handleMealPlanNotification', {
+          ...notification,
+          currentState: {
+            isGenerating: state.isGenerating,
+            currentMealPlanId: state.currentMealPlanId,
+            currentJobId: state.currentJobId,
+            timestamp: currentTimestamp
+          }
+        });
         
         if (!notification || !notification.meal_plan_id) {
           console.error('[MealStore] Invalid notification received');
           return false;
+        }
+        
+        // Check if we already have a meal plan ready - avoid overwriting with an old notification
+        if (state.mealGenerationComplete && 
+            state.currentMealPlanId && 
+            state.currentMealPlanId !== notification.meal_plan_id) {
+          
+          // We need to check timing - only accept newer notifications
+          const lastGenerationTime = state.lastGenerationTimestamp ? new Date(state.lastGenerationTimestamp).getTime() : 0;
+          const notificationTime = notification.timestamp ? new Date(notification.timestamp).getTime() : Date.now();
+          
+          // If this is an old notification (from before our last generation started), ignore it
+          if (lastGenerationTime > notificationTime) {
+            console.log(`[MealStore] Ignoring outdated notification. Current meal plan: ${state.currentMealPlanId}, notification for: ${notification.meal_plan_id}`);
+            return false;
+          }
         }
         
         // Update state with notification data
@@ -202,8 +281,17 @@ export const useMealStore = create(
           currentMealPlanId: notification.meal_plan_id,
           isGenerating: false,
           mealGenerationComplete: true,
-          hasViewedGeneratedMeals: false
+          hasViewedGeneratedMeals: false,
+          lastNotificationTimestamp: currentTimestamp,
+          notificationSource: 'webhook'
         });
+        
+        // Persist to localStorage
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('currentMealPlanId', notification.meal_plan_id);
+          localStorage.setItem('lastNotificationTimestamp', currentTimestamp);
+          localStorage.setItem('mealGenerationComplete', 'true');
+        }
         
         // Sync with window globals
         get().actions.syncWithWindow();
@@ -214,7 +302,8 @@ export const useMealStore = create(
             detail: {
               mealPlanId: notification.meal_plan_id,
               userId: notification.user_id,
-              timestamp: new Date().toISOString(),
+              jobId: state.currentJobId,
+              timestamp: currentTimestamp,
               source: 'notification'
             }
           }));
@@ -225,14 +314,26 @@ export const useMealStore = create(
       
       // Begin tracking a background task
       startTaskChecking: (taskId) => {
-        get().actions.logAction('startTaskChecking', taskId);
+        const state = get();
+        
+        get().actions.logAction('startTaskChecking', {
+          taskId,
+          currentJobId: state.currentJobId
+        });
+        
+        // Generate a unique task tracking ID that combines job and task
+        const trackingId = state.currentJobId 
+          ? `${state.currentJobId}-${taskId}` 
+          : taskId;
         
         set({
           isGenerating: true,
           mealGenerationComplete: false,
           hasViewedGeneratedMeals: false,
           currentMealPlanId: taskId,
-          backgroundTaskId: taskId
+          backgroundTaskId: taskId,
+          taskTrackingId: trackingId,
+          lastTaskStartTimestamp: new Date().toISOString()
         });
         
         // Update window globals
@@ -240,12 +341,19 @@ export const useMealStore = create(
           window.mealLoading = true;
           window.mealPlanReady = false;
           localStorage.setItem('currentMealPlanId', taskId);
+          localStorage.setItem('taskTrackingId', trackingId);
+          localStorage.setItem('lastTaskStartTimestamp', new Date().toISOString());
         }
+        
+        return trackingId;
       },
       
       // Reset all meal generation state
       resetMealGeneration: () => {
         get().actions.logAction('resetMealGeneration');
+        
+        // Create a local timestamp when this reset happened to help track job association
+        const resetTimestamp = new Date().toISOString();
         
         set({
           isGenerating: false,
@@ -253,7 +361,8 @@ export const useMealStore = create(
           currentMealPlanId: null,
           hasViewedGeneratedMeals: false,
           backgroundTaskId: null,
-          mealPlan: []
+          mealPlan: [],
+          lastResetTimestamp: resetTimestamp
         });
         
         // Clean up localStorage and window globals
@@ -262,6 +371,9 @@ export const useMealStore = create(
           window.mealPlanReady = false;
           localStorage.removeItem('currentMealPlanId');
           localStorage.removeItem('mealGenerationState');
+          
+          // Store the reset timestamp in localStorage for recovery on page refresh
+          localStorage.setItem('lastMealResetTimestamp', resetTimestamp);
         }
       },
       
@@ -348,7 +460,16 @@ export const useMealStore = create(
         mealType: state.mealType,
         hasViewedGeneratedMeals: state.hasViewedGeneratedMeals,
         isHydrated: true, // Always persist as true to avoid hydration mismatches
-        backgroundTaskId: state.backgroundTaskId
+        backgroundTaskId: state.backgroundTaskId,
+        // New fields for job tracking
+        currentJobId: state.currentJobId,
+        taskTrackingId: state.taskTrackingId,
+        lastResetTimestamp: state.lastResetTimestamp,
+        lastGenerationTimestamp: state.lastGenerationTimestamp,
+        lastTaskStartTimestamp: state.lastTaskStartTimestamp,
+        lastSuccessTimestamp: state.lastSuccessTimestamp,
+        lastNotificationTimestamp: state.lastNotificationTimestamp,
+        notificationSource: state.notificationSource
       }),
       // Add version control for potential schema migrations
       version: 1
@@ -368,4 +489,158 @@ export const useMealStatus = () => {
     hasViewed,
     isReadyToView: isComplete && !hasViewed
   };
-}
+};
+
+// Helper functions to migrate from direct localStorage access to Zustand
+// These maintain backward compatibility with existing code
+export const mealStoreHelpers = {
+  // Get meal state from localStorage - always prefer Zustand, fallback to localStorage
+  getMealState: (key) => {
+    // First try Zustand
+    const state = useMealStore.getState();
+    
+    switch (key) {
+      case 'isGenerating':
+        return state.isGenerating;
+      case 'mealGenerationComplete':
+        return state.mealGenerationComplete;
+      case 'currentMealPlanId':
+        return state.currentMealPlanId;
+      case 'hasViewedGeneratedMeals':
+        return state.hasViewedGeneratedMeals;
+      case 'mealPlan':
+        return state.mealPlan;
+      case 'displayedMealType':
+        return state.displayedMealType;
+      case 'mealType':
+        return state.mealType;
+      case 'backgroundTaskId':
+        return state.backgroundTaskId;
+      case 'mealGenerationState':
+        // Return a serialized version of the relevant state for compatibility
+        return JSON.stringify({
+          isGenerating: state.isGenerating,
+          mealGenerationComplete: state.mealGenerationComplete,
+          currentMealPlanId: state.currentMealPlanId,
+          hasViewedGeneratedMeals: state.hasViewedGeneratedMeals,
+          backgroundTaskId: state.backgroundTaskId
+        });
+      default:
+        // Fall back to localStorage for any other keys
+        if (typeof window !== 'undefined') {
+          return localStorage.getItem(key);
+        }
+        return null;
+    }
+  },
+  
+  // Set meal state - update both Zustand and localStorage for backward compatibility
+  setMealState: (key, value) => {
+    // Update Zustand
+    const state = useMealStore.getState();
+    
+    switch (key) {
+      case 'isGenerating':
+        state.setIsGenerating(value);
+        break;
+      case 'mealGenerationComplete':
+        state.setMealGenerationComplete(value);
+        break;
+      case 'currentMealPlanId':
+        state.setCurrentMealPlanId(value);
+        break;
+      case 'hasViewedGeneratedMeals':
+        state.setHasViewedGeneratedMeals(value);
+        break;
+      case 'mealPlan':
+        state.setMealPlan(value);
+        break;
+      case 'displayedMealType':
+        state.setDisplayedMealType(value);
+        break;
+      case 'mealType':
+        state.setMealType(value);
+        break;
+      case 'backgroundTaskId':
+        state.setBackgroundTaskId(value);
+        break;
+      case 'mealGenerationState':
+        // Parse and update the relevant state
+        try {
+          const parsedState = JSON.parse(value);
+          if (parsedState.isGenerating !== undefined) state.setIsGenerating(parsedState.isGenerating);
+          if (parsedState.mealGenerationComplete !== undefined) state.setMealGenerationComplete(parsedState.mealGenerationComplete);
+          if (parsedState.currentMealPlanId !== undefined) state.setCurrentMealPlanId(parsedState.currentMealPlanId);
+          if (parsedState.hasViewedGeneratedMeals !== undefined) state.setHasViewedGeneratedMeals(parsedState.hasViewedGeneratedMeals);
+          if (parsedState.backgroundTaskId !== undefined) state.setBackgroundTaskId(parsedState.backgroundTaskId);
+        } catch (e) {
+          console.error('Error parsing mealGenerationState:', e);
+        }
+        break;
+      default:
+        // For any other keys, just use localStorage directly
+        if (typeof window !== 'undefined') {
+          if (value === null) {
+            localStorage.removeItem(key);
+          } else {
+            localStorage.setItem(key, value);
+          }
+        }
+    }
+    
+    // Also update localStorage for backward compatibility
+    if (typeof window !== 'undefined') {
+      // Update the specific key
+      if (key !== 'mealGenerationState') {
+        if (value === null) {
+          localStorage.removeItem(key);
+        } else {
+          // Special handling for boolean values
+          if (typeof value === 'boolean') {
+            localStorage.setItem(key, value.toString());
+          } else {
+            localStorage.setItem(key, value);
+          }
+        }
+      }
+    }
+  },
+  
+  // Remove meal state
+  removeMealState: (key) => {
+    // Update Zustand
+    const state = useMealStore.getState();
+    
+    switch (key) {
+      case 'isGenerating':
+        state.setIsGenerating(false);
+        break;
+      case 'mealGenerationComplete':
+        state.setMealGenerationComplete(false);
+        break;
+      case 'currentMealPlanId':
+        state.setCurrentMealPlanId(null);
+        break;
+      case 'hasViewedGeneratedMeals':
+        state.setHasViewedGeneratedMeals(false);
+        break;
+      case 'mealPlan':
+        state.setMealPlan([]);
+        break;
+      case 'mealGenerationState':
+        // Reset all state
+        state.resetMealGeneration();
+        break;
+      default:
+        // For any other keys, just use localStorage directly
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(key);
+        }
+    }
+    
+    // Also update localStorage for backward compatibility
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  }
+};
