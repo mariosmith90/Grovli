@@ -873,9 +873,15 @@ def notify_frontend_webhook(user_id, meal_plan_id, session_id):
         # Set a reasonable timeout
         timeout = 5  # seconds
         
-        # Send the POST request to the frontend webhook
+        # Send the POST request to the frontend webhook with user_id as query parameter as well
+        # Add user_id as query parameter to ensure compatibility with both endpoints
+        webhook_url = f"{frontend_url}?user_id={user_id}"
+        
+        # Log the actual URL we're calling for debugging
+        logger.info(f"Sending webhook to: {webhook_url}")
+        
         response = session.post(
-            frontend_url,
+            webhook_url,
             json=payload,
             timeout=timeout,
             headers={"Content-Type": "application/json"}
