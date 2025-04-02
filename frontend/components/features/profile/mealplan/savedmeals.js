@@ -1,7 +1,14 @@
 "use client";
 
 function SavedMeals({ mealType, onSelectMeal, savedMeals, isLoading, handleCreateNewMeals }) {
+  // Add safety check for when mealType or savedMeals are undefined
+  if (!mealType || !savedMeals) {
+    console.log("SavedMeals: Missing mealType or savedMeals", { mealType, savedMeals });
+    return <div className="py-8 text-center text-gray-500">Unable to load meals. Please try again.</div>;
+  }
+  
   const meals = savedMeals[mealType] || [];
+  console.log(`SavedMeals: Found ${meals.length} meals for ${mealType}`);
   
   if (isLoading) {
     return <div className="py-8 text-center text-gray-500">Loading saved meals...</div>;

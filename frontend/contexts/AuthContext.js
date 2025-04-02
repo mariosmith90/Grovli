@@ -27,7 +27,11 @@ export const AuthProvider = ({ children }) => {
       setIsInitialized(true);
       
       if (typeof window !== 'undefined') {
+        // Clean up all auth-related storage
+        localStorage.removeItem('accessToken');
         localStorage.removeItem('grovli_auth');
+        window.__auth0_token = null;
+        window.latestAuthToken = null;
         window.userId = null;
       }
       
@@ -36,14 +40,13 @@ export const AuthProvider = ({ children }) => {
     
     // User is logged in
     setUserId(user.sub);
+    console.log("User logged in:", user.sub);
     
-    // Cache token if available
+    // Cache token if available and use our centralized token storage
     if (userToken) {
-      setAccessToken(userToken);
-      
-      if (typeof window !== 'undefined') {
-        window.__auth0_token = userToken;
-      }
+      console.log("AuthContext init: User token available from Auth0");
+      // Use our helper to store token in all locations
+      saveTokenEverywhere(userToken);
       
       try {
         // Parse token for user info
@@ -71,6 +74,8 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         console.error('Error parsing token:', error);
       }
+    } else {
+      console.log("AuthContext init: No user token available from Auth0");
     }
     
     // Set user id in window
@@ -81,20 +86,111 @@ export const AuthProvider = ({ children }) => {
     setIsInitialized(true);
   }, [user, isLoading, userToken]);
   
-  // Function to get the current token
+  // This is a utility function to validate and check expiration of JWT tokens
+  const isTokenValid = (token) => {
+    if (!token) return false;
+    
+    try {
+      // Parse the token payload
+      const parts = token.split('.');
+      if (parts.length !== 3) return false;
+      
+      const payload = JSON.parse(atob(parts[1]));
+      
+      // Check if token has an expiration claim
+      if (!payload.exp) return false;
+      
+      // Check if token has expired or will expire soon (within 5 minutes)
+      const expiryTime = payload.exp * 1000; // Convert to milliseconds
+      return expiryTime > (Date.now() + 300000); // Valid if expires in more than 5 minutes
+    } catch (e) {
+      console.error("Error validating token:", e);
+      return false;
+    }
+  };
+  
+  // Centralized function to save a token to all storage mechanisms
+  const saveTokenEverywhere = (token) => {
+    if (!token) return;
+    
+    // Update state
+    setAccessToken(token);
+    
+    // Update browser storage
+    if (typeof window !== 'undefined') {
+      window.__auth0_token = token;
+      localStorage.setItem('accessToken', token);
+      
+      // This helps other components access the token before context is ready
+      window.latestAuthToken = token;
+    }
+    
+    // Log for debugging
+    console.log("Token saved to all storage locations");
+  };
+  
+  // Function to get the current token with refresh attempt
   const getAuthToken = async () => {
-    // If we already have a token, return it
-    if (accessToken) {
+    console.log("AuthContext.getAuthToken called");
+    
+    // STRATEGY 1: First try the token from Auth0 SDK
+    if (userToken && isTokenValid(userToken)) {
+      console.log("Using fresh token from Auth0 SDK");
+      saveTokenEverywhere(userToken);
+      return userToken;
+    }
+    
+    // STRATEGY 2: Check our current state token
+    if (accessToken && isTokenValid(accessToken)) {
+      console.log("Using valid token from AuthContext state");
       return accessToken;
     }
     
-    // If we have a token in the window, use that
-    if (typeof window !== 'undefined' && window.__auth0_token) {
-      setAccessToken(window.__auth0_token);
-      return window.__auth0_token;
+    // STRATEGY 3: Try browser-level storage
+    if (typeof window !== 'undefined') {
+      // Try window.__auth0_token
+      if (window.__auth0_token && isTokenValid(window.__auth0_token)) {
+        console.log("Using valid token from window.__auth0_token");
+        saveTokenEverywhere(window.__auth0_token);
+        return window.__auth0_token;
+      }
+      
+      // Try localStorage
+      const storedToken = localStorage.getItem('accessToken');
+      if (storedToken && isTokenValid(storedToken)) {
+        console.log("Using valid token from localStorage");
+        saveTokenEverywhere(storedToken);
+        return storedToken;
+      }
     }
     
-    // No token available
+    // STRATEGY 4: Since no valid token was found, return whatever token we have
+    // (even if expired) and let the API service handle refresh
+    if (userToken) {
+      console.log("Using potentially expired token from Auth0 SDK");
+      saveTokenEverywhere(userToken);
+      return userToken;
+    }
+    
+    if (accessToken) {
+      console.log("Using potentially expired token from context state");
+      return accessToken;
+    }
+    
+    if (typeof window !== 'undefined') {
+      if (window.__auth0_token) {
+        console.log("Using potentially expired token from window.__auth0_token");
+        return window.__auth0_token;
+      }
+      
+      const storedToken = localStorage.getItem('accessToken');
+      if (storedToken) {
+        console.log("Using potentially expired token from localStorage");
+        return storedToken;
+      }
+    }
+    
+    console.log("No token available from any source");
     return null;
   };
   

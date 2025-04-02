@@ -2,16 +2,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from "@auth0/nextjs-auth0";
+import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { useAuth } from "../../contexts/AuthContext";
 import { Coffee, Utensils, Apple, Moon, ArrowLeft } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import DayTimelineSlider from '../../components/features/profile/daytimeline';
-import MealTimeline from '../../components/features/profile/mealtimeline';
-import NextMealCard from '../../components/features/profile/nextmeal';
-import CalorieProgressBar from '../../components/features/profile/caloriebar';
-import SavedMeals from '../../components/features/profile/savedmeals';
-import ProfileHeaderSection from '../../components/features/profile/profileheader';
+import DayTimelineSlider from '../../components/features/profile/timeline/daytimeline';
+import MealTimeline from '../../components/features/profile/mealplan/mealtimeline';
+import NextMealCard from '../../components/features/profile/timeline/nextmeal';
+import CalorieProgressBar from '../../components/features/profile/common/caloriebar';
+import SavedMeals from '../../components/features/profile/mealplan/savedmeals';
+import ProfileHeaderSection from '../../components/features/profile/common/profileheader';
+import AutoUpdatingComponent from '../../components/features/profile/mealplan/autoupdating';
 import { useApiService } from '../../lib/api-service';
 
 export default function ProfilePage() {
@@ -53,6 +54,7 @@ export default function ProfilePage() {
     carbs: 0,
     fat: 0,
     image: '',
+    id: null,
     completed: false
   };
   
@@ -62,6 +64,19 @@ export default function ProfilePage() {
     { ...defaultMeal, type: 'snack', time: '3:30 PM' },
     { ...defaultMeal, type: 'dinner', time: '7:00 PM' }
   ]);
+  
+  // Initialize the AutoUpdatingComponent
+  const autoUpdater = AutoUpdatingComponent({
+    user,
+    activePlanId,
+    setActivePlanId,
+    mealPlan,
+    setMealPlan,
+    savingMeals,
+    setSavingMeals,
+    onAfterSave: () => loadMealCompletions(),
+    defaultMeal
+  });
 
   const [nextMeal, setNextMeal] = useState({
     ...defaultMeal,
@@ -88,8 +103,8 @@ export default function ProfilePage() {
     return hours * 60 + minutes;
   };
 
-  // Reusable date formatter
-  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+  // Use getTodayDateString from autoUpdater
+  const { getTodayDateString } = autoUpdater;
 
   // Get auth context at the component level
   const auth = useAuth();
@@ -98,116 +113,8 @@ export default function ProfilePage() {
   // Use the API service for authenticated requests
   const { makeAuthenticatedRequest } = useApiService();
 
-  const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
-    // Save the updated plan to state
-    setMealPlan(updatedMealPlan);
-    
-    // Mark the affected meals as saving
-    const newSavingState = {};
-    affectedMeals.forEach(meal => {
-      newSavingState[`${meal.dateKey}-${meal.mealType}`] = true;
-    });
-    setSavingMeals(prev => ({ ...prev, ...newSavingState }));
-    
-    // Clear any existing timeout to prevent multiple saves
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-    
-    // Set a short delay before auto-saving to avoid rapid successive saves
-    autoSaveTimeoutRef.current = setTimeout(async () => {
-      if (!user) {
-        toast.error("Please log in to save your meal plan");
-        return;
-      }
-      
-      try {
-        // Format meals for API
-        const formattedMeals = [];
-        const today = getTodayDateString();
-        
-        // Only include today's meals for the profile page
-        updatedMealPlan.forEach(meal => {
-          if (meal.name) {
-            formattedMeals.push({
-              date: today,
-              mealType: meal.type,
-              mealId: meal.id,
-              current_day: true
-            });
-          }
-        });
-        
-        if (formattedMeals.length === 0) {
-          // Don't bother saving an empty plan
-          return;
-        }
-        
-        // Prepare request data
-        const requestData = {
-          userId: user.sub,
-          planName: `Daily Plan - ${new Date().toLocaleDateString()}`,
-          meals: formattedMeals
-        };
-        
-        // If we don't have an active plan yet and we're adding the first meal,
-        // create a new plan, otherwise update the existing one
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const endpoint = activePlanId 
-          ? `${apiUrl}/api/user-plans/update`
-          : `${apiUrl}/api/user-plans/save`;
-        
-        // Add planId if updating
-        if (activePlanId) {
-          requestData.planId = activePlanId;
-        }
-        
-        // API request
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify(requestData)
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to save: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        // If it was a new plan, update the activePlanId
-        if (!activePlanId && result.id) {
-          setActivePlanId(result.id);
-        }
-        
-        // Update localStorage to trigger refresh in other components
-        localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
-        
-        // Show success message for adding/removing meals
-        if (changeType === 'add') {
-          toast.success("Meal added to plan");
-        } else if (changeType === 'remove') {
-          toast.success("Meal removed from plan");
-        }
-        
-      } catch (error) {
-        console.error('Error auto-saving meal plan:', error);
-        toast.error("Failed to save changes");
-      } finally {
-        // Clear the saving state for affected meals
-        setSavingMeals(prev => {
-          const updated = { ...prev };
-          affectedMeals.forEach(meal => {
-            delete updated[`${meal.dateKey}-${meal.mealType}`];
-          });
-          return updated;
-        });
-      }
-    }, 500); // 500ms delay before auto-saving
-  };
+  // Use the updateMealPlan function from autoUpdater
+  const updateMealPlan = autoUpdater.updateMealPlan;
 
   const saveMealCompletion = async (mealType, completed) => {
     try {
@@ -479,24 +386,22 @@ export default function ProfilePage() {
       const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
   
       if (mealIndex !== -1) {
-        // Add debugging to see what we're getting from the backend
-        console.log(`Loading meal details for ${mealType}:`, { 
-          mealDetails: { 
-            title: mealDetails.title, 
-            name: mealDetails.name 
-          }, 
-          meal: { 
-            title: meal?.title, 
-            name: meal?.name 
-          }
-        });
+        // Log the full response from the API including meal_name property
+        console.log(`Full mealItem for ${mealType}:`, JSON.stringify(mealItem, null, 2));
+        console.log(`Full mealDetails for ${mealType}:`, JSON.stringify(mealDetails, null, 2));
+        
+        // Use the direct title/name property from the API without complex fallbacks
+        // This matches how planner page handles it
+        const mealName = mealDetails.title || mealDetails.name;
+        
+        console.log(`Using direct meal name for ${mealType}:`, mealName);
         
         updatedMealPlan[mealIndex] = {
           ...updatedMealPlan[mealIndex],
           // Primary name property for UI display
-          name: mealDetails.title || mealDetails.name || (meal && (meal.title || meal.name)) || "Unnamed Meal",
+          name: mealName,
           // Also keep title for compatibility
-          title: mealDetails.title || mealDetails.name || (meal && (meal.title || meal.name)) || "Unnamed Meal",
+          title: mealName,
           calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
           protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
           carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
@@ -545,14 +450,27 @@ export default function ProfilePage() {
           });
           
           // Update with the day's meals
+          // First, log the raw meal data to see what we're receiving from the API
+          console.log("Raw dateMeals data:", JSON.stringify(dateMeals, null, 2));
+          
           for (const mealItem of dateMeals) {
-            const { mealType, meal } = mealItem;
+            const { mealType, meal, meal_name } = mealItem; // Extract meal_name directly from the API response
             const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
             
+            // Log the entire mealItem to see all available properties
+            console.log(`Full mealItem for ${mealType}:`, JSON.stringify(mealItem, null, 2));
+            
             if (mealIndex !== -1 && meal) {
+              // Use the directly provided meal name without complex fallbacks
+              const mealName = meal.title || meal.name || mealItem.meal_name;
+              
+              // Log it for debugging
+              console.log(`Using direct meal name for ${mealType}:`, mealName);
+              
               updatedMealPlan[mealIndex] = {
                 ...updatedMealPlan[mealIndex],
-                name: meal.name || meal.title || "",
+                name: mealName,
+                title: mealName,
                 calories: meal.calories || meal.nutrition?.calories || 0,
                 protein: meal.protein || meal.nutrition?.protein || 0,
                 carbs: meal.carbs || meal.nutrition?.carbs || 0,
@@ -587,20 +505,34 @@ export default function ProfilePage() {
   };
 
   const fetchSavedMeals = async (mealType) => {
-    if (!user) return;
+    if (!user) return [];
     
-    if (savedMeals[mealType] && savedMeals[mealType].length > 0) {
-      return;
-    }
-  
+    // Always refresh meal data when explicitly requesting it
     try {
+      console.log(`Fetching saved meals for ${mealType}...`);
       setIsLoadingSavedMeals(true);
+      
+      // Use the API service which already handles authentication properly
       const data = await makeAuthenticatedRequest('/api/user-recipes/saved-recipes/');
+      
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        console.log('No saved recipes data available');
+        return [];
+      }
+      
+      console.log(`Received saved recipes data:`, data);
+      
       const categorizedMeals = { ...savedMeals };
       const addedMealNames = new Set();
   
+      // Clear existing meals for this type to ensure we get fresh data
+      categorizedMeals[mealType] = [];
+      
       for (const plan of data) {
-        if (!plan.recipes || !Array.isArray(plan.recipes)) continue;
+        if (!plan.recipes || !Array.isArray(plan.recipes)) {
+          console.warn('Plan has no recipes array:', plan);
+          continue;
+        }
   
         for (const recipe of plan.recipes) {
           if (addedMealNames.has(recipe.title)) continue;
@@ -611,11 +543,13 @@ export default function ProfilePage() {
             
           if (category !== mealType) continue;
   
+          console.log(`Fetching details for meal ${recipe.title} (${recipe.recipe_id})`);
           const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipe.recipe_id}`);
+          console.log(`Meal details for ${recipe.title}:`, mealDetails);
   
           const formattedMeal = {
             id: recipe.recipe_id,
-            name: mealDetails.title || recipe.title,
+            name: mealDetails.title || recipe.title || "Unnamed Meal",
             calories: mealDetails.nutrition?.calories || 0,
             protein: mealDetails.nutrition?.protein || 0,
             carbs: mealDetails.nutrition?.carbs || 0,
@@ -634,9 +568,14 @@ export default function ProfilePage() {
         }
       }
   
+      console.log(`Setting saved meals for ${mealType}:`, categorizedMeals[mealType]);
       setSavedMeals(categorizedMeals);
+      
+      return categorizedMeals[mealType]; // Return the meals for the requested type
     } catch (error) {
       console.error('Error fetching saved meals:', error);
+      toast.error("Failed to load saved meals");
+      return []; // Return empty array on error
     } finally {
       setIsLoadingSavedMeals(false);
     }
@@ -686,111 +625,134 @@ export default function ProfilePage() {
   };
 
   const toggleMealCompletion = async (mealType) => {
-    const mealIndex = mealPlan.findIndex(meal => meal.type === mealType);
-    if (mealIndex === -1) return;
-    
-    const currentCompleted = mealPlan[mealIndex].completed;
-    const newCompleted = !currentCompleted;
-    
-    const updatedMealPlan = [...mealPlan];
-    updatedMealPlan[mealIndex] = {
-      ...updatedMealPlan[mealIndex],
-      completed: newCompleted
-    };
-    setMealPlan(updatedMealPlan);
-    
-    setCompletedMeals(prev => ({
-      ...prev,
-      [mealType]: newCompleted
-    }));
-    
-    updateCalorieCount(updatedMealPlan);
-    
     try {
-      await saveMealCompletion(mealType, newCompleted);
-    } catch (error) {
-      const revertedMealPlan = [...mealPlan];
-      revertedMealPlan[mealIndex].completed = currentCompleted;
-      setMealPlan(revertedMealPlan);
+      // Use the toggleMealCompletion function from autoUpdater
+      const newCompleted = autoUpdater.toggleMealCompletion(mealType);
+      
+      // Update the completedMeals state
       setCompletedMeals(prev => ({
         ...prev,
-        [mealType]: currentCompleted
+        [mealType]: newCompleted
       }));
-      updateCalorieCount(revertedMealPlan);
-      console.error('Failed to save meal completion:', error);
+      
+      // Update calorie count
+      updateCalorieCount(mealPlan);
+      
+      // Also save to the backend completion API
+      await saveMealCompletion(mealType, newCompleted);
+    } catch (error) {
+      console.error('Failed to toggle meal completion:', error);
+      toast.error('Failed to update meal completion status');
     }
   };
 
-  const handleRemoveMeal = (mealType) => {
-    const mealIndex = mealPlan.findIndex(meal => meal.type === mealType);
-    
-    if (mealIndex !== -1) {
+  const handleRemoveMeal = async (mealType) => {
+    try {
+      console.log(`Removing meal of type: ${mealType}`);
+      
+      // First update UI state while the meal is being removed
+      setSelectedMealType(mealType);
+      // Start loading indicator immediately
+      setIsLoadingSavedMeals(true);
+      
+      // Use the removeMealFromView function from autoUpdater - this hits the API
+      await autoUpdater.removeMealFromView(new Date(), mealType);
+
+      // After removing, update the UI components that depend on the meal plan
       const updatedMealPlan = [...mealPlan];
-      updatedMealPlan[mealIndex] = {
-        ...updatedMealPlan[mealIndex],
-        ...defaultMeal,
-        type: mealType,
-        time: updatedMealPlan[mealIndex].time
-      };
+      const mealIndex = updatedMealPlan.findIndex(meal => meal.type === mealType);
       
-      setMealPlan(updatedMealPlan);
-      
+      // Update next meal if we removed the current meal
       if (mealIndex === currentMealIndex) {
         const { nextMealIndex } = updateCurrentAndNextMeals(updatedMealPlan);
         setCurrentMealIndex(nextMealIndex);
         updateNextMealCard(updatedMealPlan[nextMealIndex]);
       }
       
+      // Update calorie counts
       updateCalorieCount(updatedMealPlan);
       
-      // Update the meal plan with the removed meal
-      updateMealPlan(updatedMealPlan, 'remove', [{
-        dateKey: getTodayDateString(),
-        mealType
-      }]);
+      try {
+        // Immediately switch to saved meals view (with loading state)
+        setActiveSection('savedMeals');
+        
+        // Fetch the saved meals for this meal type
+        console.log(`Pre-loading saved meals for ${mealType}...`);
+        const fetchedMeals = await fetchSavedMeals(mealType);
+        console.log(`Fetched ${fetchedMeals?.length || 0} saved meals for ${mealType}`);
+        
+        // When loaded, check if we have any meals
+        if (!fetchedMeals || fetchedMeals.length === 0) {
+          console.log(`No saved ${mealType} meals found, showing empty state`);
+          toast.info(`No saved ${mealType} meals available. Create new meals to add them.`);
+        } else {
+          console.log(`Found ${fetchedMeals.length} saved meals for ${mealType}`);
+        }
+      } catch (fetchError) {
+        console.error(`Error fetching saved meals: ${fetchError.message}`);
+        toast.error(`Couldn't load saved meals. Try again later.`);
+        
+        // On fetch error, go back to timeline
+        setActiveSection('timeline');
+      } finally {
+        setIsLoadingSavedMeals(false);
+      }
+    } catch (error) {
+      console.error('Error in handleRemoveMeal:', error);
+      toast.error(`Error removing meal: ${error.message}`);
+      // Make sure loading indicator is turned off on error
+      setIsLoadingSavedMeals(false);
     }
   };
 
   const handleCreateNewMeals = () => router.push('/meals');
   const handleViewMealPlanner = () => router.push('/planner');
   
-  const handleAddMeal = (mealType) => {
-    setSelectedMealType(mealType);
-    setActiveSection('savedMeals');
-    fetchSavedMeals(mealType);
+  const handleAddMeal = async (mealType) => {
+    try {
+      console.log(`Loading saved meals for ${mealType}...`);
+      
+      // Update UI state immediately
+      setSelectedMealType(mealType);
+      setIsLoadingSavedMeals(true);
+      setActiveSection('savedMeals');
+      
+      // Fetch saved meals
+      await fetchSavedMeals(mealType);
+      
+      // Check if we have meals to show
+      if (!savedMeals[mealType] || savedMeals[mealType].length === 0) {
+        toast.info(`No saved ${mealType} meals available. Create new meals to add them.`);
+      }
+    } catch (error) {
+      console.error(`Error loading saved meals for ${mealType}:`, error);
+      toast.error(`Couldn't load saved meals. Try again later.`);
+    } finally {
+      setIsLoadingSavedMeals(false);
+    }
   };
 
   const handleSelectSavedMeal = (meal) => {
-    const mealTypeIndex = mealPlan.findIndex(item => item.type === selectedMealType);
+    // Use the addMealToPlan function from autoUpdater
+    autoUpdater.addMealToPlan(meal, selectedMealType);
     
-    if (mealTypeIndex !== -1) {
-      const updatedMealPlan = [...mealPlan];
-      updatedMealPlan[mealTypeIndex] = {
-        ...updatedMealPlan[mealTypeIndex],
-        name: meal.name,
-        calories: meal.calories,
-        protein: meal.protein,
-        carbs: meal.carbs,
-        fat: meal.fat,
-        image: meal.image,
-        id: meal.id
-      };
+    // Manually update UI components that depend on the meal - will be done after autoUpdater finishes
+    setTimeout(() => {
+      // Find the meal in the updated plan
+      const mealTypeIndex = mealPlan.findIndex(item => item.type === selectedMealType);
       
-      setMealPlan(updatedMealPlan);
-      
-      if (mealTypeIndex === currentMealIndex) {
-        updateNextMealCard(updatedMealPlan[mealTypeIndex]);
+      if (mealTypeIndex !== -1) {
+        // Update next meal card if this was the current meal
+        if (mealTypeIndex === currentMealIndex) {
+          updateNextMealCard(mealPlan[mealTypeIndex]);
+        }
+        
+        // Update calorie counts
+        updateCalorieCount(mealPlan);
       }
-      
-      updateCalorieCount(updatedMealPlan);
-      
-      // Update the meal plan with the new meal
-      updateMealPlan(updatedMealPlan, 'add', [{
-        dateKey: getTodayDateString(),
-        mealType: selectedMealType
-      }]);
-    }
+    }, 100);
     
+    // Return to the timeline view
     setActiveSection('timeline');
   };
 
@@ -848,7 +810,7 @@ export default function ProfilePage() {
                   !localStorage.getItem('accessToken') && 
                   window.location.pathname === '/profile') {
                 console.log("No token available after 2s, redirecting to login");
-                window.location.href = '/api/auth/login?returnTo=/profile';
+                window.location.href = '/auth/login?returnTo=/profile';
               }
             }, 2000);
           }

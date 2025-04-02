@@ -18,6 +18,8 @@ import {
   Loader 
 } from 'lucide-react';
 import { toast } from 'react-hot-toast'; // Import toast for notifications
+import AutoUpdatingComponent from '../../components/features/profile/mealplan/autoupdating';
+import DuplicateMeals from '../../components/features/planner/duplicatemeals';
 
 
 export default function MealPlannerCalendar() {
@@ -58,176 +60,50 @@ export default function MealPlannerCalendar() {
 
   const autoSaveTimeoutRef = useRef(null);
   const lastLoadedRef = useRef(null);
-
+  
+  // Initialize the AutoUpdatingComponent
+  const autoUpdater = AutoUpdatingComponent({
+    user,
+    activePlanId,
+    setActivePlanId,
+    mealPlan,
+    setMealPlan,
+    savingMeals,
+    setSavingMeals,
+    planName,
+    setPlanName,
+    onAfterSave: null
+  });
+  
+  // Use the updateMealPlan function from autoUpdater
+  const updateMealPlan = autoUpdater.updateMealPlan;
+  const formatDateKey = autoUpdater.formatDateKey;
+  
+  // Initialize the DuplicateMeals component
+  const mealDuplicator = DuplicateMeals({
+    mealPlan,
+    updateMealPlan,
+    formatDateKey
+  });
+  
   const saveMealPlan = () => {
-    // Just call updateMealPlan with the current mealPlan
+    // Call updateMealPlan with the current mealPlan
     updateMealPlan(mealPlan, 'update', []);
   };
 
-  const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
-    // Save the updated plan to state
-    setMealPlan(updatedMealPlan);
-    
-    // Mark the affected meals as saving
-    const newSavingState = {};
-    affectedMeals.forEach(meal => {
-      newSavingState[`${meal.dateKey}-${meal.mealType}`] = true;
-    });
-    setSavingMeals(prev => ({ ...prev, ...newSavingState }));
-    
-    // Clear any existing timeout to prevent multiple saves
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-    
-    // Set a short delay before auto-saving to avoid rapid successive saves
-    autoSaveTimeoutRef.current = setTimeout(async () => {
-      if (!user) {
-        toast.error("Please log in to save your meal plan");
-        return;
-      }
-      
-      try {
-        setIsAutoSaving(true);
-        
-        // Get access token using Auth0
-        const accessToken = await getAccessToken({
-          authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-        });
-        
-        // Format meals for API
-        const formattedMeals = [];
-        
-        Object.keys(updatedMealPlan).forEach(dateKey => {
-          const dateMeals = updatedMealPlan[dateKey];
-          
-          Object.keys(dateMeals).forEach(mealType => {
-            const meal = dateMeals[mealType];
-            formattedMeals.push({
-              date: dateKey,
-              mealType: mealType,
-              mealId: meal.id
-            });
-          });
-        });
-        
-        if (formattedMeals.length === 0) {
-          // Don't bother saving an empty plan
-          setIsAutoSaving(false);
-          return;
-        }
-        
-        // Prepare request data
-        const requestData = {
-          userId: user.sub,
-          planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
-          meals: formattedMeals
-        };
-        
-        // If we don't have an active plan yet and we're adding the first meal,
-        // create a new plan, otherwise update the existing one
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const endpoint = activePlanId 
-          ? `${apiUrl}/api/user-plans/update`
-          : `${apiUrl}/api/user-plans/save`;
-        
-        // Add planId if updating
-        if (activePlanId) {
-          requestData.planId = activePlanId;
-        }
-        
-        // API request
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify(requestData)
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to save: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        // If it was a new plan, update the activePlanId
-        if (!activePlanId && result.id) {
-          setActivePlanId(result.id);
-          setPlanName(result.name);
-        }
-        
-        // Update localStorage to trigger refresh in other components
-        localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
-        
-        // Show success message for adding/removing meals
-        if (changeType === 'add') {
-          toast.success("Meal added to plan");
-        } else if (changeType === 'remove') {
-          toast.success("Meal removed from plan");
-        } else if (changeType === 'duplicate') {
-          toast.success("Meals duplicated successfully");
-        } else {
-          // For other updates, show a more subtle message
-          toast.success("Plan updated", { duration: 2000 });
-        }
-        
-      } catch (error) {
-        console.error('Error auto-saving meal plan:', error);
-        toast.error("Failed to save changes");
-      } finally {
-        setIsAutoSaving(false);
-        // Clear the saving state for affected meals
-        setSavingMeals(prev => {
-          const updated = { ...prev };
-          affectedMeals.forEach(meal => {
-            delete updated[`${meal.dateKey}-${meal.mealType}`];
-          });
-          return updated;
-        });
-      }
-    }, 500); // 500ms delay before auto-saving
-  };
+  // Note: updateMealPlan is now defined using autoUpdater above
 
-  // Add this new function to handle duplication of a day's meals
+  // Use DuplicateMeals component for duplicating meals
   const duplicateDayMeals = () => {
     if (!sourceDateForDuplicate || !targetDateForDuplicate) return;
     
-    const sourceDateKey = formatDateKey(sourceDateForDuplicate);
-    const targetDateKey = formatDateKey(targetDateForDuplicate);
+    // Use the duplicateDayMeals function from the mealDuplicator
+    const success = mealDuplicator.duplicateDayMeals(sourceDateForDuplicate, targetDateForDuplicate);
     
-    // Skip if trying to duplicate to the same day
-    if (sourceDateKey === targetDateKey) {
-      toast.error("Cannot duplicate to the same day");
+    // Close the dialog if successful (errors are handled inside the component)
+    if (success) {
       setShowDuplicateDialog(false);
-      return;
     }
-    
-    // Get meals from source day
-    const sourceDayMeals = mealPlan[sourceDateKey] || {};
-    
-    // If no meals on source day, show error
-    if (Object.keys(sourceDayMeals).length === 0) {
-      toast.error("No meals to duplicate from selected day");
-      setShowDuplicateDialog(false);
-      return;
-    }
-    
-    // Create the updated meal plan
-    const updatedMealPlan = { ...mealPlan };
-    updatedMealPlan[targetDateKey] = { ...sourceDayMeals };
-    
-    // Create a list of affected meals for the saving indicator
-    const affectedMeals = Object.keys(sourceDayMeals).map(mealType => ({ 
-      dateKey: targetDateKey, 
-      mealType 
-    }));
-    
-    // Save the updated plan
-    updateMealPlan(updatedMealPlan, 'duplicate', affectedMeals);
-    
-    setShowDuplicateDialog(false);
   };
 
   // Get the start of the week containing the selected date
@@ -292,10 +168,7 @@ export default function MealPlannerCalendar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Format date as YYYY-MM-DD for consistency
-  const formatDateKey = (date) => {
-    return date.toISOString().split('T')[0];
-  };
+  // formatDateKey is now defined using autoUpdater above
 
   // Navigate to previous week
   const goToPreviousWeek = () => {
@@ -400,37 +273,9 @@ export default function MealPlannerCalendar() {
     }
   };
 
-  const deleteMealFromServer = async (date, mealType) => {
-    if (!activePlanId || !user) return;
-    
-    try {
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/user-plans/meal/delete`, {  // Updated endpoint
-        method: 'POST',  // Changed from DELETE to POST
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({
-          planId: activePlanId,
-          date: formatDateKey(date),
-          mealType: mealType
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to delete meal: ${response.status}`);
-      }
-      
-      toast.success("Meal removed from plan");
-    } catch (error) {
-      console.error('Error deleting meal:', error);
-      toast.error("Failed to remove meal. Changes will be applied when you save the plan.");
-    }
+  // Use removeMealFromView from autoUpdater
+  const removeMealFromView = (date, mealType) => {
+    autoUpdater.removeMealFromView(date, mealType);
   };
 
   const loadPlanToCalendar = (plan) => {
@@ -465,10 +310,21 @@ export default function MealPlannerCalendar() {
       let mealData;
       
       if (mealItem.meal && typeof mealItem.meal === 'object') {
+        // Get the meal name directly from the API response - use the most reliable property
+        // In order of priority: meal.title (most reliable) -> meal.name -> meal_name
+        const mealName = mealItem.meal.title || mealItem.meal.name || mealItem.meal_name;
+        
+        // Log for verification
+        console.log(`Setting meal name for ${mealItem.mealType}:`, { 
+          mealSource: 'API response',
+          mealName: mealName
+        });
+        
         // Backend returns meal in a nested 'meal' property
         mealData = {
           id: mealItem.meal.id || mealItem.mealId,
-          name: mealItem.meal.name || mealItem.meal.title || "Unnamed Meal",
+          name: mealName, // Use our proper name with fallbacks
+          title: mealName, // Keep title consistent
           calories: mealItem.meal.calories || 
                   (mealItem.meal.nutrition && mealItem.meal.nutrition.calories) || 0,
           protein: (mealItem.meal.nutrition && mealItem.meal.nutrition.protein) || 0,
@@ -480,9 +336,13 @@ export default function MealPlannerCalendar() {
         };
       } else if (mealItem.mealId) {
         // For cases where we only have an ID (should be rare)
+        const mealName = mealItem.meal_name || 
+                      mealItem.mealType.charAt(0).toUpperCase() + mealItem.mealType.slice(1) + " Meal";
+        
         mealData = {
           id: mealItem.mealId,
-          name: "Loading...", // Placeholder until full data is available
+          name: mealName, // Use better fallback name
+          title: mealName, // Keep title consistent
           calories: 0,
           image: ""
         };
@@ -654,17 +514,9 @@ export default function MealPlannerCalendar() {
     if (!selectedMeal) return;
     
     const { date, mealType } = selectedMeal;
-    const dateKey = formatDateKey(date);
     
-    // Create the updated meal plan
-    const updatedMealPlan = { ...mealPlan };
-    if (!updatedMealPlan[dateKey]) {
-      updatedMealPlan[dateKey] = {};
-    }
-    updatedMealPlan[dateKey][mealType] = meal;
-    
-    // Save the updated plan with the affected meal
-    updateMealPlan(updatedMealPlan, 'add', [{ dateKey, mealType }]);
+    // Use the autoUpdater to add the meal
+    autoUpdater.addMealToPlan(meal, mealType, date);
     
     // Keep the active meal state for highlighting purposes
     setTimeout(() => setActiveMeal(null), 1000); // Clear active meal after a delay
@@ -679,18 +531,8 @@ export default function MealPlannerCalendar() {
     
     setActiveMeal({ date: dateKey, type: mealType });
     
-    const updatedMealPlan = { ...mealPlan };
-    const updatedDate = { ...updatedMealPlan[dateKey] };
-    delete updatedDate[mealType];
-    
-    if (Object.keys(updatedDate).length === 0) {
-      delete updatedMealPlan[dateKey];
-    } else {
-      updatedMealPlan[dateKey] = updatedDate;
-    }
-    
-    // Save the updated plan
-    updateMealPlan(updatedMealPlan, 'remove', [{ dateKey, mealType }]);
+    // Use the autoUpdater to remove the meal
+    autoUpdater.removeMealFromView(date, mealType);
     
     setTimeout(() => setActiveMeal(null), 500);
   };
@@ -721,12 +563,9 @@ export default function MealPlannerCalendar() {
     return meals;
   };
 
-  // Create a new meal plan
+  // Create a new meal plan using autoUpdater
   const createNewPlan = () => {
-    setMealPlan({});
-    setActivePlanId(null);
-    setPlanName("");
-    toast.success("Started a new meal plan");
+    autoUpdater.createNewPlan();
   };
 
   // Generate meal pills for a day
