@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { useMealGeneration } from '../../../contexts/MealGenerationContext';
+import { useMealStore } from '../../../lib/stores/mealStore';
 
 export default function MealPlanGenerator({
   preferences,
@@ -20,10 +20,8 @@ export default function MealPlanGenerator({
     setIsGenerating,
     setMealGenerationComplete,
     setCurrentMealPlanId,
-    setBackgroundTaskId,
-    startTaskChecking,
     setHasViewedGeneratedMeals
-  } = useMealGeneration();
+  } = useMealStore();
 
   const generateMealPlan = async () => {
     // Final Pro status check before generating meal plan
@@ -32,11 +30,13 @@ export default function MealPlanGenerator({
       return;
     }
   
-    // Reset previous states
-    resetMealGeneration();
-    setIsGenerating(true);
+    // Reset previous states and start generation in one atomic action
+    useMealStore.getState().startMealGeneration({
+      mealType,
+      numDays,
+      preferences
+    });
     setLoading(true);
-    setHasViewedGeneratedMeals(false);
     
     try {
       // Get pantry ingredients if using pantry algorithm
@@ -106,6 +106,13 @@ export default function MealPlanGenerator({
       // Case 1: Immediate meal plan data
       if (data.meal_plan && Array.isArray(data.meal_plan)) {
         console.log("Received immediate meal plan");
+        
+        // Use the Zustand action for atomic state update
+        useMealStore.getState().handleMealPlanSuccess(
+          data.meal_plan,
+          data.meal_plan_id || `${mealType}_${Date.now()}`
+        );
+        
         return {
           immediate: true,
           mealPlan: data.meal_plan
@@ -119,8 +126,12 @@ export default function MealPlanGenerator({
         // Use request_hash if available, otherwise fallback to meal_plan_id
         const taskIdentifier = data.request_hash || data.meal_plan_id;
         setCurrentMealPlanId(data.meal_plan_id);
-        setBackgroundTaskId(taskIdentifier);
-        startTaskChecking(taskIdentifier);
+        
+        // Start tracking background task using Zustand's startTaskChecking method
+        console.log(`[MealPlanGenerator] Starting task tracking for ID: ${data.meal_plan_id}`);
+        
+        // Use the store's combined action for task checking
+        useMealStore.getState().startTaskChecking(taskIdentifier);
         
         return {
           immediate: false,

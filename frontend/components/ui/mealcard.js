@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from "next/navigation";
+import { useMealStore } from '../../lib/stores/mealStore';
 import { 
   CheckIcon, 
   Flame, 
@@ -52,18 +53,32 @@ export function MealPlanDisplay({
   const isMounted = useRef(true);
   const [showOverview, setShowOverview] = useState(true);
   
+  // Get Zustand store state
+  const setHasViewedGeneratedMeals = useMealStore(state => state.setHasViewedGeneratedMeals);
+  const storeMealPlan = useMealStore(state => state.mealPlan);
+  
   // Setup mount/unmount tracking
   useEffect(() => {
     isMounted.current = true;
+    
+    // Mark meals as viewed in Zustand store when this component mounts
+    // This ensures the green checkmark disappears from FAB
+    setHasViewedGeneratedMeals(true);
+    
     return () => {
       isMounted.current = false;
     };
-  }, []);
+  }, [setHasViewedGeneratedMeals]);
 
   // Early return if mealPlan is not an array or empty or chatbot is shown
-  if (!Array.isArray(mealPlan) || mealPlan.length === 0 || showChatbot) {
+  if ((!Array.isArray(mealPlan) || mealPlan.length === 0) && 
+      (!Array.isArray(storeMealPlan) || storeMealPlan.length === 0) || 
+      showChatbot) {
     return null;
   }
+  
+  // Use mealPlan from props if available, otherwise fallback to store
+  const activeMealPlan = Array.isArray(mealPlan) && mealPlan.length > 0 ? mealPlan : storeMealPlan;
   
   // Process meal data
   const totalDays = numDays;
@@ -78,7 +93,7 @@ export function MealPlanDisplay({
   // Special handling for full day meal plans - organize by day and meal type
   if (mealType === 'Full Day') {
     // Check if meal types are already set correctly
-    const hasMealTypes = mealPlan.some(meal => 
+    const hasMealTypes = activeMealPlan.some(meal => 
       meal.meal_type && ['breakfast', 'lunch', 'dinner', 'snack'].includes(meal.meal_type.toLowerCase())
     );
     
@@ -89,8 +104,8 @@ export function MealPlanDisplay({
       
       // Get all meals for this day (4 meals per day)
       const dayStartIdx = i * mealsPerDay;
-      const dayEndIdx = Math.min(dayStartIdx + mealsPerDay, mealPlan.length);
-      const dayMeals = mealPlan.slice(dayStartIdx, dayEndIdx);
+      const dayEndIdx = Math.min(dayStartIdx + mealsPerDay, activeMealPlan.length);
+      const dayMeals = activeMealPlan.slice(dayStartIdx, dayEndIdx);
       
       // If the meal plan already has meal types specified, use them
       if (hasMealTypes) {
@@ -146,7 +161,7 @@ export function MealPlanDisplay({
       const endIdx = startIdx + mealsPerDay;
       
       // Ensure we don't try to access beyond the array bounds
-      const dayMeals = mealPlan.slice(startIdx, Math.min(endIdx, mealPlan.length));
+      const dayMeals = activeMealPlan.slice(startIdx, Math.min(endIdx, activeMealPlan.length));
       
       // Assign the mealType to each meal
       dayMeals.forEach(meal => {
@@ -185,20 +200,39 @@ export function MealPlanDisplay({
     allMeals.push(...dayMeals);
   });
   
-  // Log minimal information about the processed meals
-  console.log(`Processed ${mealPlan.length} meals into ${allMeals.length} organized meals`);
+  // Log detailed information about the processed meals
+  console.log(`MealCard: Processed ${activeMealPlan.length} meals into ${allMeals.length} organized meals for meal type "${mealType}"`);
+  console.log(`MealCard: Meal organization - Day count: ${Object.keys(mealsByDay).length}, Meals per day: ${mealsPerDay}`);
+  console.log(`MealCard: Using ${activeMealPlan === mealPlan ? 'local' : 'Zustand store'} meal plan data`);
+  
+  // Extra logging for debugging
+  if (mealType === 'Full Day') {
+    console.log(`MealCard: Full day plan - Day 1 has ${mealsByDay[1]?.length || 0} meals`);
+    // Log the types of meals in day 1
+    if (mealsByDay[1] && mealsByDay[1].length) {
+      const mealTypes = mealsByDay[1].map(m => m.meal_type || m.mealType).join(', ');
+      console.log(`MealCard: Day 1 meal types: ${mealTypes}`);
+    }
+  }
   
   // NOW add the useEffect that needs access to allMeals - AFTER it's defined
   useEffect(() => {
+    // Get more Zustand actions
+    const setMealPlan = useMealStore.getState().setMealPlan;
+    
     // Make the current meal ID and functions available globally
     if (typeof window !== 'undefined' && Array.isArray(allMeals) && allMeals.length > 0) {
-      // Set meal plan data
+      // Update Zustand store with the current meal plan if needed
+      if (activeMealPlan !== storeMealPlan) {
+        setMealPlan(activeMealPlan);
+      }
+      
+      // Set meal plan data in window for backward compatibility 
       window.mealPlanActive = true;
-      window.mealPlan = mealPlan;
+      window.mealPlan = activeMealPlan;
       window.currentMealId = allMeals[currentMealIndex]?.id;
       
-      // Set global access to meal data
-      // (No debugging logs needed)
+      console.log(`MealCard: Setting current meal ID to ${allMeals[currentMealIndex]?.id}`);
       
       // Set action functions
       window.handleSaveMealGlobal = function(e) {
@@ -224,14 +258,15 @@ export function MealPlanDisplay({
       // Clean up when component unmounts
       if (typeof window !== 'undefined') {
         window.mealPlanActive = false;
-        delete window.mealPlan;
         delete window.currentMealId;
         delete window.handleSaveMealGlobal;
         delete window.handleViewRecipeGlobal;
         delete window.handleOrderIngredientsGlobal;
+        
+        // Don't delete window.mealPlan - other components might need it
       }
     };
-  }, [currentMealIndex, allMeals, mealPlan, router, saveSelectedRecipes, handleOrderPlanIngredients]);
+  }, [currentMealIndex, allMeals, activeMealPlan, storeMealPlan, router, saveSelectedRecipes, handleOrderPlanIngredients]);
 
   // Navigation functions
   const goToNextMeal = () => {
@@ -423,13 +458,43 @@ export function MealPlanDisplay({
             ))}
           </div>
           
-          <div className="flex justify-center mt-4">
-            <button
-              onClick={() => setShowOverview(false)}
-              className="bg-teal-600 text-white px-6 py-3 rounded-full shadow hover:bg-teal-700 transition-colors"
-            >
-              View Details
-            </button>
+          <div className="flex flex-col items-center mt-6 space-y-3">
+            {/* Main action buttons */}
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowOverview(false)}
+                className="bg-teal-600 text-white px-6 py-3 rounded-full shadow hover:bg-teal-700 transition-colors flex items-center"
+              >
+                <Book className="w-5 h-5 mr-2" /> View Details
+              </button>
+              
+              <button
+                onClick={saveSelectedRecipes}
+                className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-full shadow hover:shadow-md transition-colors flex items-center"
+              >
+                <Save className="w-5 h-5 mr-2" /> Save All
+              </button>
+            </div>
+            
+            {/* Secondary actions */}
+            <div className="flex space-x-3">
+              <button
+                onClick={handleOrderPlanIngredients}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-5 py-2.5 rounded-full text-sm shadow-sm transition-colors flex items-center"
+                disabled={orderingPlanIngredients}
+              >
+                <ShoppingCart className="w-4 h-4 mr-2" /> 
+                {orderingPlanIngredients ? 'Processing...' : 'Order Ingredients'}
+              </button>
+              
+              <button
+                onClick={onReturnToInput}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-5 py-2.5 rounded-full text-sm shadow-sm transition-colors flex items-center"
+              >
+                <X className="w-4 h-4 mr-2" /> 
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -576,6 +641,52 @@ export function MealPlanDisplay({
         <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex justify-between items-center px-4 text-white/50">
           <ChevronLeft className={`w-12 h-12 ${currentMealIndex > 0 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
           <ChevronRight className={`w-12 h-12 ${currentMealIndex < allMeals.length - 1 ? 'opacity-30' : 'opacity-0'} drop-shadow-md`} />
+        </div>
+        
+        {/* Action buttons at the bottom */}
+        <div className="absolute bottom-20 left-0 right-0 flex justify-center px-4">
+          <div className="flex space-x-3 w-full max-w-md">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Get current meal ID
+                const mealId = allMeals[currentMealIndex]?.id;
+                handleMealSelection(mealId);
+              }}
+              className="flex-1 bg-teal-600 text-white py-2 rounded-lg shadow flex items-center justify-center"
+            >
+              <CheckIcon className="w-4 h-4 mr-2" />
+              {selectedRecipes.includes(allMeals[currentMealIndex]?.id) ? 'Selected' : 'Select'}
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOrderPlanIngredients();
+              }}
+              className="flex-1 bg-orange-500 text-white py-2 rounded-lg shadow flex items-center justify-center"
+              disabled={orderingPlanIngredients}
+            >
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Order
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Route to recipe detail page
+                const id = allMeals[currentMealIndex]?.id;
+                if (id) {
+                  // Use window.location to ensure full page reload
+                  window.location.href = `/recipes/${id}`;
+                }
+              }}
+              className="flex-1 bg-gray-100 text-gray-800 py-2 rounded-lg shadow flex items-center justify-center"
+            >
+              <Book className="w-4 h-4 mr-2" />
+              Full Recipe
+            </button>
+          </div>
         </div>
         
         {/* Meal index indicators */}

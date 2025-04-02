@@ -229,110 +229,63 @@ const ChatbotWindow = ({
     onMealPlanReady
   ]);
 
-  // Effect to check meal plan status
+  // Effect to check meal plan status - simplified to rely on the centralized polling mechanism
 useEffect(() => {
-  // This effect only checks for meal plan status, separate from message polling
-  if (sessionId && !mealPlanNotification) {
-    const checkMealPlanStatus = async () => {
-      try {
-        // Get auth headers 
-        const headers = await getAuthHeaders();
-        headers['user-id'] = user?.sub || 'anonymous';
+  // This effect handles checking for notification arrival from the main meal plan polling system
+  if (sessionId && !mealPlanNotification && !mealPlanReady) {
+    // Listen for global meal plan ready event
+    const handleMealPlanReadyEvent = (event) => {
+      console.log("[Chatbot] Received mealPlanReady event:", event.detail);
+      
+      if (event.detail.mealPlanId) {
+        const mealPlanId = event.detail.mealPlanId;
         
-        console.log("[Chatbot] Checking meal plan status for user:", headers['user-id']);
+        // Create a synthetic notification since the main polling system detected a ready meal plan
+        console.log("[Chatbot] Creating notification for meal plan from global event:", mealPlanId);
+        const notification = {
+          role: 'assistant',
+          content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
+          timestamp: new Date().toISOString(),
+          meal_plan_id: mealPlanId,
+          is_notification: true,
+          messageId: generateMessageId()
+        };
         
-        const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-          headers
-        });
-        
-        if (!response.ok) {
-          console.error(`[Chatbot] Error checking meal plan status: ${response.status}`);
-          return;
-        }
-        
-        const data = await response.json();
-        
-        if (data.meal_plan_ready && data.meal_plan_id && data.all_meals_ready) {
-          console.log("[Chatbot] Detected ready meal plan with all images:", data.meal_plan_id);
-          
-          // Store in localStorage for persistence
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('currentMealPlanId', data.meal_plan_id);
-            console.log(`[Chatbot] Stored currentMealPlanId in localStorage: ${data.meal_plan_id}`);
-          }
-          
-          // First try to fetch the actual session with notification
-          try {
-            const sessionResponse = await fetch(`${apiUrl}/chatbot/get_session/${data.session_id}`, { headers });
-            if (sessionResponse.ok) {
-              const sessionData = await sessionResponse.json();
-              
-              // Check if notification exists in that session
-              const hasNotification = sessionData.messages.some(
-                msg => msg.is_notification && msg.meal_plan_id === data.meal_plan_id
-              );
-              
-              if (hasNotification) {
-                // Found the notification, use it
-                const notification = sessionData.messages.find(
-                  msg => msg.is_notification && msg.meal_plan_id === data.meal_plan_id
-                );
-                
-                // Apply it to our current session
-                const formattedNotification = {
-                  ...notification,
-                  messageId: generateMessageId()
-                };
-                
-                setMealPlanNotification(formattedNotification);
-                
-                setMessages(prev => [
-                  ...prev.filter(m => !m.isTyping && !m.is_notification), 
-                  formattedNotification
-                ]);
-                
-                // Signal that meal plan is ready
-                onMealPlanReady?.();
-                return;
-              }
-            }
-          } catch (err) {
-            console.error("[Chatbot] Error fetching session with notification:", err);
-          }
-          
-          // If we reach here, create a synthetic notification
-          console.log("[Chatbot] Creating synthetic notification for meal plan:", data.meal_plan_id);
-          const syntheticNotification = {
-            role: 'assistant',
-            content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
-            timestamp: new Date().toISOString(),
-            meal_plan_id: data.meal_plan_id,
-            is_notification: true,
-            messageId: generateMessageId()
-          };
-          
-          setMessages(prev => [...prev.filter(m => !m.isTyping), syntheticNotification]);
-          setMealPlanNotification(syntheticNotification);
-          onMealPlanReady?.();
-        } else if (data.meal_plan_ready && !data.all_meals_ready) {
-          console.log("[Chatbot] Meal plan data ready but still waiting for images");
-        }
-      } catch (error) {
-        console.error("[Chatbot] Error checking meal plan status:", error);
+        setMealPlanNotification(notification);
+        setMessages(prev => [...prev.filter(m => !m.isTyping && !m.is_notification), notification]);
+        onMealPlanReady?.();
       }
     };
     
-    // Check initially
-    checkMealPlanStatus();
-    
-    // Also set up periodic checking with proper cleanup
-    const intervalId = setInterval(checkMealPlanStatus, 15000); // Check every 15 seconds
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mealPlanReady', handleMealPlanReadyEvent);
+      
+      // Check if meal plan is already ready according to localStorage
+      const mealPlanId = localStorage.getItem('currentMealPlanId');
+      if (mealPlanId && mealPlanReady) {
+        // Create synthetic notification for already-ready meal plan
+        console.log("[Chatbot] Creating notification for already-ready meal plan:", mealPlanId);
+        const notification = {
+          role: 'assistant',
+          content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
+          timestamp: new Date().toISOString(),
+          meal_plan_id: mealPlanId,
+          is_notification: true,
+          messageId: generateMessageId()
+        };
+        
+        setMealPlanNotification(notification);
+        setMessages(prev => [...prev.filter(m => !m.isTyping && !m.is_notification), notification]);
+      }
+    }
     
     return () => {
-      clearInterval(intervalId);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('mealPlanReady', handleMealPlanReadyEvent);
+      }
     };
   }
-}, [sessionId, mealPlanNotification, apiUrl, userId, user, onMealPlanReady, getAuthHeaders]);
+}, [sessionId, mealPlanNotification, mealPlanReady, onMealPlanReady, generateMessageId]);
 
   // Start chat session
   const startChatSession = useCallback(async () => {
@@ -448,22 +401,23 @@ useEffect(() => {
     }
   }, [isVisible, sessionId, startChatSession]);
 
-  // Effect to fetch messages once when sessionId changes
+  // Effect to fetch messages when sessionId changes and set up a single polling interval
   useEffect(() => {
     if (sessionId && !mealPlanNotification) {
-      // Instead of polling, just fetch messages once
-      // The message system should work with server-sent events or websockets
-      // for real-time updates, rather than constant polling
+      // Initial fetch immediately when session is created
       fetchMessages();
       
-      // Setup an event source for server-sent events if using that technique
-      // This is just a comment as an example of the intent, not implemented yet
-      // const eventSource = new EventSource(`${apiUrl}/chatbot/events/${sessionId}`);
-      // eventSource.onmessage = (event) => {
-      //   const data = JSON.parse(event.data);
-      //   // Process message
-      // };
-      // return () => eventSource.close();
+      // Set up a single polling interval for messages - 
+      // this ensures new messages arrive without relying on multiple polling systems
+      const messagePollingId = setInterval(() => {
+        if (!mealPlanNotification) {
+          fetchMessages();
+        }
+      }, 5000); // Poll every 5 seconds
+      
+      return () => {
+        clearInterval(messagePollingId);
+      };
     }
   }, [sessionId, mealPlanNotification, fetchMessages]);
 
