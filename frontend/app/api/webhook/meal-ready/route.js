@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server';
 import Redis from 'ioredis';
 
-// Create Redis client using standard config that works with Railway Redis
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'redis',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  // Connection options for better resilience
+// Create Redis client using Railway connection URI
+const redis = new Redis(process.env.REDIS_URL || 'redis://redis:6379', {
   retryStrategy: (times) => Math.min(times * 50, 2000),
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,

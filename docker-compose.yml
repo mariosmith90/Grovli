@@ -56,9 +56,7 @@ services:
         # Other build args
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         # Redis connection parameters
-        REDIS_HOST: "redis"
-        REDIS_PORT: "6379"
-        REDIS_PASSWORD: ${REDIS_PASSWORD}
+        REDIS_URL: "redis://redis:6379"
     ports:
       - "3000:3000"
     environment:
@@ -72,9 +70,7 @@ services:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - FRONTEND_WEBHOOK_URL=${FRONTEND_WEBHOOK_URL}
       # Redis connection parameters
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://redis:6379
     networks:
       - mealplan-network
     depends_on:
