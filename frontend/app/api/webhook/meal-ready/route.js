@@ -1,4 +1,24 @@
 import { NextResponse } from 'next/server';
+import Redis from 'ioredis';
+
+// Create Redis client using standard config that works with Railway Redis
+const redis = new Redis({
+  host: process.env.REDIS_HOST || 'redis',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+  password: process.env.REDIS_PASSWORD,
+  // Connection options for better resilience
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: 3,
+  enableReadyCheck: true,
+  reconnectOnError: (err) => {
+    const targetError = 'READONLY';
+    if (err.message.includes(targetError)) {
+      // When redis is being failed over, we need to reconnect
+      return true;
+    }
+    return false;
+  }
+});
 
 /**
  * API route to receive webhook notifications from the backend when meal plans are ready
@@ -19,20 +39,42 @@ export async function POST(request) {
     
     console.log(`📣 Webhook received: Meal plan ${meal_plan_id} is ready for user ${user_id}`);
     
-    // Store in a server-side cache that can be queried by the client
-    // This is useful for when the client isn't actively listening or disconnects
+    const timestamp = new Date().toISOString();
+    
+    // 1. Store in Redis for reliable cross-instance access
     const cacheKey = `meal_ready:${user_id}`;
+    await redis.set(cacheKey, JSON.stringify({
+      user_id,
+      meal_plan_id,
+      session_id,
+      timestamp
+    }), { ex: 3600 }); // Expire after 1 hour
+    
+    // 2. Also store in a separate key for tracking all ready meal plans
+    const readyPlansKey = `ready_meal_plans:${user_id}`;
+    await redis.hset(readyPlansKey, meal_plan_id, JSON.stringify({
+      user_id,
+      meal_plan_id,
+      session_id,
+      timestamp,
+      handled: false
+    }));
+    // Set expiration for the hash 
+    await redis.expire(readyPlansKey, 86400); // Expire after 24 hours
+    
+    // 3. For backward compatibility, keep in-memory cache too
     global.mealReadyCache = global.mealReadyCache || {};
     global.mealReadyCache[cacheKey] = {
       user_id,
       meal_plan_id,
       session_id,
-      timestamp: new Date().toISOString()
+      timestamp
     };
     
-    // Server-side API routes can't directly interact with client-side window
-    // Instead, we store the notification in server-side cache that client can poll
-    console.log(`📊 Stored notification in server cache for polling: ${meal_plan_id}`);
+    // Store notification source for analytics
+    await redis.hset('notification_sources', `${meal_plan_id}:${timestamp}`, 'webhook');
+    
+    console.log(`📊 Stored notification in Redis and server cache for polling: ${meal_plan_id}`);
     
     // Log a clear message in the server logs for debugging
     console.log(`
@@ -40,7 +82,7 @@ export async function POST(request) {
 [WEBHOOK] MEAL PLAN READY NOTIFICATION RECEIVED
 - meal_plan_id: ${meal_plan_id}
 - user_id: ${user_id}
-- time: ${new Date().toISOString()}
+- time: ${timestamp}
 ==================================================
     `);
     return NextResponse.json(
@@ -73,21 +115,110 @@ export async function GET(request) {
       );
     }
     
-    // Initialize global objects if needed
+    // Initialize global objects for backward compatibility
     global.mealReadyCache = global.mealReadyCache || {};
     global.lastMealReadyCheck = global.lastMealReadyCheck || {};
     global.readyMealPlans = global.readyMealPlans || {};
     
-    // First, check if we have a ready meal plan for this user in our special cache
-    // This handles the case where a notification came in via webhook but the client
-    // hasn't fetched it yet
+    // Track when this endpoint was last queried to prevent rapid polling
+    const now = Date.now();
+    const lastCheck = global.lastMealReadyCheck[user_id] || 0;
+    
+    // Only throttle if this is not the special test user ID
+    // This prevents excessive polling while allowing our test user to have responsive UI
+    if (now - lastCheck < 15000 && user_id !== "auth0|67b82eb657e61f81cdfdd503" && 
+        user_id !== "google-oauth2|100398622971971910131") { // Special user for immediate checking
+      console.log(`Throttling notification check for user ${user_id} - checked too recently`);
+      return NextResponse.json({
+        has_notification: false,
+        throttled: true
+      });
+    }
+    
+    // Update the last check time
+    global.lastMealReadyCheck[user_id] = now;
+    await redis.set(`last_check:${user_id}`, now, { ex: 3600 });
+    
+    // First check the Redis ready plans hash - this is the most reliable source
+    // This contains all unacknowledged ready meal plans
     if (checkReadyPlans) {
+      try {
+        const readyPlansKey = `ready_meal_plans:${user_id}`;
+        const redisReadyPlans = await redis.hgetall(readyPlansKey);
+        
+        // Process any ready plans from Redis
+        if (redisReadyPlans && Object.keys(redisReadyPlans).length > 0) {
+          const readyPlans = Object.entries(redisReadyPlans)
+            .map(([planId, dataStr]) => {
+              try {
+                const data = JSON.parse(dataStr);
+                return {
+                  meal_plan_id: planId,
+                  user_id: data.user_id,
+                  timestamp: data.timestamp,
+                  handled: data.handled,
+                  session_id: data.session_id,
+                  notification_source: 'redis'
+                };
+              } catch (e) {
+                console.error(`Error parsing plan data for ${planId}:`, e);
+                return null;
+              }
+            })
+            .filter(plan => plan && !plan.handled); // Filter out null or handled plans
+          
+          if (readyPlans.length > 0) {
+            console.log(`Found ${readyPlans.length} ready meal plans for user ${user_id} in Redis`);
+            
+            // Mark the first plan as handled in Redis
+            const readyPlan = readyPlans[0];
+            const updatedPlanData = JSON.stringify({
+              ...JSON.parse(redisReadyPlans[readyPlan.meal_plan_id]),
+              handled: true
+            });
+            
+            await redis.hset(readyPlansKey, readyPlan.meal_plan_id, updatedPlanData);
+            
+            // Also check if we have this in the global cache and mark it as handled
+            if (global.readyMealPlans[readyPlan.meal_plan_id]) {
+              global.readyMealPlans[readyPlan.meal_plan_id].handled = true;
+            }
+            
+            // Track notification delivery in Redis
+            await redis.hset('notification_deliveries', `${readyPlan.meal_plan_id}:${now}`, 'redis');
+            
+            console.log(`
+==================================================
+[WEBHOOK] MEAL PLAN READY NOTIFICATION SENT FROM REDIS
+- meal_plan_id: ${readyPlan.meal_plan_id}
+- user_id: ${user_id}
+- time: ${new Date().toISOString()}
+==================================================
+            `);
+            
+            return NextResponse.json({
+              has_notification: true,
+              notification: {
+                user_id: user_id,
+                meal_plan_id: readyPlan.meal_plan_id,
+                timestamp: readyPlan.timestamp || now,
+                from_redis_cache: true
+              }
+            });
+          }
+        }
+      } catch (redisError) {
+        console.error('Error checking Redis for ready plans:', redisError);
+        // Continue with memory cache as fallback
+      }
+      
+      // Fallback to memory cache
       const readyPlans = Object.entries(global.readyMealPlans)
         .filter(([_, data]) => data.user_id === user_id && !data.handled)
         .map(([planId, data]) => ({ 
           meal_plan_id: planId,
           timestamp: data.timestamp,
-          notification_source: 'webhook'
+          notification_source: 'memory'
         }));
       
       if (readyPlans.length > 0) {
@@ -98,7 +229,10 @@ export async function GET(request) {
           }
         });
         
-        console.log(`Found ${readyPlans.length} ready meal plans for user ${user_id} via readyMealPlans cache`);
+        console.log(`Found ${readyPlans.length} ready meal plans for user ${user_id} via memory cache`);
+        
+        // Track notification delivery
+        await redis.hset('notification_deliveries', `${readyPlans[0].meal_plan_id}:${now}`, 'memory');
         
         // Return the first ready meal plan (usually there should only be one anyway)
         const readyPlan = readyPlans[0];
@@ -108,49 +242,50 @@ export async function GET(request) {
             user_id: user_id,
             meal_plan_id: readyPlan.meal_plan_id,
             timestamp: readyPlan.timestamp,
-            from_ready_cache: true
+            from_memory_cache: true
           }
         });
       }
     }
     
-    // Check the regular notification cache
+    // Check the Redis notification cache
     const cacheKey = `meal_ready:${user_id}`;
-    const cachedNotification = global.mealReadyCache[cacheKey];
+    let cachedNotification = null;
     
-    // Track when this endpoint was last queried to prevent rapid polling
-    const now = Date.now();
-    const lastCheck = global.lastMealReadyCheck[user_id] || 0;
-    
-    // Only throttle if this is not the special test user ID
-    // This prevents excessive polling while allowing our test user to have responsive UI
-    if (now - lastCheck < 30000 && user_id !== "auth0|67b82eb657e61f81cdfdd503") {
-      console.log(`Throttling notification check for user ${user_id} - checked too recently`);
-      return NextResponse.json({
-        has_notification: false,
-        throttled: true
-      });
+    // First try Redis
+    try {
+      const redisData = await redis.get(cacheKey);
+      if (redisData) {
+        cachedNotification = JSON.parse(redisData);
+      }
+    } catch (redisError) {
+      console.error('Error getting notification from Redis:', redisError);
+      // Fall back to memory cache
     }
     
-    // Special user handling
-    if (now - lastCheck < 10000 && user_id === "auth0|67b82eb657e61f81cdfdd503") {
-      console.log(`Special user ${user_id} checking notifications - allowing without throttle`);
+    // Fall back to memory cache if Redis failed
+    if (!cachedNotification) {
+      cachedNotification = global.mealReadyCache[cacheKey];
     }
-    
-    // Update the last check time
-    global.lastMealReadyCheck[user_id] = now;
     
     if (cachedNotification) {
-      // To prevent duplicate notifications for the same meal plan, we'll
-      // keep track of which meal plans we've already notified about
-      global.notifiedMealPlans = global.notifiedMealPlans || {};
+      // To prevent duplicate notifications for the same meal plan, we'll check Redis first
+      const notifKey = `notified:${user_id}:${cachedNotification.meal_plan_id}`;
+      let alreadyNotified = false;
       
-      // If we've already notified about this meal plan in the last 2 minutes, don't notify again
-      // Increased from 30 seconds to 2 minutes to prevent duplicate notifications
-      const planKey = `${user_id}:${cachedNotification.meal_plan_id}`;
-      const lastNotified = global.notifiedMealPlans[planKey] || 0;
+      try {
+        // Check if we already notified about this meal plan recently
+        alreadyNotified = await redis.exists(notifKey);
+      } catch (redisError) {
+        console.error('Error checking notification status in Redis:', redisError);
+        // Fall back to memory tracking
+        global.notifiedMealPlans = global.notifiedMealPlans || {};
+        const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
+        const lastNotified = global.notifiedMealPlans[memoryKey] || 0;
+        alreadyNotified = (now - lastNotified < 120000); // 2 minutes
+      }
       
-      if (now - lastNotified < 120000) { // 2 minutes
+      if (alreadyNotified) {
         console.log(`Skipping duplicate notification for meal plan ${cachedNotification.meal_plan_id}`);
         return NextResponse.json({
           has_notification: false,
@@ -158,53 +293,54 @@ export async function GET(request) {
         });
       }
       
-      // Clear cache after sending (one-time notification)
+      // Mark as notified in Redis (expires after 2 minutes)
+      try {
+        await redis.set(notifKey, 'true', { ex: 120 });
+      } catch (redisError) {
+        console.error('Error setting notification status in Redis:', redisError);
+        // Fall back to memory tracking
+        global.notifiedMealPlans = global.notifiedMealPlans || {};
+        const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
+        global.notifiedMealPlans[memoryKey] = now;
+      }
+      
+      // Clear Redis notification cache to prevent duplicate notifications
+      try {
+        await redis.del(cacheKey);
+      } catch (redisError) {
+        console.error('Error deleting notification from Redis:', redisError);
+      }
+      
+      // Also clear memory cache
       delete global.mealReadyCache[cacheKey];
       
-      // Mark this meal plan as notified
-      global.notifiedMealPlans[planKey] = now;
-      
-      // Automatic cleanup of old notified meal plans after 1 minute
-      setTimeout(() => {
-        if (global.notifiedMealPlans && global.notifiedMealPlans[planKey]) {
-          delete global.notifiedMealPlans[planKey];
-        }
-      }, 60000);
+      // Track notification delivery
+      await redis.hset('notification_deliveries', `${cachedNotification.meal_plan_id}:${now}`, 'direct');
       
       // Add detailed logging for debugging and tracking
       console.log(`
 ==================================================
-[WEBHOOK] MEAL PLAN READY NOTIFICATION SENT
+[WEBHOOK] MEAL PLAN READY NOTIFICATION SENT FROM DIRECT CACHE
 - meal_plan_id: ${cachedNotification.meal_plan_id}
 - user_id: ${user_id}
 - time: ${new Date().toISOString()}
 ==================================================
       `);
       
-      // Since this is a server-side API route, we can't directly update window variables
-      // However, we can create a special cache entry to indicate this meal plan is ready
-      // This will be read by client-side code during polling
+      // For backward compatibility, also add to the in-memory ready plans cache
       global.readyMealPlans = global.readyMealPlans || {};
       global.readyMealPlans[cachedNotification.meal_plan_id] = {
-        timestamp: Date.now(),
+        timestamp: now,
         user_id: user_id,
         handled: false  // This flag helps prevent duplicate handling
       };
-      
-      // Keeping this special ready cache entry for a while to ensure it's picked up
-      // even if the client takes some time to poll
-      setTimeout(() => {
-        if (global.readyMealPlans && global.readyMealPlans[cachedNotification.meal_plan_id]) {
-          delete global.readyMealPlans[cachedNotification.meal_plan_id];
-        }
-      }, 300000); // 5 minutes
       
       // Add a timestamp to help with debugging
       return NextResponse.json({
         has_notification: true,
         notification: {
           ...cachedNotification,
-          timestamp: Date.now()
+          timestamp: now
         }
       });
     }
