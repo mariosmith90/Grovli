@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from 'next/navigation';
-import { Settings, Bot } from 'lucide-react';
+import { Settings, Bot, ShoppingCart } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export default function Header({ toggleChatbot }) {
@@ -66,6 +66,15 @@ export default function Header({ toggleChatbot }) {
 
       {/* Action Buttons */}
       <div className="flex items-center gap-3">
+        {/* Shopping Cart Button */}
+        <button 
+          onClick={() => router.push('/pantry')} 
+          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
+          aria-label="Shopping Cart"
+        >
+          <ShoppingCart className="w-6 h-6" />
+        </button>
+        
         {/* Chatbot Toggle Button */}
         <button 
           onClick={() => window.toggleChatbotWindow?.()} 
