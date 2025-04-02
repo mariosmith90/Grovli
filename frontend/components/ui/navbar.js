@@ -87,8 +87,12 @@ export function BottomNavbar({ children }) {
     const hasMealPlanId = typeof window !== 'undefined' && 
                           localStorage.getItem('currentMealPlanId');
     
+    // Check the Zustand store for additional context - this helps prevent errors after transitions
+    const mealStore = typeof useMealStore !== 'undefined' ? useMealStore.getState() : null;
+    const storeHasMealPlan = mealStore && Array.isArray(mealStore.mealPlan) && mealStore.mealPlan.length > 0;
+    
     // Return true if any condition is met
-    return hasMealPlan || hasShowCardsParam || (pathname === '/meals' && hasMealPlanId);
+    return hasMealPlan || hasShowCardsParam || (pathname === '/meals' && hasMealPlanId) || storeHasMealPlan;
   };
 
   const isActive = (path) => {
@@ -208,6 +212,22 @@ export function BottomNavbar({ children }) {
     if (isMealCardView()) {
       e.stopPropagation();
       console.log("[Navbar] On meal card view, returning to meal selection");
+      
+      // Make sure Zustand store is fully initialized to prevent React error #310
+      if (typeof window !== 'undefined') {
+        // This explicit store initialization prevents the hooks error that can happen
+        // due to component re-rendering after meal plan view
+        try {
+          // Ensure store is properly hydrated
+          markStoreHydrated();
+          
+          // Update the states in a logical order - this is important to prevent React error #310
+          setHasViewedGeneratedMeals(true);
+        } catch (err) {
+          console.error("[Navbar] Error updating store state:", err);
+          // Continue with navigation anyway - the store will be initialized on the next page
+        }
+      }
       
       // If we're on a meals page with showMealCards parameter
       if (typeof window !== 'undefined' && window.location.search.includes('showMealCards=true')) {
