@@ -1279,8 +1279,10 @@ export default function Home() {
     if (Array.isArray(mealPlan) && mealPlan.length > 0) {
       console.log('[Meals Page] Meal plan loaded with', mealPlan.length, 'meals - updating FAB state');
       
-      // This turns off the green checkmark by marking the meals as viewed
-      useMealStore.getState().markMealsAsViewed();
+      // Mark the store as hydrated and update the viewed state
+      const store = useMealStore.getState();
+      store.actions.markHydrated();
+      store.markMealsAsViewed();
     }
   }, [mealPlan]);
 

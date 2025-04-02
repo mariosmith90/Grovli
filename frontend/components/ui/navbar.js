@@ -190,6 +190,12 @@ export function BottomNavbar({ children }) {
   };
 
   const handleFabClick = async (e) => {
+    console.log(`[Navbar] FAB clicked on path: ${pathname}, mealGenerationComplete: ${mealGenerationComplete}, hasViewedGeneratedMeals: ${hasViewedGeneratedMeals}`);
+    
+    // Ensure the store is hydrated
+    const store = useMealStore.getState();
+    store.actions.markHydrated();
+    
     // If on meal card view, return to meal selection or go to overview
     if (isMealCardView()) {
       e.stopPropagation();
@@ -217,15 +223,8 @@ export function BottomNavbar({ children }) {
     if (mealGenerationComplete && !hasViewedGeneratedMeals) {
       console.log("[Navbar] ✅ Green checkmark clicked - navigating to meal cards view");
       
-      // Get the meal store state for consistent data access
-      const store = useMealStore.getState();
-      
-      // Use store's viewGeneratedMeals method to prepare state for transition
-      const canProceed = store.viewGeneratedMeals();
-      if (!canProceed) {
-        console.log("[Navbar] Cannot proceed to meal cards - store returned false");
-        return;
-      }
+      // Call viewGeneratedMeals for logging but proceed regardless
+      store.viewGeneratedMeals();
       
       // Get the current meal plan ID from store for consistency
       const mealPlanIdToUse = store.currentMealPlanId;
@@ -255,44 +254,35 @@ export function BottomNavbar({ children }) {
     if (mealGenerationComplete && pathname !== '/meals') {
       console.log("[Navbar] Ready meal plan navigation - not on meals page");
       
-      // Get the store state for consistent access to meal plan ID
-      const store = useMealStore.getState();
+      // Get the meal plan ID after ensuring store is fully ready
       const mealPlanIdToUse = store.currentMealPlanId;
       
-      // Same approach - use direct navigation with proper parameters
+      console.log(`[Navbar] Navigating to meal cards from non-meals page with ID: ${mealPlanIdToUse || 'none'}`);
+      
+      // Simply call viewGeneratedMeals for logging purposes but proceed regardless
+      store.viewGeneratedMeals();
+      
+      // Use router.push for navigation - never block this operation
       if (mealPlanIdToUse) {
-        // Use the store's viewGeneratedMeals method for consistent state management
-        store.viewGeneratedMeals();
-        
-        console.log(`[Navbar] Navigating to meal cards from non-meals page with ID: ${mealPlanIdToUse}`);
-        window.location.href = `/meals?showMealCards=true&mealPlanId=${encodeURIComponent(mealPlanIdToUse)}`;
+        router.push(`/meals?showMealCards=true&mealPlanId=${encodeURIComponent(mealPlanIdToUse)}`);
       } else {
         console.log("[Navbar] No meal plan ID available, using basic navigation");
-        window.location.href = '/meals?showMealCards=true';
+        router.push('/meals?showMealCards=true');
       }
       return;
     }
     
-    // For navigation to the meals page, we need to be careful not to clear cached meal plans
-    if (pathname !== '/meals' || isMealCardView()) {
-      if (isMealCardView()) {
-        // If we're on meal cards view, we want to go back to selection view
-        // Don't clear window.mealPlan - it may be needed by the meals page
-        console.log("[Navbar] Returning to meal selection view - keeping cached plan");
-        
-        // Use replaceState to avoid keeping the showMealCards param in history
-        if (typeof window !== 'undefined') {
-          window.history.replaceState({}, document.title, '/meals');
-        }
-      } else {
-        // We're navigating to meals page from elsewhere
-        router.push('/meals');
-      }
+    // Handle navigation to the meals page from other pages
+    if (pathname !== '/meals') {
+      console.log("[Navbar] Navigating to meals page from elsewhere");
+      router.push('/meals');
       return;
     }
     
     // Only generate a new meal plan if we're already on the meals selection page
     if (pathname === '/meals' && !isMealCardView()) {
+      console.log("[Navbar] On meals page, generating new meal plan");
+      
       // Reset previous meal generation state before starting a new one
       resetMealGeneration();
       
@@ -303,12 +293,17 @@ export function BottomNavbar({ children }) {
       try {
         if (typeof window !== 'undefined' && window.generateMeals && typeof window.generateMeals === 'function') {
           // Generate new meal plan (we're already on the meals page)
+          console.log("[Navbar] Calling window.generateMeals()");
           await window.generateMeals();
+        } else {
+          console.warn("[Navbar] window.generateMeals not found");
         }
       } catch (error) {
         console.error('Error generating meals:', error);
         setIsGenerating(false);
       }
+    } else {
+      console.log("[Navbar] Default case - not handling this state:", pathname, isMealCardView());
     }
   };
   

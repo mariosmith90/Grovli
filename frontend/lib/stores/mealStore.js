@@ -11,6 +11,7 @@ export const useMealStore = create(
       mealGenerationComplete: false,
       currentMealPlanId: null,
       hasViewedGeneratedMeals: false,
+      isHydrated: typeof window !== 'undefined', // Track if we're in browser (hydrated)
       mealPlan: [],
       displayedMealType: '',
       mealType: 'Breakfast',
@@ -38,6 +39,15 @@ export const useMealStore = create(
               sequence
             }
           });
+        },
+        
+        // Mark the store as hydrated (client-side only)
+        markHydrated: () => {
+          const state = get();
+          if (state.isHydrated) return; // Already hydrated
+          
+          console.log(`[MealStore] Marking store as hydrated`);
+          set({ isHydrated: true });
         },
         
         // Sync with window globals (middleware pattern)
@@ -259,13 +269,32 @@ export const useMealStore = create(
       viewGeneratedMeals: () => {
         const state = get();
         
-        // Only proceed if meal generation is complete
-        if (!state.mealGenerationComplete) {
-          console.log('[MealStore] Cannot view meals - generation not complete');
-          return false;
+        // Guard against server-side execution or non-hydrated state
+        if (!state.isHydrated) {
+          console.log('[MealStore] Logging viewGeneratedMeals call - not hydrated yet');
+          // Continue even if not hydrated - don't block navigation
         }
         
-        get().actions.logAction('viewGeneratedMeals', { mealPlanId: state.currentMealPlanId });
+        // Log for debugging but don't block navigation if generation is not complete
+        if (!state.mealGenerationComplete) {
+          console.log('[MealStore] Warning: Viewing meals but generation not complete');
+          // Continue anyway - don't block navigation
+        }
+        
+        get().actions.logAction('viewGeneratedMeals', { 
+          mealPlanId: state.currentMealPlanId,
+          isHydrated: state.isHydrated,
+          isComplete: state.mealGenerationComplete
+        });
+        
+        // Just update the status for logging, but don't set transition flag
+        set({
+          status: {
+            lastUpdated: new Date().toISOString(),
+            lastAction: 'viewGeneratedMeals',
+            sequence: state.status.sequence + 1
+          }
+        });
         
         // Don't mark as viewed yet - that happens after navigation completes
         // Update window globals for compatibility
@@ -275,13 +304,36 @@ export const useMealStore = create(
           window.mealPlan = state.mealPlan;
         }
         
+        // Always return true to allow navigation to proceed
         return true;
       },
       
       // Mark meals as viewed (called after navigation)
       markMealsAsViewed: () => {
+        const state = get();
+        
+        // Log hydration state but proceed anyway
+        if (!state.isHydrated) {
+          console.log('[MealStore] Warning: markMealsAsViewed called before hydration');
+          // Proceed anyway to avoid blocking state transitions
+        }
+        
         get().actions.logAction('markMealsAsViewed');
-        set({ hasViewedGeneratedMeals: true });
+        
+        // Update viewed state
+        set({
+          hasViewedGeneratedMeals: true,
+          status: {
+            lastUpdated: new Date().toISOString(),
+            lastAction: 'markMealsAsViewed',
+            sequence: state.status.sequence + 1
+          }
+        });
+        
+        // Also update localStorage directly for redundancy
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('hasViewedGeneratedMeals', 'true');
+        }
       }
     }),
     {
@@ -294,6 +346,8 @@ export const useMealStore = create(
         mealPlan: state.mealPlan,
         displayedMealType: state.displayedMealType,
         mealType: state.mealType,
+        hasViewedGeneratedMeals: state.hasViewedGeneratedMeals,
+        isHydrated: true, // Always persist as true to avoid hydration mismatches
         backgroundTaskId: state.backgroundTaskId
       }),
       // Add version control for potential schema migrations
