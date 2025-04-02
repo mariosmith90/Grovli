@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Redis from 'ioredis';
 
 // Create Redis client using Railway connection URI
-const redis = new Redis(process.env.REDIS_URL || 'redis://redis:6379', {
+const redis = new Redis(process.env.REDIS_URL + "?family=0", {
   retryStrategy: (times) => Math.min(times * 50, 2000),
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
