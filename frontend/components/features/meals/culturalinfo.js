@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast'; // Make sure this is imported
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../lib/stores/authStore';
 import { Plus } from 'lucide-react'; // Import the Plus icon
 
 const CulturalInfo = ({ selectedCuisine }) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useAuth } from '../../../contexts/AuthContext';
+import { useAuth } from '../../../lib/stores/authStore';
 
 const ChatbotWindow = ({ 
   preferences, 

@@ -1,6 +1,7 @@
 // Zustand store for meal generation state management
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { useEffect } from 'react'
 
 // Create the meal store using Zustand best practices
 export const useMealStore = create(
@@ -450,7 +451,8 @@ export const useMealStore = create(
     }),
     {
       name: 'grovli-meals',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => (typeof window !== 'undefined' ? localStorage : null)),
+      skipHydration: true, // Skip hydration for SSR compatibility
       partialize: (state) => ({
         // Only persist essential data
         mealGenerationComplete: state.mealGenerationComplete,
@@ -477,11 +479,17 @@ export const useMealStore = create(
   )
 )
 
-// Export a selector hook for common state combinations
+// Export a selector hook for common state combinations with SSR safety
 export const useMealStatus = () => {
   const isGenerating = useMealStore(state => state.isGenerating);
   const isComplete = useMealStore(state => state.mealGenerationComplete);
   const hasViewed = useMealStore(state => state.hasViewedGeneratedMeals);
+  
+  // Hydrate on mount (client-side only)
+  useEffect(() => {
+    // This is safe because useEffect only runs client-side
+    useMealStore.persist.rehydrate();
+  }, []);
   
   return {
     isGenerating,

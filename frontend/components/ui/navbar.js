@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@auth0/nextjs-auth0';
 // Import the new Zustand store instead of the old context
 import { useMealStore } from '../../lib/stores/mealStore';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../lib/stores/authStore';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,

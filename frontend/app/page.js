@@ -1,13 +1,23 @@
 "use client"
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@auth0/nextjs-auth0";
 import { Download, ArrowRight } from 'lucide-react';
+import { useUser } from "@auth0/nextjs-auth0";
+import { updateAuthStore } from "../lib/stores/authStore";
 
 const HomePage = () => {
   const router = useRouter();
-  const { user, isLoading } = useUser();
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  
+  // Get Auth0 user state directly
+  const { user, isLoading } = useUser();
+  
+  // Update our Zustand store when Auth0 user changes
+  useEffect(() => {
+    if (user && !isLoading) {
+      updateAuthStore(user, null);
+    }
+  }, [user, isLoading]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {

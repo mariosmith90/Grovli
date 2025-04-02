@@ -1,8 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../contexts/AuthContext';
-// Use our new Zustand store instead of the context
+// Import Auth0's useUser hook
+import { useUser } from "@auth0/nextjs-auth0";
+// Import our Zustand auth store
+import { useAuth, updateAuthStore } from '../../lib/stores/authStore';
+// Import meal store
 import { useMealStore } from '../../lib/stores/mealStore';
 import { MealPlanDisplay } from '../../components/ui/mealcard';
 import ChatbotWindow from '../../components/features/meals/chatbot';
@@ -28,13 +31,27 @@ export default function Home() {
   const [displayedMealType, setDisplayedMealType] = useState('');
   const [selectedCuisine, setSelectedCuisine] = useState('');
   
-  // Use our centralized auth context
-  const auth = useAuth();
-  const user = auth?.user || null;
-  const isLoading = auth?.isLoading !== false;
-  const authIsPro = auth?.isPro === true;
-  const userId = auth?.userId || null;
-  const getAuthHeaders = auth?.getAuthHeaders || (async () => ({}));
+  // Get auth state from Auth0
+  const { user: auth0User, isLoading: isAuth0Loading, error: auth0Error } = useUser();
+  
+  // Get auth state from Zustand store
+  const { isPro: authIsPro, userId, getAuthHeaders, getAuthToken } = useAuth();
+  
+  // Use Auth0 as the source of truth for user data
+  const user = auth0User;
+  const isLoading = isAuth0Loading;
+  
+  // Sync Auth0 user to Zustand store when it changes
+  useEffect(() => {
+    if (auth0User && !isAuth0Loading) {
+      updateAuthStore(auth0User, null);
+    }
+    
+    // Log any Auth0 errors
+    if (auth0Error) {
+      console.error("Auth0 error:", auth0Error);
+    }
+  }, [auth0User, isAuth0Loading, auth0Error]);
   
   // Set the isPro state from the auth context
   useEffect(() => {

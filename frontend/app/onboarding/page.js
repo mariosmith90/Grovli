@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
+import { useAuth, updateAuthStore } from '../../lib/stores/authStore';
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -47,10 +48,16 @@ export default function OnboardingWizard() {
     sugar: 0
   });
 
+  // Get auth state from Zustand store
+  const { getAuthToken, getAuthHeaders } = useAuth();
+  
   // Check onboarding status on component mount
   useEffect(() => {
     const checkOnboarding = async () => {
       if (!isLoading && user) {
+        // Sync Auth0 user with Zustand store
+        updateAuthStore(user, null);
+        
         const onboardingComplete = await checkOnboardingStatus();
         if (onboardingComplete) {
           router.push('/meals'); // Redirect to meal planner if onboarding is complete
@@ -67,7 +74,12 @@ export default function OnboardingWizard() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
+      // Use auth headers from Zustand store to authenticate request
+      const headers = getAuthHeaders();
+      
+      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`, {
+        headers
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -308,8 +320,7 @@ export default function OnboardingWizard() {
       // Save profile data to localStorage for immediate use
       localStorage.setItem('userProfileData', JSON.stringify(completeUserData));
       
-      // Save the nutrition settings to the user-settings API
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      // Get token from Auth0 and update our store
       const token = await getAccessToken({
         authorizationParams: {
           audience: "https://grovli.citigrove.com/audience"
@@ -319,6 +330,9 @@ export default function OnboardingWizard() {
       if (!token) {
         throw new Error("Failed to retrieve access token.");
       }
+      
+      // Store token in Zustand store
+      updateAuthStore(user, token);
       
       // Settings to save to the API
       const settingsToSave = {
@@ -345,12 +359,16 @@ export default function OnboardingWizard() {
       // Also save settings to localStorage for immediate use in other parts of the app
       localStorage.setItem('globalMealSettings', JSON.stringify(settingsToSave));
       
+      // Get auth headers from Zustand store
+      const headers = getAuthHeaders();
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      
       // Save settings to the server
       const settingsResponse = await fetch(`${apiUrl}/user-settings/${user.sub}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...headers
         },
         body: JSON.stringify(settingsToSave)
       });
@@ -364,7 +382,7 @@ export default function OnboardingWizard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...headers
         },
         body: JSON.stringify(userProfileToSave)
       });

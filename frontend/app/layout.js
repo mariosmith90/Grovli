@@ -1,9 +1,8 @@
 // app/layout.js
 import '../styles/globals.css';
-import Head from 'next/head';
+import { Providers } from './providers'; 
 import BottomNavbar from '../components/ui/navbar';
 import Header from '../components/ui/header';
-import { Providers } from './providers'; // Import the client-side providers wrapper
 
 export const metadata = {
   title: 'Meal Plan App',
@@ -13,7 +12,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <Head>
+      <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="Your AI-powered meal planning assistant" />
         <meta name="theme-color" content="#008080" />
@@ -22,7 +21,7 @@ export default function RootLayout({ children }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-      </Head>
+      </head>
       <body>
         <Providers>
           <Header />

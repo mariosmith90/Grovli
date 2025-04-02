@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Check, X, Loader } from "lucide-react";
-import { useAuth } from "../../../contexts/AuthContext";
+import { useAuth } from "../../../lib/stores/authStore";
 import { toast } from "react-hot-toast";
 
 export function PlannerOverlay({ 

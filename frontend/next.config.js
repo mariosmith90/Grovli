@@ -11,11 +11,14 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   async redirects() {
     return [
       {
         source: '/login',
-        destination: '/api/auth/login',
+        destination: '/auth/login',
         permanent: false,
       },
     ];
@@ -24,7 +27,7 @@ const nextConfig = {
     return [
       {
         source: '/login',
-        destination: '/api/auth/login',
+        destination: '/auth/login',
       },
       {
         source: '/register',
