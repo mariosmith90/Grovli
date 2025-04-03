@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * Token validation utility to check if a JWT is still valid
@@ -30,6 +31,22 @@ const isTokenValid = (token) => {
 /**
  * Main auth store using Zustand with persistence
  */
+// Default routes that should be preloaded
+const ESSENTIAL_ROUTES = ['/profile', '/meals', '/planner', '/pantry', '/saved-meals', '/settings'];
+
+// Assets that should be preloaded
+const ESSENTIAL_ASSETS = [
+  '/logo.png', 
+  '/images/meals/breakfast.jpg',
+  '/images/meals/lunch.jpg',
+  '/images/meals/dinner.jpg',
+  '/images/cuisines/american.jpg',
+  '/images/cuisines/mediterranean.jpg'
+];
+
+// Utility to check if we're on the client
+const isClient = typeof window !== 'undefined';
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
@@ -40,6 +57,15 @@ export const useAuthStore = create(
       isPro: false,
       isAuthenticated: false,
       isInitialized: false,
+      
+      // Preloading state
+      preloadingState: {
+        preloadedRoutes: [],
+        preloadedAssets: [],
+        preloadedData: [],
+        isPreloading: false,
+        lastPreloadTime: null,
+      },
       
       // Actions
       setUser: (user) => {
@@ -52,7 +78,7 @@ export const useAuthStore = create(
           });
           
           // Clear browser state for compatibility
-          if (typeof window !== 'undefined') {
+          if (isClient) {
             window.userId = null;
           }
           return;
@@ -67,16 +93,19 @@ export const useAuthStore = create(
         });
         
         // Set global state for compatibility
-        if (typeof window !== 'undefined') {
+        if (isClient) {
           window.userId = user.sub;
         }
+        
+        // Start preloading as soon as user is set
+        get().startPreloading();
         
         // Check for special user (always pro)
         if (user.sub === "auth0|67b82eb657e61f81cdfdd503" || 
             user.sub === "google-oauth2|100398622971971910131") {
           set({ isPro: true });
           
-          if (typeof window !== 'undefined') {
+          if (isClient) {
             localStorage.setItem('userIsPro', 'true');
             window.specialProUser = true;
           }
@@ -90,7 +119,7 @@ export const useAuthStore = create(
         set({ accessToken: token });
         
         // Update storage for compatibility
-        if (typeof window !== 'undefined') {
+        if (isClient) {
           try {
             sessionStorage.setItem('accessToken', token);
             localStorage.setItem('accessToken', token);
@@ -109,7 +138,7 @@ export const useAuthStore = create(
           if (userSubscription === "pro") {
             set({ isPro: true });
             
-            if (typeof window !== 'undefined') {
+            if (isClient) {
               localStorage.setItem('userIsPro', 'true');
             }
           }
@@ -125,7 +154,7 @@ export const useAuthStore = create(
         }
         
         // Then try sessionStorage (faster)
-        if (typeof window !== 'undefined') {
+        if (isClient) {
           const sessionToken = sessionStorage.getItem('accessToken');
           if (sessionToken && isTokenValid(sessionToken)) {
             get().setToken(sessionToken);
@@ -169,13 +198,138 @@ export const useAuthStore = create(
         });
         
         // Clear storage for compatibility
-        if (typeof window !== 'undefined') {
+        if (isClient) {
           localStorage.removeItem('accessToken');
           sessionStorage.removeItem('accessToken');
           window.__auth0_token = null;
           window.latestAuthToken = null;
           window.userId = null;
         }
+      },
+      
+      // Preloading functions
+      preloadRoute: (route) => {
+        if (!isClient || get().preloadingState.preloadedRoutes.includes(route)) return;
+        
+        console.log(`[AuthStore] Preloading route: ${route}`);
+        
+        // Dynamic import to avoid SSR issues
+        import('next/router').then(({ default: router }) => {
+          router.prefetch(route);
+        }).catch(err => {
+          console.warn(`Failed to preload route ${route}:`, err);
+        });
+        
+        set({
+          preloadingState: {
+            ...get().preloadingState,
+            preloadedRoutes: [...get().preloadingState.preloadedRoutes, route]
+          }
+        });
+      },
+      
+      preloadAsset: (assetUrl) => {
+        if (!isClient || get().preloadingState.preloadedAssets.includes(assetUrl)) return;
+        
+        console.log(`[AuthStore] Preloading asset: ${assetUrl}`);
+        
+        try {
+          // For images
+          if (assetUrl.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) {
+            const img = new Image();
+            img.src = assetUrl;
+          } 
+          // For other assets
+          else {
+            fetch(assetUrl, { cache: 'no-store' })
+              .catch(err => console.warn(`Preload fetch for ${assetUrl} failed silently`, err));
+          }
+          
+          set({
+            preloadingState: {
+              ...get().preloadingState,
+              preloadedAssets: [...get().preloadingState.preloadedAssets, assetUrl]
+            }
+          });
+        } catch (error) {
+          console.warn(`Error preloading asset ${assetUrl}:`, error);
+        }
+      },
+      
+      preloadApiData: async (dataKey, apiEndpoint, options = {}) => {
+        if (!isClient || get().preloadingState.preloadedData.includes(dataKey)) return;
+        
+        console.log(`[AuthStore] Preloading API data: ${dataKey}`);
+        
+        try {
+          // Get auth headers if none provided
+          if (!options.headers) {
+            options.headers = get().getAuthHeaders();
+          }
+          
+          // Start fetch but don't await - we just want it in flight
+          fetch(apiEndpoint, {
+            ...options,
+            headers: {
+              ...options.headers,
+              'Purpose': 'prefetch'
+            }
+          }).catch(err => console.warn(`Preload API fetch for ${dataKey} failed:`, err));
+          
+          set({
+            preloadingState: {
+              ...get().preloadingState,
+              preloadedData: [...get().preloadingState.preloadedData, dataKey]
+            }
+          });
+        } catch (error) {
+          console.warn(`Error preloading API data ${dataKey}:`, error);
+        }
+      },
+      
+      startPreloading: () => {
+        if (!isClient || get().preloadingState.isPreloading) return;
+        
+        const userId = get().userId;
+        const token = get().getToken();
+        
+        console.log(`[AuthStore] Starting preloading for user: ${userId}`);
+        
+        set({
+          preloadingState: {
+            ...get().preloadingState,
+            isPreloading: true,
+            lastPreloadTime: new Date().toISOString()
+          }
+        });
+        
+        // Preload routes
+        ESSENTIAL_ROUTES.forEach(route => {
+          get().preloadRoute(route);
+        });
+        
+        // Preload assets
+        ESSENTIAL_ASSETS.forEach(asset => {
+          get().preloadAsset(asset);
+        });
+        
+        // Preload API data if authenticated
+        if (userId && token) {
+          get().preloadApiData('userProfile', `/api/user_profile/${userId}`);
+          get().preloadApiData('savedRecipes', '/api/user_recipes');
+          get().preloadApiData('userPantry', '/api/user_pantry');
+        }
+        
+        // Mark preloading as complete after a short delay
+        setTimeout(() => {
+          set({
+            preloadingState: {
+              ...get().preloadingState,
+              isPreloading: false
+            }
+          });
+          console.log(`[AuthStore] Preloading completed`);
+        }, 2000);
       }
     }),
     {
@@ -185,6 +339,12 @@ export const useAuthStore = create(
         accessToken: state.accessToken,
         userId: state.userId,
         isPro: state.isPro,
+        // Include our preloading state
+        preloadingState: {
+          preloadedRoutes: state.preloadingState.preloadedRoutes,
+          preloadedAssets: state.preloadingState.preloadedAssets,
+          preloadedData: state.preloadingState.preloadedData,
+        }
       }),
       // SSR-specific config
       skipHydration: true,
@@ -255,6 +415,7 @@ export const getAuthState = () => {
 export const useAuth = () => {
   // Use Zustand store directly - it handles subscriptions internally
   const state = useAuthStore();
+  const router = useRouter();
   
   // Hydrate on mount (client-side only)
   useEffect(() => {
@@ -262,13 +423,38 @@ export const useAuth = () => {
     useAuthStore.persist.rehydrate();
     // Also sync with session storage
     syncWithSessionStorage();
+    
+    // Start preloading critical assets before authentication
+    if (typeof window !== 'undefined' && !state.isAuthenticated) {
+      // Preload login-related assets while user is typing credentials
+      state.preloadAsset('/logo.png');
+      state.preloadAsset('/images/homepage.jpeg');
+    }
   }, []);
+  
+  // Effect to initiate preloading when auth state changes
+  useEffect(() => {
+    if (state.isAuthenticated && state.userId && !state.preloadingState.isPreloading) {
+      state.startPreloading();
+    }
+  }, [state.isAuthenticated, state.userId]);
   
   // Add convenience methods/properties
   return {
     ...state,
     isLoading: false,
     getAuthToken: state.getToken,
-    getAuthHeaders: state.getAuthHeaders
+    getAuthHeaders: state.getAuthHeaders,
+    // Preloading-specific methods
+    preload: {
+      routes: state.preloadRoute,
+      assets: state.preloadAsset,
+      api: state.preloadApiData,
+      start: state.startPreloading,
+      isActive: state.preloadingState.isPreloading,
+      preloadedRoutes: state.preloadingState.preloadedRoutes,
+      preloadedAssets: state.preloadingState.preloadedAssets,
+      preloadedData: state.preloadingState.preloadedData,
+    }
   };
 };

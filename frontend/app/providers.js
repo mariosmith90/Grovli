@@ -22,21 +22,41 @@ export function Providers({ children }) {
  */
 function Auth0Sync() {
   // Get auth state from Auth0's useUser hook
-  const { user, error, isLoading } = useUser();
+  const { user, error, isLoading, accessToken } = useUser();
   
   // Sync Auth0 user to Zustand store
   useEffect(() => {
     if (user && !isLoading) {
-      // When Auth0 provides a user, update our store
-      updateAuthStore(user, null);
+      // When Auth0 provides a user, update our store with user and token
+      updateAuthStore(user, accessToken);
       console.log("Auth0 user synced to Zustand store:", user.sub);
       
       // Set global user ID for backward compatibility
       if (typeof window !== 'undefined') {
         window.userId = user.sub;
+        
+        // Store token in window properties for backward compatibility
+        if (accessToken) {
+          window.__auth0_token = accessToken;
+          window.auth0_access_token = accessToken;
+          window.latestAuthToken = accessToken;
+        }
       }
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, accessToken]);
+  
+  // Preload assets during authentication
+  useEffect(() => {
+    if (!isLoading && typeof window !== 'undefined') {
+      if (!user) {
+        // User is not logged in - preload login-related assets
+        const store = require('../lib/stores/authStore').useAuthStore.getState();
+        store.preloadAsset('/logo.png');
+        store.preloadAsset('/images/homepage.jpeg');
+        console.log("Preloading auth assets before login");
+      }
+    }
+  }, [isLoading, user]);
   
   // Log Auth0 errors
   useEffect(() => {
