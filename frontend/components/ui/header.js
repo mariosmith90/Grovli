@@ -1,12 +1,14 @@
 "use client";
 import { useRouter } from 'next/navigation';
-import { Settings, Bot, ShoppingCart } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Settings, Bot, ShoppingCart, Menu, X } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
 
 export default function Header({ toggleChatbot }) {
   const router = useRouter();
   const [pathname, setPathname] = useState('');
   const [shouldShow, setShouldShow] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   // Get current path and set visibility on client side
   useEffect(() => {
@@ -38,6 +40,20 @@ export default function Header({ toggleChatbot }) {
     };
   }, []);
 
+  // Handle click outside to close menu
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Don't render if we shouldn't show
   if (!shouldShow) {
     return null;
@@ -64,34 +80,58 @@ export default function Header({ toggleChatbot }) {
         />
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-3">
-        {/* Shopping Cart Button */}
+      {/* Hamburger Menu */}
+      <div className="relative mr-2" ref={menuRef}>
         <button 
-          onClick={() => router.push('/pantry')} 
-          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
-          aria-label="Shopping Cart"
+          onClick={() => setIsMenuOpen(!isMenuOpen)} 
+          className="p-3 rounded-full bg-transparent hover:bg-white/10 transition-all text-teal-600 hover:text-teal-700"
+          aria-label="Menu"
         >
-          <ShoppingCart className="w-6 h-6" />
+          {isMenuOpen ? <X className="w-7 h-7" /> : <Menu className="w-7 h-7" />}
         </button>
         
-        {/* Chatbot Toggle Button */}
-        <button 
-          onClick={() => window.toggleChatbotWindow?.()} 
-          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
-          aria-label="Open Chatbot Assistant"
-        >
-          <Bot className="w-6 h-6" />
-        </button>
+        {/* Dropdown Menu */}
+        {isMenuOpen && (
+          <div className="absolute right-0 mt-2 w-48 rounded-lg shadow-lg bg-white/90 backdrop-blur-sm overflow-hidden transform origin-top-right transition-all duration-200 ease-in-out z-50">
+            <div className="py-1">
+              {/* Shopping Cart Button */}
+              <button 
+                onClick={() => {
+                  router.push('/pantry');
+                  setIsMenuOpen(false);
+                }} 
+                className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-100/80 transition-all hover:text-teal-600"
+              >
+                <ShoppingCart className="w-5 h-5" />
+                <span>Shopping Cart</span>
+              </button>
+              
+              {/* Chatbot Toggle Button */}
+              <button 
+                onClick={() => {
+                  window.toggleChatbotWindow?.();
+                  setIsMenuOpen(false);
+                }} 
+                className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-100/80 transition-all hover:text-teal-600"
+              >
+                <Bot className="w-5 h-5" />
+                <span>Chatbot Assistant</span>
+              </button>
 
-        {/* Settings Button */}
-        <button 
-          onClick={() => router.push('/settings')} 
-          className="p-2 bg-white/90 backdrop-blur-sm hover:bg-white transition-colors text-gray-700 hover:text-teal-600" 
-          aria-label="Settings"
-        >
-          <Settings className="w-6 h-6" />
-        </button>
+              {/* Settings Button */}
+              <button 
+                onClick={() => {
+                  router.push('/settings');
+                  setIsMenuOpen(false);
+                }} 
+                className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-100/80 transition-all hover:text-teal-600"
+              >
+                <Settings className="w-5 h-5" />
+                <span>Settings</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
