@@ -313,11 +313,29 @@ export const useAuthStore = create(
           get().preloadAsset(asset);
         });
         
-        // Preload API data if authenticated
+        // Preload API data if authenticated - prioritizing profile data
         if (userId && token) {
+          // Preload profile data first - this is needed for the profile page
           get().preloadApiData('userProfile', `/api/user_profile/${userId}`);
+          
+          // Preload meal plans specifically to eliminate the 2-second wait
+          get().preloadApiData('userMealPlans', '/api/user_plans');
+          
+          // Preload additional user data needed for various pages
           get().preloadApiData('savedRecipes', '/api/user_recipes');
           get().preloadApiData('userPantry', '/api/user_pantry');
+          get().preloadApiData('savedMeals', '/api/user_saved_meals');
+          
+          // Fetch any active meal plans - this is what causes the 2-second wait on profile page
+          fetch(`/api/user_plans/active`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'user-id': userId,
+              'Purpose': 'prefetch'
+            }
+          }).catch(err => console.warn('Prefetch of active meal plans failed silently', err));
+          
+          console.log("[AuthStore] Preloading profile data and meal plans for immediate access");
         }
         
         // Mark preloading as complete after a short delay

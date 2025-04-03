@@ -41,6 +41,24 @@ function Auth0Sync() {
           window.auth0_access_token = accessToken;
           window.latestAuthToken = accessToken;
         }
+        
+        // IMPORTANT: Immediately preload profile data to eliminate the 2-second wait
+        // This ensures the profile page loads instantly when user navigates there
+        setTimeout(() => {
+          const { useAuthStore } = require('../lib/stores/authStore');
+          const store = useAuthStore.getState();
+          
+          // Directly fetch the active meal plans which cause the wait
+          fetch(`/api/user_plans/active`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'user-id': user.sub,
+              'Purpose': 'prefetch'
+            }
+          }).catch(err => console.warn('Prefetch of active meal plans failed silently', err));
+          
+          console.log("Immediately preloading profile data after login to eliminate wait time");
+        }, 500); // Small delay to ensure auth is properly set up
       }
     }
   }, [user, isLoading, accessToken]);
