@@ -55,12 +55,12 @@ if credentials_json:
 
 import hashlib
 
-def generate_meal_id(meal_name: str, request_hash: str, index: int) -> str:
+def generate_meal_id(recipe_title: str, request_hash: str, index: int) -> str:
     """
-    Generate a deterministic meal ID based on the meal name, the request hash, and the meal's index.
+    Generate a deterministic meal ID based on the recipe title, the request hash, and the meal's index.
     This returns the first 10 hexadecimal characters of the SHA-1 hash.
     """
-    base = f"{meal_name}_{request_hash}_{index}"
+    base = f"{recipe_title}_{request_hash}_{index}"
     return hashlib.sha1(base.encode()).hexdigest()[:10]
 
 # ===================== CHAT TASKS =====================
@@ -963,11 +963,11 @@ def fetch_ingredient_macros(ingredient):
 
     return macros
 
-def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
+def save_meal_with_hash(recipe_title, meal_text, ingredients, dietary_type, macros, meal_plan_id, meal_type, request_hash, meal_id):
     """Save meal with request hashing for caching and USDA validation for nutrition accuracy."""
     # Check for duplicate before saving
     existing_meal = meals_collection.find_one({
-        "meal_name": meal_name,
+        "recipe_title": recipe_title,
         "request_hash": request_hash
     })
     
@@ -994,7 +994,7 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
             updated_plan.append(existing_meal)
             set_cache(plan_id_cache_key, updated_plan, MEAL_CACHE_TTL)
             
-            logger.info(f"Updated meal_plan_id for duplicate meal: {meal_name} to {meal_plan_id}")
+            logger.info(f"Updated meal_plan_id for duplicate meal: {recipe_title} to {meal_plan_id}")
         
         return existing_meal
     
@@ -1093,13 +1093,13 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     final_macros["usda_validated"] = validation_success
     
     # Generate image URL if not already present
-    image_url = generate_and_cache_meal_image(meal_name, meal_id)
+    image_url = generate_and_cache_meal_image(recipe_title, meal_id)
     
     # Build meal data
     meal_data = {
         "meal_id": meal_id,  # Use the provided meal_id directly
         "meal_plan_id": meal_plan_id,
-        "meal_name": meal_name,
+        "recipe_title": recipe_title,
         "meal_text": meal_text,
         "ingredients": validated_ingredients,
         "dietary_type": dietary_type,
@@ -1119,7 +1119,7 @@ def save_meal_with_hash(meal_name, meal_text, ingredients, dietary_type, macros,
     
     return meal_data
 
-def generate_and_cache_meal_image(meal_name, meal_id):
+def generate_and_cache_meal_image(recipe_title, meal_id):
     """
     Generates a realistic food image for a meal using Google Cloud's Vertex AI.
     Uploads it to Google Cloud Storage, and returns a persistent URL.
@@ -1134,7 +1134,7 @@ def generate_and_cache_meal_image(meal_name, meal_id):
     try:
         # Enhanced prompt for realistic food photography
         prompt = (
-            f"Highly photorealistic food photography of {meal_name} without any AI artifacts. "
+            f"Highly photorealistic food photography of {recipe_title} without any AI artifacts. "
             "Professional food styling with realistic textures, natural lighting from the side, "
             "and detailed texture. Shot on a Canon 5D Mark IV with 100mm macro lens, f/2.8, natural window light. "
             "Include realistic imperfections, proper food shadows and reflections. "

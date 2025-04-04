@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from "@auth0/nextjs-auth0";
 import { toast } from 'react-hot-toast';
+import { useApiService } from '../../../../lib/api-service';
 
 /**
  * AutoUpdatingComponent provides common functionality for meal plan auto-updating and auto-deletion
@@ -185,6 +186,9 @@ const AutoUpdatingComponent = ({
 
   // Create or update a meal plan
   const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
+    // Get API service for special CORS-friendly update method
+    const { updateMealPlan: apiUpdateMealPlan } = useApiService();
+    
     // Save the updated plan to state
     setMealPlan(updatedMealPlan);
     
@@ -257,12 +261,18 @@ const AutoUpdatingComponent = ({
           
           updatedMealPlan.forEach(meal => {
             if (meal.name) {
+              // Ensure meal has valid id
+              if (!meal.id) {
+                console.warn(`Missing meal ID for ${meal.type}`);
+                return; // Skip this meal
+              }
+              
               formattedMeals.push({
                 date: today,
                 mealType: meal.type,
                 mealId: meal.id,
-                current_day: true,
-                meal_name: meal.name || meal.title || "Unnamed Meal" // Add the meal name to ensure it's preserved
+                current_day: true
+                // Only include required fields
               });
             }
           });
@@ -273,11 +283,17 @@ const AutoUpdatingComponent = ({
             
             Object.keys(dateMeals).forEach(mealType => {
               const meal = dateMeals[mealType];
+              // Ensure meal has valid id and name
+              if (!meal.id) {
+                console.warn(`Missing meal ID for ${mealType} on ${dateKey}`);
+                return; // Skip this meal
+              }
+              
               formattedMeals.push({
                 date: dateKey,
                 mealType: mealType,
-                mealId: meal.id,
-                meal_name: meal.name || meal.title || "Unnamed Meal" // Add the meal name to ensure it's preserved
+                mealId: meal.id
+                // Only include required fields
               });
             });
           });
@@ -289,40 +305,109 @@ const AutoUpdatingComponent = ({
           return;
         }
         
-        // Prepare request data
-        const requestData = {
-          userId: user.sub,
-          planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
-          meals: formattedMeals
-        };
-        
         // If we don't have an active plan yet and we're adding the first meal,
         // create a new plan, otherwise update the existing one
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const endpoint = activePlanId 
-          ? `${apiUrl}/api/user-plans/update`
-          : `${apiUrl}/api/user-plans/save`;
         
-        // Add planId if updating
-        if (activePlanId) {
-          requestData.planId = activePlanId;
-        }
+        // Log the formatted meals for debugging
+        console.log("Formatted meals:", JSON.stringify(formattedMeals, null, 2));
         
-        // API request
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify(requestData)
+        // Clean meals for API - include only required fields
+        const cleanMeals = formattedMeals.map(meal => {
+          // Create a completely fresh object with ONLY the required fields
+          const cleanMeal = {
+            date: meal.date,
+            mealType: meal.mealType,
+            mealId: meal.mealId
+          };
+          
+          // Only add current_day if it exists
+          if (meal.current_day) cleanMeal.current_day = meal.current_day;
+          
+          return cleanMeal;
         });
         
-        if (!response.ok) {
-          throw new Error(`Failed to save: ${response.status}`);
-        }
+        // Prepare request data based on whether we're creating or updating
+        let requestData;
+        let result;
         
-        const result = await response.json();
+        if (activePlanId) {
+          // For update endpoint, only send planId and meals
+          requestData = {
+            planId: activePlanId,
+            meals: cleanMeals
+          };
+          
+          console.log('Using updateMealPlan special function to avoid CORS issues');
+          console.log('Request Data:', JSON.stringify(requestData, null, 2));
+          
+          // Use our special function for update endpoint to avoid CORS issues
+          try {
+            result = await apiUpdateMealPlan(requestData);
+            console.log("Update successful using special update function");
+          } catch (updateError) {
+            console.error("Special update function failed:", updateError);
+            
+            // Show a more user-friendly message if it appears to be a network issue
+            if (updateError.message && (
+                updateError.message.includes('network') || 
+                updateError.message.includes('connection') ||
+                updateError.message.includes('failed')
+            )) {
+              toast.error("Changes will be saved when connection is restored", {
+                duration: 5000,
+                icon: '🔄'
+              });
+            } else {
+              toast.error("Could not save changes to the server", {
+                duration: 3000
+              });
+            }
+            
+            // Return empty object to prevent further errors
+            result = {};
+          }
+        } else {
+          // For save endpoint, send userId, planName, and meals
+          requestData = {
+            userId: user.sub,
+            planName: planName || `Meal Plan - ${new Date().toLocaleDateString()}`,
+            meals: cleanMeals
+          };
+          
+          console.log('Using standard save endpoint');
+          console.log(`Endpoint: ${apiUrl}/api/user-plans/save`);
+          console.log('Request Data:', JSON.stringify(requestData, null, 2));
+          
+          // For save endpoint, use standard fetch
+          const response = await fetch(`${apiUrl}/api/user-plans/save`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+              'Origin': window.location.origin
+            },
+            body: JSON.stringify(requestData),
+            credentials: 'include',
+            mode: 'cors'
+          });
+          
+          if (!response.ok) {
+            // Try to get more detailed error information
+            let errorDetail = '';
+            try {
+              const errorResponse = await response.json();
+              errorDetail = errorResponse.detail || '';
+              console.error('API Error Response:', errorResponse);
+            } catch (parseError) {
+              console.error('Could not parse error response:', parseError);
+            }
+            
+            throw new Error(`Failed to save: ${response.status}${errorDetail ? ' - ' + errorDetail : ''}`);
+          }
+          
+          result = await response.json();
+        }
         
         // If it was a new plan, update the activePlanId
         if (!activePlanId && result.id) {

@@ -48,14 +48,15 @@ function Auth0Sync() {
           const { useAuthStore } = require('../lib/stores/authStore');
           const store = useAuthStore.getState();
           
-          // Directly fetch the active meal plans which cause the wait
-          fetch(`/api/user_plans/active`, {
+          // Directly fetch the user's meal plans which cause the wait
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+          fetch(`${apiUrl}/api/user-plans/user/${user.sub}`, {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
               'user-id': user.sub,
               'Purpose': 'prefetch'
             }
-          }).catch(err => console.warn('Prefetch of active meal plans failed silently', err));
+          }).catch(err => console.warn('Prefetch of user meal plans failed silently', err));
           
           console.log("Immediately preloading profile data after login to eliminate wait time");
         }, 500); // Small delay to ensure auth is properly set up

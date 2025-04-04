@@ -44,11 +44,16 @@ export function PlannerOverlay({
       // Use the auth object from the component scope
       const accessToken = await auth.getAuthToken();
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/user/${user.sub}`, {
+      console.log(`Fetching user plans for ${user.sub}`);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const response = await fetch(`${apiUrl}/api/user-plans/user/${user.sub}`, {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        }
+          'Authorization': `Bearer ${accessToken}`,
+          'Origin': window.location.origin
+        },
+        credentials: 'include',
+        mode: 'cors'
       });
       
       if (!response.ok) {
@@ -174,8 +179,16 @@ export function PlannerOverlay({
       // Use the auth object from the component scope
       const accessToken = await auth.getAuthToken();
       
-      const planResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/${selectedPlan}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      console.log(`Fetching plan details for ${selectedPlan}`);
+      const planResponse = await fetch(`${apiUrl}/api/user-plans/${selectedPlan}`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'Origin': window.location.origin
+        },
+        credentials: 'include',
+        mode: 'cors'
       });
       
       if (!planResponse.ok) {
@@ -188,48 +201,62 @@ export function PlannerOverlay({
         !(meal.date === selectedDate && meal.mealType === selectedMealType)
       );
       
-      const mealsToSave = filteredMeals.map(meal => ({
-        date: meal.date,
-        mealType: meal.mealType,
-        mealId: meal.meal?.id || meal.mealId || "",
-        meal_name: meal.meal?.name || meal.meal?.title || "Unnamed Meal",
-        meal_type: meal.meal?.meal_type || meal.mealType,
-        macros: meal.meal?.nutrition || {},
-        ingredients: meal.meal?.ingredients || [],
-        instructions: meal.meal?.instructions || "",
-        imageUrl: meal.meal?.imageUrl || "",
-        calories: meal.meal?.nutrition?.calories || 0
-      }));
-      
-      mealsToSave.push({
-        date: selectedDate,
-        mealType: selectedMealType,
-        mealId: currentMealId,
-        meal_name: recipe.title || recipe.name || "Unnamed Meal",
-        meal_type: selectedMealType,
-        macros: recipe.nutrition || {},
-        ingredients: recipe.ingredients || [],
-        instructions: recipe.instructions || "",
-        imageUrl: recipe.imageUrl || "",
-        calories: recipe.nutrition?.calories || 0
+      // Format meals for API - ONLY include the required fields
+      const mealsToSave = filteredMeals.map(meal => {
+        // Only include the bare minimum required fields
+        const cleanMeal = {
+          date: meal.date,
+          mealType: meal.mealType,
+          mealId: meal.meal?.id || meal.mealId || ""
+        };
+        
+        return cleanMeal;
       });
       
-      const saveResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-plans/save`, {
+      // Create the new meal with only the essential required fields
+      const newMeal = {
+        date: selectedDate,
+        mealType: selectedMealType,
+        mealId: currentMealId
+      };
+      
+      // Only include the required fields
+      
+      mealsToSave.push(newMeal);
+      
+      const requestData = {
+        userId: user.sub,
+        planName: planData.name,
+        meals: mealsToSave
+      };
+      
+      console.log("Sending meal plan data:", JSON.stringify(requestData, null, 2));
+      
+      console.log(`Saving meal plan to API: ${apiUrl}/api/user-plans/save`);
+      const saveResponse = await fetch(`${apiUrl}/api/user-plans/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${accessToken}`,
+          'Origin': window.location.origin
         },
-        body: JSON.stringify({
-          userId: user.sub,
-          planName: planData.name,
-          meals: mealsToSave
-        })
+        body: JSON.stringify(requestData),
+        credentials: 'include',
+        mode: 'cors'
       });
       
       if (!saveResponse.ok) {
-        const errorData = await saveResponse.json();
-        throw new Error(errorData.detail || "Failed to save meal plan");
+        // Try to get more detailed error information
+        let errorDetail = '';
+        try {
+          const errorData = await saveResponse.json();
+          errorDetail = errorData.detail || '';
+          console.error('API Error Response:', errorData);
+        } catch (parseError) {
+          console.error('Could not parse error response:', parseError);
+        }
+        
+        throw new Error(errorDetail || "Failed to save meal plan");
       }
       
       localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
@@ -241,13 +268,17 @@ export function PlannerOverlay({
           unit: ingredient.unit || ""
         }));
         
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/bulk-add`, {
+        console.log(`Adding ingredients to pantry: ${apiUrl}/api/user-pantry/bulk-add`);
+        await fetch(`${apiUrl}/api/user-pantry/bulk-add`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
+            'Authorization': `Bearer ${accessToken}`,
+            'Origin': window.location.origin
           },
-          body: JSON.stringify(ingredientsToAdd)
+          body: JSON.stringify(ingredientsToAdd),
+          credentials: 'include',
+          mode: 'cors'
         });
       }
       

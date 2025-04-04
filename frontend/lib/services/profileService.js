@@ -19,18 +19,79 @@ const getApiService = () => {
   return {
     async makeRequest(endpoint, options = {}) {
       try {
-        const response = await fetch(`${apiUrl}${endpoint}`, {
+        const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+        console.log(`ProfileService making request to: ${apiUrl}${endpoint}`);
+        console.log(`With options:`, JSON.stringify({
+          method: options.method || 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': origin,
+            ...headers
+          }
+        }, null, 2));
+        
+        // Special handling for update endpoints
+        const isUpdateEndpoint = endpoint.includes('update');
+        let requestInit = {
           ...options,
           headers: {
             'Content-Type': 'application/json',
+            'Origin': origin,
             ...headers,
             ...(options.headers || {})
           }
-        });
+        };
+        
+        let response;
+        
+        if (isUpdateEndpoint) {
+          console.log("Using special CORS configuration for update endpoint");
+          response = await fetch(`${apiUrl}${endpoint}`, {
+            ...requestInit,
+            mode: 'cors',
+            // Don't use credentials for update endpoints
+            credentials: undefined
+          });
+        } else {
+          response = await fetch(`${apiUrl}${endpoint}`, {
+            ...requestInit,
+            credentials: 'include',
+            mode: 'cors'
+          });
+        }
         
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`API error ${response.status}: ${errorText}`);
+          
+          // Try one more approach for update endpoints with CORS errors
+          if (isUpdateEndpoint && (response.status === 0 || response.status === 500)) {
+            console.log("Trying fallback approach for update endpoint");
+            
+            // Final fallback for update endpoints - simplest possible fetch
+            const fallbackResponse = await fetch(`${apiUrl}${endpoint}`, {
+              ...options,
+              headers: {
+                'Content-Type': 'application/json',
+                ...headers,
+                ...(options.headers || {})
+              }
+            });
+            
+            if (!fallbackResponse.ok) {
+              const fallbackErrorText = await fallbackResponse.text();
+              console.error(`Fallback API error ${fallbackResponse.status}: ${fallbackErrorText}`);
+              throw new Error(`API error: ${fallbackResponse.status}`);
+            }
+            
+            try {
+              return await fallbackResponse.json();
+            } catch (jsonError) {
+              console.log("Fallback response was not JSON, returning empty object");
+              return {};
+            }
+          }
+          
           throw new Error(`API error: ${response.status}`);
         }
         
@@ -305,7 +366,7 @@ export const loadDataForDate = async (date, userId) => {
         
         // Update with date's meals
         for (const mealItem of dateMeals) {
-          const { mealType, meal, meal_name } = mealItem;
+          const { mealType, meal } = mealItem;
           const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
           
           // Log full meal item for debugging
@@ -313,7 +374,7 @@ export const loadDataForDate = async (date, userId) => {
           
           if (mealIndex !== -1 && meal) {
             // Use the meal name with fallbacks
-            const mealName = meal.title || meal.name || mealItem.meal_name;
+            const mealName = meal.title || meal.name;
             console.log(`Using direct meal name for ${mealType}:`, mealName);
             
             // Update the meal

@@ -87,20 +87,21 @@ export function usePreload() {
       console.log("[usePreload] Preloading profile page data");
       
       // These APIs are needed for the profile page
-      store.preloadApiData('userProfile', `/api/user_profile/${userId}`);
-      store.preloadApiData('userMealPlans', '/api/user_plans');
+      store.preloadApiData('userProfile', `/api/user-profile/${userId}`);
+      store.preloadApiData('userMealPlans', '/api/user-plans');
       
       // This is the specific API that causes the 2-second wait
-      fetch(`/api/user_plans/active`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      fetch(`${apiUrl}/api/user-plans/user/${userId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'user-id': userId,
           'Purpose': 'prefetch'
         }
-      }).catch(err => console.warn('Prefetch of active meal plans failed silently', err));
+      }).catch(err => console.warn('Prefetch of user meal plans failed silently', err));
       
       // Also prefetch saved meals which are shown on the profile
-      fetch(`/api/user_saved_meals`, {
+      fetch(`${apiUrl}/api/user-saved-meals`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'user-id': userId,

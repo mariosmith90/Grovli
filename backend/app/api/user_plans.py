@@ -1,4 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from pymongo import MongoClient
 from typing import Dict, List, Any, Optional
 import datetime
@@ -22,8 +27,8 @@ class MealPlanItem(BaseModel):
     date: str
     mealType: str
     mealId: str
-    meal_name: Optional[str] = None
-    meal_type: Optional[str] = None
+    # Remove fields that cause validation errors
+    # meal_name: Optional[str] = None
     macros: Optional[dict] = {}
     ingredients: Optional[List[dict]] = []
     instructions: Optional[str] = ""
@@ -83,65 +88,51 @@ async def save_meal_plan(request: SaveMealPlanRequest):
         
         processed_meals = []
         for meal_item in request.meals:
-            # First try to use data from request
-            if meal_item.meal_name:
+            # Always use cache/database lookup since we removed meal_name
+            meal_cache_key = f"meal:{meal_item.mealId}"
+            cached_meal = get_cache(meal_cache_key)
+            
+            if cached_meal:
                 meal_details = {
-                    "id": meal_item.mealId,
-                    "title": meal_item.meal_name,
-                    "name": meal_item.meal_name,
-                    "meal_type": meal_item.meal_type or meal_item.mealType,
-                    "nutrition": meal_item.macros,
-                    "ingredients": meal_item.ingredients,
-                    "instructions": meal_item.instructions,
-                    "imageUrl": meal_item.imageUrl,
-                    "calories": meal_item.calories
+                    "id": cached_meal["meal_id"],
+                    "title": cached_meal.get("recipe_title") or cached_meal.get("title", "Untitled Meal"),
+                    "name": cached_meal.get("recipe_title") or cached_meal.get("title", "Untitled Meal"),
+                    "meal_type": cached_meal["meal_type"],
+                    "nutrition": cached_meal["macros"],
+                    "ingredients": cached_meal["ingredients"],
+                    "instructions": cached_meal["meal_text"],
+                    "imageUrl": cached_meal.get("imageUrl", ""),
+                    "calories": cached_meal["macros"].get("calories", 0)
                 }
             else:
-                # Fallback to cache/database lookup
-                meal_cache_key = f"meal:{meal_item.mealId}"
-                cached_meal = get_cache(meal_cache_key)
+                meal_details = None
+                saved_meal_plans = saved_meals_collection.find({})
                 
-                if cached_meal:
-                    meal_details = {
-                        "id": cached_meal["meal_id"],
-                        "title": cached_meal["meal_name"],
-                        "name": cached_meal["meal_name"],
-                        "meal_type": cached_meal["meal_type"],
-                        "nutrition": cached_meal["macros"],
-                        "ingredients": cached_meal["ingredients"],
-                        "instructions": cached_meal["meal_text"],
-                        "imageUrl": cached_meal.get("imageUrl", ""),
-                        "calories": cached_meal["macros"].get("calories", 0)
-                    }
-                else:
-                    meal_details = None
-                    saved_meal_plans = saved_meals_collection.find({})
-                    
-                    for plan in saved_meal_plans:
-                        if "recipes" in plan:
-                            for recipe in plan["recipes"]:
-                                if recipe.get("id") == meal_item.mealId:
-                                    meal_details = recipe
-                                    break
-                            if meal_details:
+                for plan in saved_meal_plans:
+                    if "recipes" in plan:
+                        for recipe in plan["recipes"]:
+                            if recipe.get("id") == meal_item.mealId:
+                                meal_details = recipe
                                 break
-                    
-                    if not meal_details:
-                        from app.api.meals import meals_collection
-                        meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
-                        if meal_doc:
-                            meal_details = {
-                                "id": meal_doc["meal_id"],
-                                "title": meal_doc["meal_name"],
-                                "name": meal_doc["meal_name"],
-                                "meal_type": meal_doc["meal_type"],
-                                "nutrition": meal_doc["macros"],
-                                "ingredients": meal_doc["ingredients"],
-                                "instructions": meal_doc["meal_text"],
-                                "imageUrl": meal_doc.get("imageUrl", ""),
-                                "calories": meal_doc["macros"].get("calories", 0)
-                            }
-                            set_cache(meal_cache_key, meal_doc, PROFILE_CACHE_TTL)
+                        if meal_details:
+                            break
+                
+                if not meal_details:
+                    from app.api.meals import meals_collection
+                    meal_doc = meals_collection.find_one({"meal_id": meal_item.mealId})
+                    if meal_doc:
+                        meal_details = {
+                            "id": meal_doc["meal_id"],
+                            "title": meal_doc.get("recipe_title") or meal_doc.get("title", "Untitled Meal"),
+                            "name": meal_doc.get("recipe_title") or meal_doc.get("title", "Untitled Meal"),
+                            "meal_type": meal_doc["meal_type"],
+                            "nutrition": meal_doc["macros"],
+                            "ingredients": meal_doc["ingredients"],
+                            "instructions": meal_doc["meal_text"],
+                            "imageUrl": meal_doc.get("imageUrl", ""),
+                            "calories": meal_doc["macros"].get("calories", 0)
+                        }
+                        set_cache(meal_cache_key, meal_doc, PROFILE_CACHE_TTL)
             
             if meal_details:
                 processed_meal = {
@@ -170,6 +161,9 @@ async def save_meal_plan(request: SaveMealPlanRequest):
         }
     
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error saving meal plan: {str(e)} - Request data: {request.dict()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save meal plan: {str(e)}"
@@ -243,7 +237,11 @@ async def get_meal_plan(plan_id: str):
 
 @router.put("/update")
 @router.post("/update")  # Support both methods
-async def update_meal_plan(request: UpdateMealPlanRequest):
+async def update_meal_plan(request: UpdateMealPlanRequest, request_raw: Request = None):
+    # Debug CORS issues
+    if request_raw:
+        logger.info(f"Request headers: {dict(request_raw.headers)}")
+        logger.info(f"Request origin: {request_raw.headers.get('origin')}")
     """Update an existing meal plan"""
     try:
         # Verify plan exists
@@ -275,8 +273,8 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
                 # Use cached meal details
                 meal_details = {
                     "id": cached_meal["meal_id"],
-                    "title": cached_meal["meal_name"],
-                    "name": cached_meal["meal_name"],
+                    "title": cached_meal.get("recipe_title") or cached_meal.get("title", "Untitled Meal"),
+                    "name": cached_meal.get("recipe_title") or cached_meal.get("title", "Untitled Meal"),
                     "meal_type": cached_meal["meal_type"],
                     "nutrition": cached_meal["macros"],
                     "ingredients": cached_meal["ingredients"],
@@ -307,8 +305,8 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
                     if meal_doc:
                         meal_details = {
                             "id": meal_doc["meal_id"],
-                            "title": meal_doc["meal_name"],
-                            "name": meal_doc["meal_name"],
+                            "title": meal_doc.get("recipe_title") or meal_doc.get("title", "Untitled Meal"),
+                            "name": meal_doc.get("recipe_title") or meal_doc.get("title", "Untitled Meal"),
                             "meal_type": meal_doc["meal_type"],
                             "nutrition": meal_doc["macros"],
                             "ingredients": meal_doc["ingredients"],
@@ -354,6 +352,7 @@ async def update_meal_plan(request: UpdateMealPlanRequest):
         return {"message": "Meal plan updated successfully"}
     
     except Exception as e:
+        logger.error(f"Error updating meal plan: {str(e)} - Request data: {request.json()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update meal plan: {str(e)}"

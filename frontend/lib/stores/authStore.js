@@ -315,19 +315,21 @@ export const useAuthStore = create(
         
         // Preload API data if authenticated - prioritizing profile data
         if (userId && token) {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+          
           // Preload profile data first - this is needed for the profile page
-          get().preloadApiData('userProfile', `/api/user_profile/${userId}`);
+          get().preloadApiData('userProfile', `${apiUrl}/api/user-profile/${userId}`);
           
           // Preload meal plans specifically to eliminate the 2-second wait
-          get().preloadApiData('userMealPlans', '/api/user_plans');
+          get().preloadApiData('userMealPlans', `${apiUrl}/api/user-plans`);
           
           // Preload additional user data needed for various pages
-          get().preloadApiData('savedRecipes', '/api/user_recipes');
-          get().preloadApiData('userPantry', '/api/user_pantry');
-          get().preloadApiData('savedMeals', '/api/user_saved_meals');
+          get().preloadApiData('savedRecipes', `${apiUrl}/api/user-recipes`);
+          get().preloadApiData('userPantry', `${apiUrl}/api/user-pantry`);
+          get().preloadApiData('savedMeals', `${apiUrl}/api/user-saved-meals`);
           
           // Fetch any active meal plans - this is what causes the 2-second wait on profile page
-          fetch(`/api/user_plans/active`, {
+          fetch(`${apiUrl}/api/user-plans/user/${userId}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'user-id': userId,

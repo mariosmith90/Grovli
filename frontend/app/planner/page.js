@@ -311,8 +311,8 @@ export default function MealPlannerCalendar() {
       
       if (mealItem.meal && typeof mealItem.meal === 'object') {
         // Get the meal name directly from the API response - use the most reliable property
-        // In order of priority: meal.title (most reliable) -> meal.name -> meal_name
-        const mealName = mealItem.meal.title || mealItem.meal.name || mealItem.meal_name;
+        // In order of priority: meal.title (most reliable) -> meal.name
+        const mealName = mealItem.meal.title || mealItem.meal.name;
         
         // Log for verification
         console.log(`Setting meal name for ${mealItem.mealType}:`, { 
@@ -336,8 +336,8 @@ export default function MealPlannerCalendar() {
         };
       } else if (mealItem.mealId) {
         // For cases where we only have an ID (should be rare)
-        const mealName = mealItem.meal_name || 
-                      mealItem.mealType.charAt(0).toUpperCase() + mealItem.mealType.slice(1) + " Meal";
+        // Create a fallback name based on meal type (e.g., "Breakfast Meal")
+        const mealName = mealItem.mealType.charAt(0).toUpperCase() + mealItem.mealType.slice(1) + " Meal";
         
         mealData = {
           id: mealItem.mealId,
