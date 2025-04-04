@@ -292,8 +292,8 @@ export const loadPlanToCalendar = async (plan, initialCompletions = {}) => {
         // Update meal plan entry with safe defaults
         updatedMealPlan[mealIndex] = {
           ...updatedMealPlan[mealIndex],
-          name: mealName || "Unnamed Meal",
-          title: mealName || "Unnamed Meal",
+          name: mealName,
+          title: mealName,
           calories: mealDetails?.nutrition?.calories || (meal && meal?.nutrition?.calories) || 0,
           protein: mealDetails?.nutrition?.protein || (meal && meal?.nutrition?.protein) || 0,
           carbs: mealDetails?.nutrition?.carbs || (meal && meal?.nutrition?.carbs) || 0,
@@ -380,8 +380,8 @@ export const loadDataForDate = async (date, userId) => {
             // Update the meal
             updatedMealPlan[mealIndex] = {
               ...updatedMealPlan[mealIndex],
-              name: mealName || "Unnamed Meal",
-              title: mealName || "Unnamed Meal",
+              name: mealName,
+              title: mealName,
               calories: meal.calories || meal.nutrition?.calories || 0,
               protein: meal.protein || meal.nutrition?.protein || 0,
               carbs: meal.carbs || meal.nutrition?.carbs || 0,
@@ -484,7 +484,7 @@ export const fetchSavedMeals = async (mealType) => {
           // Format the meal data
           const formattedMeal = {
             id: recipe.recipe_id,
-            name: mealDetails.title || recipe.title || "Unnamed Meal",
+            name: mealDetails.title || recipe.title,
             calories: mealDetails.nutrition?.calories || 0,
             protein: mealDetails.nutrition?.protein || 0,
             carbs: mealDetails.nutrition?.carbs || 0,

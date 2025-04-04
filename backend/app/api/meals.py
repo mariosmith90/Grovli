@@ -551,7 +551,7 @@ async def get_meal_by_id(meal_id: str):
             print(f"✅ Found meal in Redis cache: {cached_meal.get('meal_name')}")
             return {
                 "id": cached_meal["meal_id"],
-                "title": cached_meal.get("meal_name", "Unnamed Meal"),
+                "title": cached_meal.get("meal_name"),
                 "nutrition": cached_meal.get("macros", {}),
                 "ingredients": cached_meal.get("ingredients", []),
                 "instructions": cached_meal.get("meal_text", ""),
@@ -582,7 +582,7 @@ async def get_meal_by_id(meal_id: str):
         
         return {
             "id": meal["meal_id"],
-            "title": meal.get("meal_name", "Unnamed Meal"),
+            "title": meal.get("meal_name"),
             "nutrition": meal.get("macros", {}),
             "ingredients": meal.get("ingredients", []),
             "instructions": meal.get("meal_text", ""),

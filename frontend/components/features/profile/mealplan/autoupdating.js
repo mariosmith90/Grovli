@@ -88,8 +88,8 @@ const AutoUpdatingComponent = ({
         updatedMealPlan[dateKey][mealType] = {
           ...meal,
           // Ensure both name and title are present
-          name: meal.name || meal.title || "Unnamed Meal",
-          title: meal.title || meal.name || "Unnamed Meal"
+          name: meal.name || meal.title,
+          title: meal.title || meal.name
         };
         
         // Update through the normal plan update mechanism
