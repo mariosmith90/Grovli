@@ -2,6 +2,9 @@
 
 import { getAuthState } from './stores/authStore';
 
+// Debug flag to help trace auth issues
+const DEBUG_AUTH = true;
+
 /**
  * Class-based API service for non-hook contexts
  */
@@ -104,7 +107,18 @@ export class ApiService {
         if (!response.ok) {
           const errorBody = await response.text();
           console.error(`API error ${response.status}: ${errorBody}`);
-          throw new Error(`API error: ${response.status}`);
+          
+          // Try to parse the error as JSON to get more details
+          let errorDetail = '';
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorDetail = errorJson.detail || '';
+            console.error('Detailed API error:', errorJson);
+          } catch (e) {
+            // Not JSON, use the raw text
+          }
+          
+          throw new Error(`API error: ${response.status}${errorDetail ? ` - ${errorDetail}` : ''}`);
         }
         
         return await response.json();
@@ -138,6 +152,11 @@ export class ApiService {
 export function useApiService() {
   // Use direct state access without hooks - this is SSR safe and avoids hook rules issues
   const authState = getAuthState();
+  
+  // For debugging - add this to window for easy access
+  if (typeof window !== 'undefined') {
+    window.__authState = authState;
+  }
   
   /**
    * Makes an authenticated request to the API
@@ -260,16 +279,86 @@ export function useApiService() {
   
   /**
    * Special function specifically for the meal plan update endpoint that has CORS issues
+   * Uses PUT method instead of POST to bypass CORS errors on this specific endpoint
    * @param {Object} data - The data to send to the API
+   * @param {Object} options - Optional configuration including auth token
    * @returns {Promise<Object>} - The API response
    */
-  const updateMealPlan = async (data) => {
+  const updateMealPlan = async (data, options = {}) => {
     try {
-      // Get token and API URL
-      const token = authState.getAuthToken();
-      if (!token) {
-        console.warn("API Service: No access token available for updateMealPlan");
-        return null;
+      // Debug auth sources
+      console.log("AUTH DEBUGGING:");
+      
+      // Direct Zustand method
+      const authHeaders = authState.getAuthHeaders();
+      console.log("1. authState.getAuthHeaders():", authHeaders.Authorization ? "✓ Has token" : "✗ No token");
+      
+      // Direct token getter
+      const directToken = authState.getToken ? authState.getToken() : null;
+      console.log("2. authState.getToken():", directToken ? "✓ Has token" : "✗ No token");
+      
+      // Direct property access
+      const stateToken = authState.accessToken;
+      console.log("3. authState.accessToken:", stateToken ? "✓ Has token" : "✗ No token");
+      
+      // Browser storage (client-side only)
+      if (typeof window !== 'undefined') {
+        console.log("4. window.latestAuthToken:", window.latestAuthToken ? "✓ Has token" : "✗ No token");
+        console.log("5. window.__auth0_token:", window.__auth0_token ? "✓ Has token" : "✗ No token");
+        console.log("6. localStorage token:", localStorage.getItem('accessToken') ? "✓ Has token" : "✗ No token");
+        console.log("7. sessionStorage token:", sessionStorage.getItem('accessToken') ? "✓ Has token" : "✗ No token");
+      }
+      
+      // Check for direct token in options
+      let token;
+      let headers = {};
+      
+      // Based on debugging, localStorage is the only source with a token
+      if (typeof window !== 'undefined' && localStorage.getItem('accessToken')) {
+        console.log("Using token from localStorage");
+        token = localStorage.getItem('accessToken');
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        };
+        
+        // Get user ID from storage or option
+        if (options.userId) {
+          headers['user-id'] = options.userId;
+        } else if (typeof window !== 'undefined' && window.userId) {
+          headers['user-id'] = window.userId;
+        }
+      }
+      // Fallbacks if localStorage fails
+      else if (options.token) {
+        console.log("Using token directly passed to function");
+        token = options.token;
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        };
+        
+        if (options.userId) {
+          headers['user-id'] = options.userId;
+        }
+      } else if (authHeaders.Authorization) {
+        console.log("Using authState.getAuthHeaders() for token");
+        headers = authHeaders;
+      } else if (directToken) {
+        console.log("Using authState.getToken() for token");
+        token = directToken;
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        };
+      } else {
+        console.warn("API Service: No Authorization header available for updateMealPlan");
+        throw new Error("No authorization token available");
+      }
+      
+      // Add user ID if missing but we have it
+      if (!headers['user-id'] && authState.userId) {
+        headers['user-id'] = authState.userId;
       }
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
@@ -278,39 +367,95 @@ export function useApiService() {
       console.log("Using special updateMealPlan function with PUT method");
       console.log(`Sending data to ${apiUrl}${endpoint}`);
       
-      // Store update in localStorage in case of network failure
-      if (typeof window !== 'undefined') {
-        const pendingUpdates = JSON.parse(localStorage.getItem('pendingMealPlanUpdates') || '[]');
-        pendingUpdates.push({
-          timestamp: new Date().toISOString(),
-          data: data
+      // Clean the data to ensure it matches backend schema
+      let cleanData = {...data};
+      
+      // Fix API data to ensure it matches backend schema
+      if (cleanData.meals && Array.isArray(cleanData.meals)) {
+        console.log("Original meals data:", JSON.stringify(cleanData.meals, null, 2));
+        
+        // Clean meals - create new objects with only fields the backend expects
+        cleanData.meals = cleanData.meals.map(meal => {
+          // Explicitly check for and log if meal_type exists
+          if (meal.meal_type) {
+            console.log("WARNING: meal_type found in data and will be removed:", meal.meal_type);
+          }
+          
+          // Only include fields that match the Pydantic model - EXPLICITLY exclude meal_type
+          const cleanMeal = {
+            date: meal.date,
+            mealType: meal.mealType,
+            mealId: meal.mealId
+          };
+          
+          // Only add current_day if it exists
+          if (meal.current_day !== undefined) {
+            cleanMeal.current_day = meal.current_day;
+          }
+          
+          // Optional fields from the model
+          if (meal.macros) cleanMeal.macros = meal.macros;
+          if (meal.ingredients) cleanMeal.ingredients = meal.ingredients;
+          if (meal.instructions) cleanMeal.instructions = meal.instructions;
+          if (meal.imageUrl) cleanMeal.imageUrl = meal.imageUrl;
+          if (meal.calories) cleanMeal.calories = meal.calories;
+          
+          return cleanMeal;
         });
-        localStorage.setItem('pendingMealPlanUpdates', JSON.stringify(pendingUpdates));
-        console.log("Saved update request to localStorage as backup");
+        
+        console.log("Cleaned meals data:", JSON.stringify(cleanData.meals, null, 2));
       }
       
-      // Try using PUT method which might avoid some CORS issues
+      console.log("Final request payload:", JSON.stringify(cleanData, null, 2));
+      
+      // Final safety check - ensure there are no meal_type fields anywhere in the data
+      const serialized = JSON.stringify(cleanData);
+      if (serialized.includes('"meal_type"')) {
+        console.error("WARNING: meal_type still found in data after cleaning!");
+        
+        // Find the locations of meal_type in the serialized JSON
+        let index = serialized.indexOf('"meal_type"');
+        let locations = [];
+        while (index !== -1) {
+          // Get some context around the location
+          const start = Math.max(0, index - 50);
+          const end = Math.min(serialized.length, index + 50);
+          locations.push(`Position ${index}: ...${serialized.substring(start, end)}...`);
+          index = serialized.indexOf('"meal_type"', index + 1);
+        }
+        
+        console.error("meal_type found at these locations:", locations);
+        
+        // Remove the offending field(s) one last time
+        const fixed = serialized.replace(/"meal_type":[^,}]*,?/g, '').replace(/,}/g, '}');
+        try {
+          cleanData = JSON.parse(fixed);
+          console.log("FORCIBLY CLEANED data:", JSON.stringify(cleanData, null, 2));
+        } catch (parseError) {
+          console.error("Error parsing cleaned JSON:", parseError);
+          // If parsing fails, try a more conservative approach
+          const safeFixed = serialized.replace(/"meal_type":[^,}]*(,|(?=}))/g, '');
+          try {
+            cleanData = JSON.parse(safeFixed);
+            console.log("SAFELY CLEANED data with conservative approach:", JSON.stringify(cleanData, null, 2));
+          } catch (safeParseError) {
+            console.error("Safe parsing also failed:", safeParseError);
+            // Last resort: remove individual meal_type properties manually
+            if (cleanData.meals && Array.isArray(cleanData.meals)) {
+              cleanData.meals.forEach(meal => delete meal.meal_type);
+            }
+          }
+        }
+      }
+      
       const response = await fetch(`${apiUrl}${endpoint}`, {
-        method: 'PUT',  // Try PUT instead of POST
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(data)
+        method: 'PUT',  // Use PUT instead of POST
+        headers,
+        body: JSON.stringify(cleanData)
       });
       
       if (response.ok) {
         console.log("Update succeeded");
-        
-        // Clear this update from localStorage on success
-        if (typeof window !== 'undefined') {
-          const pendingUpdates = JSON.parse(localStorage.getItem('pendingMealPlanUpdates') || '[]');
-          // Remove the most recent update (which just succeeded)
-          if (pendingUpdates.length > 0) {
-            pendingUpdates.pop();
-            localStorage.setItem('pendingMealPlanUpdates', JSON.stringify(pendingUpdates));
-          }
-        }
         
         try {
           return await response.json();
@@ -321,11 +466,32 @@ export function useApiService() {
       } else {
         const errorText = await response.text();
         console.error(`Request failed with status ${response.status}: ${errorText}`);
-        throw new Error(`Request failed with status ${response.status}`);
+        
+        // Try to parse the error for more details
+        let detailedError = '';
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error("Parsed error:", errorJson);
+          
+          if (errorJson.detail) {
+            detailedError = errorJson.detail;
+            
+            // Special handling for meal_type errors
+            if (detailedError.includes('meal_type')) {
+              console.error("DETECTED meal_type ERROR! This should have been caught by our cleaning process.");
+              console.error("Original request data:", JSON.stringify(data, null, 2));
+              console.error("Cleaned request data:", JSON.stringify(cleanData, null, 2));
+            }
+          }
+        } catch (e) {
+          // Not JSON, use the raw error text
+          detailedError = errorText;
+        }
+        
+        throw new Error(`Request failed with status ${response.status}${detailedError ? `: ${detailedError}` : ''}`);
       }
     } catch (error) {
       console.error(`updateMealPlan failed: ${error.message}`);
-      // Don't remove from localStorage on failure - it will be retried later
       throw error;
     }
   };

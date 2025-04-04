@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from "@auth0/nextjs-auth0";
 import { toast } from 'react-hot-toast';
 import { useApiService } from '../../../../lib/api-service';
+import { useAuth } from '../../../../lib/stores/authStore';
 
 /**
  * AutoUpdatingComponent provides common functionality for meal plan auto-updating and auto-deletion
@@ -24,6 +25,12 @@ const AutoUpdatingComponent = ({
 }) => {
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const autoSaveTimeoutRef = useRef(null);
+  
+  // Get API service for special CORS-friendly update method
+  const { updateMealPlan: apiUpdateMealPlan } = useApiService();
+  
+  // Get the auth object for direct token access
+  const auth = useAuth();
 
   // Helper function to format date as YYYY-MM-DD
   const formatDateKey = (date) => {
@@ -186,8 +193,6 @@ const AutoUpdatingComponent = ({
 
   // Create or update a meal plan
   const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
-    // Get API service for special CORS-friendly update method
-    const { updateMealPlan: apiUpdateMealPlan } = useApiService();
     
     // Save the updated plan to state
     setMealPlan(updatedMealPlan);
@@ -318,6 +323,7 @@ const AutoUpdatingComponent = ({
           const cleanMeal = {
             date: meal.date,
             mealType: meal.mealType,
+            // Remove meal_type as it's not in the backend schema
             mealId: meal.mealId
           };
           
@@ -341,9 +347,31 @@ const AutoUpdatingComponent = ({
           console.log('Using updateMealPlan special function to avoid CORS issues');
           console.log('Request Data:', JSON.stringify(requestData, null, 2));
           
-          // Use our special function for update endpoint to avoid CORS issues
+          // Get a fresh token for this request
+          const token = auth.getAuthToken();
+          console.log("Direct auth status:", auth.isAuthenticated ? "Authenticated" : "Not authenticated");
+          console.log("Using token from auth:", token ? "✓ Has token" : "✗ No token");
+          
+          // Use our special function for update endpoint to avoid CORS issues with direct token passing
           try {
-            result = await apiUpdateMealPlan(requestData);
+            // Log the structure of the data being sent
+            console.log("Sending clean request data:", JSON.stringify(requestData, null, 2));
+            
+            // Final cleaning of any potential meal_type fields
+            if (requestData.meals && Array.isArray(requestData.meals)) {
+              requestData.meals = requestData.meals.map(meal => {
+                // Explicitly create fresh objects without meal_type
+                const { meal_type, ...cleanMeal } = meal;
+                
+                // Return a guaranteed clean meal object
+                return cleanMeal;
+              });
+            }
+            
+            result = await apiUpdateMealPlan(requestData, { 
+              token, 
+              userId: user?.sub
+            });
             console.log("Update successful using special update function");
           } catch (updateError) {
             console.error("Special update function failed:", updateError);

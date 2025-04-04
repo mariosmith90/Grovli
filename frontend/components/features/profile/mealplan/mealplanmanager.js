@@ -94,6 +94,7 @@ export default function MealPlanManager({
           const cleanMeal = {
             date: meal.date,
             mealType: meal.mealType,
+            // Remove meal_type field as it's not in the backend schema
             mealId: meal.mealId
           };
           

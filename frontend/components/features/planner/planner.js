@@ -203,20 +203,38 @@ export function PlannerOverlay({
       
       // Format meals for API - ONLY include the required fields
       const mealsToSave = filteredMeals.map(meal => {
-        // Only include the bare minimum required fields
+        // Only include the bare minimum required fields by creating a new object
+        // This ensures no unexpected fields are included
         const cleanMeal = {
           date: meal.date,
           mealType: meal.mealType,
           mealId: meal.meal?.id || meal.mealId || ""
         };
         
+        // Verify no meal_type was accidentally included
+        if ('meal_type' in cleanMeal) {
+          console.warn('meal_type field found in cleanMeal object and will be removed');
+          delete cleanMeal.meal_type;
+        }
+        
         return cleanMeal;
       });
+      
+      // Verify the final array doesn't contain any meal_type fields
+      const serializedMeals = JSON.stringify(mealsToSave);
+      if (serializedMeals.includes('meal_type')) {
+        console.error('meal_type still found in serialized meals, applying final cleaning');
+        // Force clean any remaining instances
+        for (let i = 0; i < mealsToSave.length; i++) {
+          delete mealsToSave[i].meal_type;
+        }
+      }
       
       // Create the new meal with only the essential required fields
       const newMeal = {
         date: selectedDate,
         mealType: selectedMealType,
+        // Remove meal_type since it's not expected by the backend schema
         mealId: currentMealId
       };
       
