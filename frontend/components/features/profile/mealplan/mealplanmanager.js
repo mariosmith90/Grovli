@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
-import { useApiService } from '../../../../lib/api-service';
+import { useApiService, apiResponseCache } from '../../../../lib/api-service';
 import { toast } from 'react-hot-toast';
 
 export default function MealPlanManager({ 
@@ -171,6 +171,10 @@ export default function MealPlanManager({
         // Update localStorage to trigger refresh in other components
         localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
         
+        // Clear API cache for user plans and meal data to ensure fresh data on next load
+        console.log("[MealPlanManager] Clearing API cache after meal plan update");
+        apiResponseCache.clear(); // Clear entire cache to ensure fresh data
+        
         // Show success message for adding/removing meals
         if (changeType === 'add') {
           toast.success("Meal added to plan");
@@ -211,6 +215,10 @@ export default function MealPlanManager({
         ...prev,
         [mealType]: completed
       }));
+      
+      // Clear cache for meal completions
+      console.log("[MealPlanManager] Clearing API cache after meal completion update");
+      apiResponseCache.clear(`/user-profile/meal-completion/${user.sub}/${getTodayDateString()}`);
       
       if (onMealCompletion) {
         onMealCompletion(mealType, completed);

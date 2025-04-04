@@ -6,6 +6,7 @@ import { useUser } from '@auth0/nextjs-auth0';
 // Import the new Zustand store instead of the old context
 import { useMealStore } from '../../lib/stores/mealStore';
 import { useAuth } from '../../lib/stores/authStore';
+import { usePreload } from '../../lib/hooks/usePreload';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,
@@ -103,6 +104,18 @@ export function BottomNavbar({ children }) {
     return pathname === path || pathname.startsWith(`${path}/`);
   };
 
+  // Import usePreload hook
+  const { profileData } = usePreload();
+  
+  // Effect to preload profile data on app startup
+  useEffect(() => {
+    if (isAuthenticated && !isLoading && user) {
+      console.log("[Navbar] User authenticated, preloading profile data");
+      // Preload profile data immediately when the navbar loads and user is authenticated
+      profileData().catch(err => console.warn("Error preloading profile data:", err));
+    }
+  }, [isAuthenticated, isLoading, user, profileData]);
+  
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.numDays = numDays;

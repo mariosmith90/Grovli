@@ -229,6 +229,21 @@ export const usePreloadStore = create(
           get().preloadApiData('userPantry', '/api/user_pantry', {
             headers: { 'Authorization': `Bearer ${authToken}` }
           });
+          
+          // Import the usePreload hook to access the enhanced profile data preloading
+          // This special import is needed to avoid circular dependencies
+          import('../../hooks/usePreload').then(module => {
+            const { usePreload } = module;
+            const preloadHook = usePreload();
+            
+            // Trigger enhanced profile data preloading which includes meal details
+            console.log("[preloadStore] Triggering enhanced profile data preload");
+            preloadHook.profileData().catch(err => 
+              console.warn("[preloadStore] Error in enhanced profile preloading:", err)
+            );
+          }).catch(err => 
+            console.warn("[preloadStore] Could not import usePreload:", err)
+          );
         }
         
         // Mark preloading as complete

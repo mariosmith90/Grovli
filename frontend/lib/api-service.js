@@ -2,6 +2,41 @@
 
 import { getAuthState } from './stores/authStore';
 
+// API Response Cache - improves performance for profile page preloading
+export const apiResponseCache = {
+  cache: new Map(),
+  MAX_AGE: 5 * 60 * 1000, // 5 minutes in milliseconds
+  
+  set: (key, data) => {
+    apiResponseCache.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  },
+  
+  get: (key) => {
+    const item = apiResponseCache.cache.get(key);
+    if (!item) return null;
+    
+    // Check if cache entry is still valid
+    if (Date.now() - item.timestamp > apiResponseCache.MAX_AGE) {
+      apiResponseCache.cache.delete(key);
+      return null;
+    }
+    
+    return item.data;
+  },
+  
+  // Clear specific item or the entire cache
+  clear: (key) => {
+    if (key) {
+      apiResponseCache.cache.delete(key);
+    } else {
+      apiResponseCache.cache.clear();
+    }
+  }
+};
+
 // Debug flag to help trace auth issues
 const DEBUG_AUTH = true;
 
@@ -50,6 +85,25 @@ export class ApiService {
   
   // Static method that doesn't require instantiation
   static async makeAuthenticatedRequest(endpoint, options = {}) {
+    // Check if we should use caching (GET requests only, non-update endpoints)
+    const isGetRequest = !options.method || options.method === 'GET';
+    const isUpdateEndpoint = endpoint.includes('update');
+    const isPrefetch = options.headers?.Purpose === 'prefetch';
+    const canUseCache = isGetRequest && !isUpdateEndpoint;
+      
+    // Create cache key based on endpoint and relevant options
+    const cacheKey = canUseCache ? 
+      `${endpoint}${options.body ? `-${JSON.stringify(options.body)}` : ''}` : null;
+      
+    // For GET requests that can be cached, check cache first
+    if (canUseCache && cacheKey) {
+      const cachedData = apiResponseCache.get(cacheKey);
+      if (cachedData) {
+        console.log(`[API Service Static] Using cached data for: ${endpoint}`);
+        return cachedData;
+      }
+    }
+    
     // Get auth state directly (works in both client and server contexts)
     const authState = getAuthState();
     const token = authState.getAuthToken();
@@ -73,6 +127,7 @@ export class ApiService {
       }, null, 2));
       console.log(`Request method: ${options.method || 'GET'}`);
       console.log(`Request body: ${options.body ? options.body.substring(0, 200) + '...' : 'none'}`);
+      console.log(`Cache status: ${canUseCache ? 'Cacheable' : 'Not cacheable'}`);
       
       // Try different CORS approaches based on the endpoint and method
       // Some endpoints might work better with different CORS configs
@@ -121,7 +176,8 @@ export class ApiService {
           throw new Error(`API error: ${response.status}${errorDetail ? ` - ${errorDetail}` : ''}`);
         }
         
-        return await response.json();
+        const data = await response.json();
+        return data;
       }
       
       // For non-update endpoints, use standard CORS config
@@ -137,7 +193,15 @@ export class ApiService {
         throw new Error(`API error: ${response.status}`);
       }
       
-      return await response.json();
+      const data = await response.json();
+      
+      // Cache the response for GET requests if it's cacheable
+      if (canUseCache && cacheKey && data) {
+        console.log(`[API Service Static] Caching data for: ${endpoint}`);
+        apiResponseCache.set(cacheKey, data);
+      }
+      
+      return data;
     } catch (error) {
       console.error(`API request failed: ${error.message}`);
       throw error;
@@ -166,6 +230,25 @@ export function useApiService() {
    */
   const makeAuthenticatedRequest = async (endpoint, options = {}) => {
     try {
+      // Check if we should use caching (GET requests only, non-update endpoints)
+      const isGetRequest = !options.method || options.method === 'GET';
+      const isUpdateEndpoint = endpoint.includes('update');
+      const isPrefetch = options.headers?.Purpose === 'prefetch';
+      const canUseCache = isGetRequest && !isUpdateEndpoint;
+      
+      // Create cache key based on endpoint and relevant options
+      const cacheKey = canUseCache ? 
+        `${endpoint}${options.body ? `-${JSON.stringify(options.body)}` : ''}` : null;
+      
+      // For GET requests that can be cached, check cache first
+      if (canUseCache && cacheKey) {
+        const cachedData = apiResponseCache.get(cacheKey);
+        if (cachedData) {
+          console.log(`[API Service] Using cached data for: ${endpoint}`);
+          return cachedData;
+        }
+      }
+      
       // Get token from Zustand store
       const token = authState.getAuthToken();
       
@@ -192,9 +275,9 @@ export function useApiService() {
       }, null, 2));
       console.log(`Request method: ${options.method || 'GET'}`);
       console.log(`Request body: ${options.body ? options.body.substring(0, 200) + '...' : 'none'}`);
+      console.log(`Cache status: ${canUseCache ? 'Cacheable' : 'Not cacheable'}`);
       
       // Enhanced logic for CORS handling
-      const isUpdateEndpoint = endpoint.includes('update');
       const requestInit = {
         ...options,
         headers: {
@@ -265,7 +348,34 @@ export function useApiService() {
       }
       
       try {
-        return await response.json();
+        const data = await response.json();
+        
+        // Cache the response for GET requests if it's cacheable
+        if (canUseCache && cacheKey && data) {
+          console.log(`[API Service] Caching data for: ${endpoint}`);
+          apiResponseCache.set(cacheKey, data);
+          
+          // Special handling for profile-related data - cache with additional keys
+          if (endpoint.includes('/user-plans/') || 
+              endpoint.includes('/mealplan/') || 
+              endpoint.includes('/user-profile/')) {
+            console.log(`[API Service] Adding this data to preload cache`);
+            
+            // Mark this data as preloaded if it was a prefetch request
+            if (isPrefetch) {
+              // Store in sessionStorage that this was preloaded
+              if (typeof window !== 'undefined') {
+                const preloadedEndpoints = JSON.parse(sessionStorage.getItem('preloadedEndpoints') || '[]');
+                if (!preloadedEndpoints.includes(endpoint)) {
+                  preloadedEndpoints.push(endpoint);
+                  sessionStorage.setItem('preloadedEndpoints', JSON.stringify(preloadedEndpoints));
+                }
+              }
+            }
+          }
+        }
+        
+        return data;
       } catch (jsonError) {
         // Handle non-JSON responses
         console.log("API Service: Response was not JSON, returning empty object");
