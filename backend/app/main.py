@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # Configure CORS
+# When using credentials, we can't use a wildcard '*' for allow_origins
+# Instead, explicitly list all allowed origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://grovli.citigrove.com", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
