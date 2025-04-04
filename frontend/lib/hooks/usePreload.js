@@ -77,14 +77,14 @@ export function usePreload() {
       store.preloadApiData(dataKey, apiEndpoint, options);
     },
     
-    // Enhanced profileData preload - preloads profile page and all meal details
+    // Enhanced profileData preload - now uses server-side Redis caching
     profileData: async () => {
       const userId = store.userId;
       const token = store.getToken();
       
       if (!userId || !token) return;
       
-      console.log("[usePreload] Preloading profile page data with enhanced meal details");
+      console.log("[usePreload] Preloading profile page data with Redis cache");
       
       // Check if we already have a valid cached version first
       if (typeof window !== 'undefined') {
@@ -113,182 +113,58 @@ export function usePreload() {
         localStorage.setItem('grovli_profile_preload_timestamp', now.toString());
       }
       
-      // These APIs are needed for the profile page
-      store.preloadApiData('userProfile', `/api/user-profile/${userId}`);
-      store.preloadApiData('userMealPlans', '/api/user-plans');
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      
       try {
-        // Verify token is still valid before making requests
-        if (!token || token === 'undefined' || token === 'null') {
-          console.warn("[usePreload] Token is invalid or missing, aborting preload");
+        // Import the API service
+        let apiService;
+        try {
+          // Dynamic import to avoid circular dependency
+          const { useApiService } = await import('../api-service');
+          apiService = useApiService();
+        } catch (importError) {
+          console.error('[usePreload] Failed to import API service:', importError);
           return;
         }
         
-        // Double-check localStorage for most current token (production fallback)
-        let currentToken = token;
-        if (typeof window !== 'undefined') {
-          const localToken = localStorage.getItem('accessToken');
-          if (localToken && localToken !== 'undefined' && localToken !== 'null') {
-            currentToken = localToken;
-            console.log("[usePreload] Using token from localStorage for preload");
-          }
-        }
-        
-        // 1. Fetch user plans first - this is the API that causes the 2-second wait
-        console.log("[usePreload] Fetching user meal plans");
-        const userPlansResponse = await fetch(`${apiUrl}/api/user-plans/user/${userId}`, {
-          headers: {
-            'Authorization': `Bearer ${currentToken}`,
-            'user-id': userId,
-            'Purpose': 'prefetch'
-          },
-          credentials: 'include'
+        // Call the prefetch endpoint - this will trigger server-side Redis caching
+        console.log('[usePreload] Calling server-side prefetch endpoint');
+        const prefetchResponse = await apiService.prefetchProfileData({
+          include_meals: true,
+          include_saved_meals: true,
+          include_meal_completions: true,
+          include_settings: true,
+          include_pantry: false
         });
         
-        if (!userPlansResponse.ok) {
-          throw new Error(`Failed to prefetch user plans: ${userPlansResponse.status}`);
+        console.log(`[usePreload] Server prefetch initiated with status: ${prefetchResponse.status}`);
+        
+        // Also trigger client-side preloads in parallel to populate browser-side caches
+        store.preloadApiData('userProfile', `/api/user-profile/${userId}`);
+        store.preloadApiData('userMealPlans', '/api/user-plans');
+        
+        // Wait a short time and check if the prefetch is complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        try {
+          const statusResponse = await apiService.checkPrefetchStatus();
+          console.log(`[usePreload] Prefetch status check: ${statusResponse.status}`);
+          
+          if (statusResponse.status === "complete") {
+            console.log('[usePreload] Prefetch completed successfully');
+            return true;
+          } else if (statusResponse.status === "processing") {
+            console.log('[usePreload] Prefetch still processing, will be ready soon');
+            return true;
+          } else {
+            console.warn(`[usePreload] Prefetch status issue: ${statusResponse.message}`);
+          }
+        } catch (statusError) {
+          console.warn('[usePreload] Error checking prefetch status:', statusError);
         }
         
-        // 2. Extract plan data and process it
-        const plans = await userPlansResponse.json();
-        console.log(`[usePreload] Successfully prefetched ${plans.length} user plans`);
-        
-        // 3. Find the most recent plan to preload its meals
-        if (Array.isArray(plans) && plans.length > 0) {
-          // Sort plans by updated_at to get the latest one
-          const sortedPlans = [...plans].sort((a, b) => 
-            new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
-          );
-          
-          const latestPlan = sortedPlans[0];
-          console.log(`[usePreload] Found latest plan ID: ${latestPlan.id}`);
-          
-          // 4. Preload the individual meal details that would normally be fetched when navigating to profile
-          if (latestPlan.meals && Array.isArray(latestPlan.meals)) {
-            // Get today's date
-            const today = new Date().toISOString().split('T')[0];
-            
-            // Filter to today's meals
-            const todaysMeals = latestPlan.meals.filter(meal => 
-              meal.date === today && meal.meal && (meal.meal.recipe_id || meal.meal.id)
-            );
-            
-            console.log(`[usePreload] Preloading details for ${todaysMeals.length} meals for today`);
-            
-            // Prefetch meal details in parallel
-            const mealDetailPromises = todaysMeals.map(mealItem => {
-              const recipeId = mealItem.meal.recipe_id || mealItem.meal.id;
-              
-              if (!recipeId) {
-                console.warn(`[usePreload] Missing recipe ID for meal type: ${mealItem.mealType}`);
-                return Promise.resolve();
-              }
-              
-              console.log(`[usePreload] Prefetching meal details for ${mealItem.mealType}, ID: ${recipeId}`);
-              
-              // This endpoint is called by loadPlanToCalendar in profileService.js
-              return fetch(`${apiUrl}/mealplan/${recipeId}`, {
-                headers: {
-                  'Authorization': `Bearer ${currentToken}`,
-                  'user-id': userId,
-                  'Purpose': 'prefetch'
-                },
-                credentials: 'include'
-              })
-              .then(response => {
-                if (response.ok) {
-                  console.log(`[usePreload] Successfully prefetched meal details for ${mealItem.mealType}`);
-                } else {
-                  console.warn(`[usePreload] Failed to prefetch meal details for ${mealItem.mealType}`);
-                }
-              })
-              .catch(err => console.warn(`[usePreload] Prefetch of meal details failed for ${mealItem.mealType}`, err));
-            });
-            
-            // Wait for all meal details to be prefetched
-            await Promise.all(mealDetailPromises);
-            console.log("[usePreload] Completed prefetching all meal details");
-          }
-        }
-        
-        // 5. Also prefetch saved meals which are shown on the profile page
-        console.log("[usePreload] Prefetching saved meals");
-        fetch(`${apiUrl}/api/user-saved-meals`, {
-          headers: {
-            'Authorization': `Bearer ${currentToken}`,
-            'user-id': userId,
-            'Purpose': 'prefetch'
-          },
-          credentials: 'include'
-        })
-        .then(response => {
-          if (response.ok) {
-            console.log("[usePreload] Successfully prefetched saved meals");
-            return response.json();
-          }
-          throw new Error(`Failed to prefetch saved meals: ${response.status}`);
-        })
-        .then(savedMeals => {
-          if (Array.isArray(savedMeals) && savedMeals.length > 0) {
-            console.log(`[usePreload] Prefetched ${savedMeals.length} saved meal plans`);
-            
-            // Prefetch details for each saved meal recipe
-            const allRecipes = [];
-            savedMeals.forEach(plan => {
-              if (plan.recipes && Array.isArray(plan.recipes)) {
-                plan.recipes.forEach(recipe => {
-                  if (recipe.recipe_id) {
-                    allRecipes.push(recipe.recipe_id);
-                  }
-                });
-              }
-            });
-            
-            // Limit to a reasonable number to avoid too many parallel requests
-            const recipesToPreload = [...new Set(allRecipes)].slice(0, 10);
-            console.log(`[usePreload] Prefetching details for ${recipesToPreload.length} saved meal recipes`);
-            
-            recipesToPreload.forEach(recipeId => {
-              fetch(`${apiUrl}/mealplan/${recipeId}`, {
-                headers: {
-                  'Authorization': `Bearer ${currentToken}`,
-                  'user-id': userId,
-                  'Purpose': 'prefetch'
-                },
-                credentials: 'include'
-              }).catch(err => console.warn(`Prefetch of saved meal recipe ${recipeId} failed silently`, err));
-            });
-          }
-        })
-        .catch(err => console.warn('Prefetch of saved meals failed silently', err));
-        
-        // 6. Prefetch user meal completions for today
-        console.log("[usePreload] Prefetching meal completions");
-        const today = new Date().toISOString().split('T')[0];
-        fetch(`${apiUrl}/user-profile/meal-completion/${userId}/${today}`, {
-          headers: {
-            'Authorization': `Bearer ${currentToken}`,
-            'user-id': userId,
-            'Purpose': 'prefetch'
-          },
-          credentials: 'include'
-        }).catch(err => console.warn('Prefetch of meal completions failed silently', err));
-        
-        // 7. Prefetch user settings
-        console.log("[usePreload] Prefetching user settings");
-        fetch(`${apiUrl}/user-settings/${userId}`, {
-          headers: {
-            'Authorization': `Bearer ${currentToken}`,
-            'user-id': userId,
-            'Purpose': 'prefetch'
-          },
-          credentials: 'include'
-        }).catch(err => console.warn('Prefetch of user settings failed silently', err));
-        
+        return true;
       } catch (error) {
-        console.warn('Profile data prefetch failed:', error);
+        console.warn('[usePreload] Profile data prefetch failed:', error);
+        return false;
       }
     },
     

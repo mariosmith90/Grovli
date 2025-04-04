@@ -30,6 +30,7 @@ MEAL_CACHE_TTL = 86400  # 24 hours
 PROFILE_CACHE_TTL = 3600 * 24 * 7  # 1 week
 USDA_CACHE_TTL = 3600 * 24 * 30  # 30 days
 AUTH_CACHE_TTL = 300  # 5 minutes
+PREFETCH_CACHE_TTL = 1800  # 30 minutes - shorter TTL for prefetched data
 
 def get_cache(key: str) -> Optional[Any]:
     """Get a value from Redis cache, handling serialization."""

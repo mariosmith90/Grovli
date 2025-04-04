@@ -761,8 +761,124 @@ export function useApiService() {
     }
   };
   
+  /**
+   * Prefetch profile data via the backend Redis cache system
+   * This is more efficient than client-side preloading since it:
+   * 1. Uses a persistent Redis cache on the server
+   * 2. Can prefetch multiple related items in a single request
+   * 3. Allows optimized background loading without affecting client performance
+   * 
+   * @param {Object} options - Optional settings for what to prefetch
+   * @returns {Promise<Object>} - Response from the prefetch endpoint
+   */
+  const prefetchProfileData = async (options = {}) => {
+    try {
+      const userId = authState.userId;
+      const token = authState.getAuthToken();
+      
+      if (!userId || !token) {
+        console.warn("API Service: No user ID or token available for prefetch");
+        return { status: "error", message: "Authentication required" };
+      }
+      
+      // Default prefetch options
+      const prefetchOptions = {
+        include_meals: true,
+        include_saved_meals: true,
+        include_meal_completions: true,
+        include_settings: true,
+        include_pantry: false,
+        ...options
+      };
+      
+      console.log(`[API Service] Prefetching profile data for user ${userId}`);
+      
+      // Call the prefetch endpoint
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const response = await fetch(`${apiUrl}/user-profile/prefetch/${userId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'user-id': userId
+        },
+        body: JSON.stringify(prefetchOptions),
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`[API Service] Prefetch failed: ${error}`);
+        return { 
+          status: "error", 
+          message: `Failed to prefetch: ${response.status}` 
+        };
+      }
+      
+      // Get the response
+      const result = await response.json();
+      console.log(`[API Service] Prefetch initiated: ${result.status}`);
+      
+      return result;
+    } catch (error) {
+      console.error(`[API Service] Prefetch error: ${error.message}`);
+      return { 
+        status: "error", 
+        message: `Error during prefetch: ${error.message}` 
+      };
+    }
+  };
+  
+  /**
+   * Check the status of a previously initiated prefetch operation
+   * @param {string} userId - The user ID to check prefetch status for
+   * @returns {Promise<Object>} - Status response
+   */
+  const checkPrefetchStatus = async () => {
+    try {
+      const userId = authState.userId;
+      const token = authState.getAuthToken();
+      
+      if (!userId || !token) {
+        console.warn("API Service: No user ID or token available for prefetch status check");
+        return { status: "error", message: "Authentication required" };
+      }
+      
+      // Call the prefetch status endpoint
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const response = await fetch(`${apiUrl}/user-profile/prefetch-status/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'user-id': userId
+        },
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`[API Service] Prefetch status check failed: ${error}`);
+        return { 
+          status: "error", 
+          message: `Failed to check prefetch status: ${response.status}` 
+        };
+      }
+      
+      // Get the response
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error(`[API Service] Prefetch status check error: ${error.message}`);
+      return { 
+        status: "error", 
+        message: `Error checking prefetch status: ${error.message}` 
+      };
+    }
+  };
+
   return { 
     makeAuthenticatedRequest,
-    updateMealPlan
+    updateMealPlan,
+    prefetchProfileData,
+    checkPrefetchStatus
   };
 }
