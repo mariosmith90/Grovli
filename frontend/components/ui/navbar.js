@@ -7,6 +7,7 @@ import { useUser } from '@auth0/nextjs-auth0';
 import { useMealStore } from '../../lib/stores/mealStore';
 import { useAuth } from '../../lib/stores/authStore';
 import { usePreload } from '../../lib/hooks/usePreload';
+import { apiResponseCache } from '../../lib/api-service';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,
@@ -107,12 +108,47 @@ export function BottomNavbar({ children }) {
   // Import usePreload hook
   const { profileData } = usePreload();
   
-  // Effect to preload profile data on app startup
+  // Initialize browser cache and preload profile data on app startup
   useEffect(() => {
+    // First initialize the browser cache system
+    if (typeof window !== 'undefined') {
+      console.log("[Navbar] Initializing browser cache system");
+      apiResponseCache.init();
+    }
+    
+    // Then preload profile data if user is authenticated
     if (isAuthenticated && !isLoading && user) {
       console.log("[Navbar] User authenticated, preloading profile data");
-      // Preload profile data immediately when the navbar loads and user is authenticated
-      profileData().catch(err => console.warn("Error preloading profile data:", err));
+      
+      // Use a short timeout to ensure cache is initialized first
+      // This also helps with potential race conditions during app startup
+      setTimeout(() => {
+        // Preload profile data immediately when the navbar loads and user is authenticated
+        profileData().catch(err => console.warn("Error preloading profile data:", err));
+      }, 100);
+      
+      // Set up visibility listener to preload when user returns to the tab
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          console.log("[Navbar] Document became visible, checking if preload needed");
+          
+          // Check when we last preloaded
+          const preloadTimestamp = localStorage.getItem('grovli_profile_preload_timestamp');
+          const now = Date.now();
+          
+          // If it's been more than 10 minutes since last preload, do it again
+          if (!preloadTimestamp || (now - parseInt(preloadTimestamp, 10) > 10 * 60 * 1000)) {
+            console.log("[Navbar] Tab became active after 10+ min, triggering preload");
+            profileData().catch(err => console.warn("Error preloading profile data on visibility change:", err));
+          }
+        }
+      };
+      
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     }
   }, [isAuthenticated, isLoading, user, profileData]);
   

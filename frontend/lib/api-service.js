@@ -2,37 +2,192 @@
 
 import { getAuthState } from './stores/authStore';
 
-// API Response Cache - improves performance for profile page preloading
+// Browser-based API Response Cache - improves performance for profile page preloading
+// and works reliably in production environments
 export const apiResponseCache = {
-  cache: new Map(),
+  CACHE_PREFIX: 'grovli_api_cache_',
   MAX_AGE: 5 * 60 * 1000, // 5 minutes in milliseconds
   
   set: (key, data) => {
-    apiResponseCache.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
+    if (typeof window === 'undefined') return; // Only run in browser
+    
+    try {
+      // Normalize API URL in key to prevent issues with production/staging environment differences
+      let normalizedKey = key;
+      
+      // Check if key starts with an absolute URL, and normalize it to just the path
+      if (key.startsWith('http://') || key.startsWith('https://')) {
+        try {
+          const url = new URL(key);
+          normalizedKey = url.pathname + url.search + url.hash;
+          console.log(`[BrowserCache] Normalized key from ${key} to ${normalizedKey}`);
+        } catch (e) {
+          // If parsing fails, use original key
+          console.warn(`[BrowserCache] Failed to normalize URL key: ${key}`);
+        }
+      }
+      
+      const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
+      const cacheEntry = {
+        data,
+        timestamp: Date.now()
+      };
+      
+      // Use localStorage for persistent caching
+      localStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+      
+      // Also keep track of all cache keys for easy clearing
+      const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+      if (!cacheKeys.includes(normalizedKey)) {
+        cacheKeys.push(normalizedKey);
+        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(cacheKeys));
+      }
+      
+      console.log(`[BrowserCache] Cached data for: ${normalizedKey}`);
+    } catch (error) {
+      // Handle quota exceeded or other storage errors
+      console.warn(`[BrowserCache] Failed to cache data for ${key}:`, error);
+    }
   },
   
   get: (key) => {
-    const item = apiResponseCache.cache.get(key);
-    if (!item) return null;
+    if (typeof window === 'undefined') return null; // Only run in browser
     
-    // Check if cache entry is still valid
-    if (Date.now() - item.timestamp > apiResponseCache.MAX_AGE) {
-      apiResponseCache.cache.delete(key);
+    try {
+      // Normalize API URL in key to prevent issues with production/staging environment differences
+      let normalizedKey = key;
+      
+      // Check if key starts with an absolute URL, and normalize it to just the path
+      if (key.startsWith('http://') || key.startsWith('https://')) {
+        try {
+          const url = new URL(key);
+          normalizedKey = url.pathname + url.search + url.hash;
+        } catch (e) {
+          // If parsing fails, use original key
+          console.warn(`[BrowserCache] Failed to normalize URL key: ${key}`);
+        }
+      }
+      
+      const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
+      const cachedItem = localStorage.getItem(cacheKey);
+      
+      if (!cachedItem) return null;
+      
+      const item = JSON.parse(cachedItem);
+      
+      // Check if cache entry is still valid
+      if (Date.now() - item.timestamp > apiResponseCache.MAX_AGE) {
+        // Clear expired item
+        localStorage.removeItem(cacheKey);
+        
+        // Update keys list
+        const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+        const updatedKeys = cacheKeys.filter(k => k !== normalizedKey);
+        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(updatedKeys));
+        
+        return null;
+      }
+      
+      console.log(`[BrowserCache] Using cached data for: ${normalizedKey}`);
+      return item.data;
+    } catch (error) {
+      console.warn(`[BrowserCache] Error retrieving cached data for ${key}:`, error);
       return null;
     }
-    
-    return item.data;
   },
   
   // Clear specific item or the entire cache
   clear: (key) => {
-    if (key) {
-      apiResponseCache.cache.delete(key);
-    } else {
-      apiResponseCache.cache.clear();
+    if (typeof window === 'undefined') return; // Only run in browser
+    
+    try {
+      if (key) {
+        // Normalize API URL in key to prevent issues with production/staging environment differences
+        let normalizedKey = key;
+        
+        // Check if key starts with an absolute URL, and normalize it to just the path
+        if (key.startsWith('http://') || key.startsWith('https://')) {
+          try {
+            const url = new URL(key);
+            normalizedKey = url.pathname + url.search + url.hash;
+          } catch (e) {
+            // If parsing fails, use original key
+            console.warn(`[BrowserCache] Failed to normalize URL key: ${key}`);
+          }
+        }
+        
+        // Clear specific item
+        const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
+        localStorage.removeItem(cacheKey);
+        
+        // Update keys list
+        const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+        const updatedKeys = cacheKeys.filter(k => k !== normalizedKey);
+        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(updatedKeys));
+        
+        console.log(`[BrowserCache] Cleared cache for: ${normalizedKey}`);
+      } else {
+        // Clear all cache items
+        const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+        
+        // Remove all cache entries
+        cacheKeys.forEach(k => {
+          localStorage.removeItem(apiResponseCache.CACHE_PREFIX + k);
+        });
+        
+        // Clear keys list
+        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, '[]');
+        
+        console.log(`[BrowserCache] Cleared entire cache (${cacheKeys.length} items)`);
+      }
+    } catch (error) {
+      console.warn(`[BrowserCache] Error clearing cache:`, error);
+    }
+  },
+  
+  // Initialize cache and clean up expired items
+  init: () => {
+    if (typeof window === 'undefined') return; // Only run in browser
+    
+    try {
+      // Get all cache keys
+      const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+      const now = Date.now();
+      const expiredKeys = [];
+      
+      // Check each cache item for expiration
+      cacheKeys.forEach(key => {
+        const cacheKey = apiResponseCache.CACHE_PREFIX + key;
+        try {
+          const cachedItem = localStorage.getItem(cacheKey);
+          if (cachedItem) {
+            const item = JSON.parse(cachedItem);
+            if (now - item.timestamp > apiResponseCache.MAX_AGE) {
+              // Mark as expired
+              expiredKeys.push(key);
+              localStorage.removeItem(cacheKey);
+            }
+          } else {
+            // Key doesn't exist anymore
+            expiredKeys.push(key);
+          }
+        } catch (e) {
+          // Invalid JSON or other error
+          expiredKeys.push(key);
+          localStorage.removeItem(cacheKey);
+        }
+      });
+      
+      // Update keys list
+      if (expiredKeys.length > 0) {
+        const validKeys = cacheKeys.filter(k => !expiredKeys.includes(k));
+        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(validKeys));
+        console.log(`[BrowserCache] Cleared ${expiredKeys.length} expired items`);
+      }
+      
+      console.log(`[BrowserCache] Initialized with ${cacheKeys.length - expiredKeys.length} valid items`);
+    } catch (error) {
+      console.warn(`[BrowserCache] Error initializing cache:`, error);
     }
   }
 };

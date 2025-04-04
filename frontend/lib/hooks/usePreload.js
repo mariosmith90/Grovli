@@ -86,6 +86,33 @@ export function usePreload() {
       
       console.log("[usePreload] Preloading profile page data with enhanced meal details");
       
+      // Check if we already have a valid cached version first
+      if (typeof window !== 'undefined') {
+        const preloadTimestamp = localStorage.getItem('grovli_profile_preload_timestamp');
+        const pageLoadTimestamp = sessionStorage.getItem('grovli_page_load_timestamp');
+        const now = Date.now();
+        
+        // Detect page reload by comparing sessionStorage timestamp with current time
+        // SessionStorage is cleared on page reload, so if it's missing or recent, it's a fresh page load
+        const isPageReload = !pageLoadTimestamp || (now - parseInt(pageLoadTimestamp, 10) < 2000);
+        
+        // Update page load timestamp for future reference
+        sessionStorage.setItem('grovli_page_load_timestamp', now.toString());
+        
+        // If page was reloaded, force a fresh preload regardless of timestamp
+        if (isPageReload) {
+          console.log("[usePreload] Page reload detected, forcing fresh preload");
+        }
+        // If it wasn't a reload and we've preloaded within the last 5 minutes, use cached data
+        else if (preloadTimestamp && (now - parseInt(preloadTimestamp, 10)) < 5 * 60 * 1000) {
+          console.log("[usePreload] Using recently preloaded profile data (< 5 minutes ago)");
+          return;
+        }
+        
+        // Set timestamp to indicate we're preloading now
+        localStorage.setItem('grovli_profile_preload_timestamp', now.toString());
+      }
+      
       // These APIs are needed for the profile page
       store.preloadApiData('userProfile', `/api/user-profile/${userId}`);
       store.preloadApiData('userMealPlans', '/api/user-plans');
@@ -93,11 +120,27 @@ export function usePreload() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       
       try {
+        // Verify token is still valid before making requests
+        if (!token || token === 'undefined' || token === 'null') {
+          console.warn("[usePreload] Token is invalid or missing, aborting preload");
+          return;
+        }
+        
+        // Double-check localStorage for most current token (production fallback)
+        let currentToken = token;
+        if (typeof window !== 'undefined') {
+          const localToken = localStorage.getItem('accessToken');
+          if (localToken && localToken !== 'undefined' && localToken !== 'null') {
+            currentToken = localToken;
+            console.log("[usePreload] Using token from localStorage for preload");
+          }
+        }
+        
         // 1. Fetch user plans first - this is the API that causes the 2-second wait
         console.log("[usePreload] Fetching user meal plans");
         const userPlansResponse = await fetch(`${apiUrl}/api/user-plans/user/${userId}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${currentToken}`,
             'user-id': userId,
             'Purpose': 'prefetch'
           },
@@ -148,7 +191,7 @@ export function usePreload() {
               // This endpoint is called by loadPlanToCalendar in profileService.js
               return fetch(`${apiUrl}/mealplan/${recipeId}`, {
                 headers: {
-                  'Authorization': `Bearer ${token}`,
+                  'Authorization': `Bearer ${currentToken}`,
                   'user-id': userId,
                   'Purpose': 'prefetch'
                 },
@@ -174,7 +217,7 @@ export function usePreload() {
         console.log("[usePreload] Prefetching saved meals");
         fetch(`${apiUrl}/api/user-saved-meals`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${currentToken}`,
             'user-id': userId,
             'Purpose': 'prefetch'
           },
@@ -210,7 +253,7 @@ export function usePreload() {
             recipesToPreload.forEach(recipeId => {
               fetch(`${apiUrl}/mealplan/${recipeId}`, {
                 headers: {
-                  'Authorization': `Bearer ${token}`,
+                  'Authorization': `Bearer ${currentToken}`,
                   'user-id': userId,
                   'Purpose': 'prefetch'
                 },
@@ -226,7 +269,7 @@ export function usePreload() {
         const today = new Date().toISOString().split('T')[0];
         fetch(`${apiUrl}/user-profile/meal-completion/${userId}/${today}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${currentToken}`,
             'user-id': userId,
             'Purpose': 'prefetch'
           },
@@ -237,7 +280,7 @@ export function usePreload() {
         console.log("[usePreload] Prefetching user settings");
         fetch(`${apiUrl}/user-settings/${userId}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${currentToken}`,
             'user-id': userId,
             'Purpose': 'prefetch'
           },
