@@ -35,6 +35,7 @@ export default function ProfilePage() {
     completedMeals,
     calorieData,
     globalSettings,
+    savedMeals,
     
     // Actions
     handleDateChange,
@@ -180,6 +181,7 @@ export default function ProfilePage() {
               onSelectMeal={handleSelectSavedMeal}
               isLoading={isLoadingSavedMeals}
               handleCreateNewMeals={handleCreateNewMeals}
+              savedMeals={savedMeals}
             />
           </section>
         )}
@@ -195,6 +197,7 @@ export default function ProfilePage() {
     completedMeals,
     selectedMealType,
     isLoadingSavedMeals,
+    savedMeals,
     calorieData,
     globalSettings,
     handleDateChange,

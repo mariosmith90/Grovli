@@ -336,6 +336,7 @@ export function useProfileActions() {
     nextMeal,
     currentMealIndex,
     completedMeals,
+    savedMeals: useProfileStore(state => state.savedMeals),
     calorieData: useProfileStore(state => state.calorieData),
     globalSettings: useProfileStore(state => state.globalSettings),
     

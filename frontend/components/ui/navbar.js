@@ -105,8 +105,8 @@ export function BottomNavbar({ children }) {
     return pathname === path || pathname.startsWith(`${path}/`);
   };
 
-  // Import usePreload hook
-  const { profileData } = usePreload();
+  // Import usePreload hook with all preload functions
+  const { profileData, pantryData, mealsData, plannerData, initialize } = usePreload();
   
   // Initialize browser cache and preload profile data on app startup
   useEffect(() => {
@@ -131,13 +131,22 @@ export function BottomNavbar({ children }) {
         // This now uses our optimized browser-side caching approach
         profileData()
           .then(success => {
-            console.log(`[Navbar] Initial preloading ${success ? 'completed successfully' : 'had some issues'}`);
+            console.log(`[Navbar] Profile preloading ${success ? 'completed successfully' : 'had some issues'}`);
             // Mark in localStorage that preloading has been done recently
             if (success) {
               localStorage.setItem('preload_success_timestamp', Date.now().toString());
             }
+            
+            // Then preload pantry data
+            return pantryData().catch(err => {
+              console.warn("[Navbar] Pantry data preload error:", err);
+              return false;
+            });
           })
-          .catch(err => console.warn("Error preloading profile data:", err));
+          .then(pantrySuccess => {
+            console.log(`[Navbar] Pantry data preloading ${pantrySuccess ? 'completed successfully' : 'had some issues'}`);
+          })
+          .catch(err => console.warn("Error in preloading sequence:", err));
       }, 100);
       
       // Set up visibility listener to preload when user returns to the tab
@@ -153,11 +162,25 @@ export function BottomNavbar({ children }) {
           // We're using a shorter time (5 minutes instead of 10) for better responsiveness
           if (!preloadTimestamp || (now - parseInt(preloadTimestamp, 10) > 5 * 60 * 1000)) {
             console.log("[Navbar] Tab became active after 5+ min, triggering preload refresh");
-            profileData()
-              .then(() => {
-                console.log('[Navbar] Visibility-triggered preload complete');
-              })
-              .catch(err => console.warn("Error preloading profile data on visibility change:", err));
+            
+            // Get the current path to determine which data to refresh
+            const currentPath = window.location.pathname;
+            
+            // Refresh data for the current page
+            if (currentPath.startsWith('/profile')) {
+              profileData()
+                .then(() => console.log('[Navbar] Visibility-triggered profile preload complete'))
+                .catch(err => console.warn("[Navbar] Error refreshing profile data:", err));
+            } else if (currentPath.startsWith('/pantry')) {
+              pantryData()
+                .then(() => console.log('[Navbar] Visibility-triggered pantry preload complete'))
+                .catch(err => console.warn("[Navbar] Error refreshing pantry data:", err));
+            } else {
+              // Default to refreshing profile data for any other page
+              profileData()
+                .then(() => console.log('[Navbar] Visibility-triggered profile preload complete'))
+                .catch(err => console.warn("[Navbar] Error preloading profile data on visibility change:", err));
+            }
           } else {
             console.log("[Navbar] Recent preload exists, no need to refresh cache");
           }

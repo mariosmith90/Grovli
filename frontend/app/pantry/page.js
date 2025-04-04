@@ -6,16 +6,34 @@ import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import BarcodeScanner from '../../components/features/pantry/barcode';
 import { Plus, Scan, Camera, Search, X, ShoppingBag, ExternalLink, Trash2, ChevronDown, ChevronUp, Edit, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { usePantry } from '../../lib/stores/pantryStore';
+import { usePreload } from '../../lib/hooks/usePreload';
 
 export default function PantryPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useUser();
   
-  // Pantry items state
-  const [pantryItems, setPantryItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Initialize the preload hook for enhanced caching
+  const { pantryData, initialize } = usePreload();
+  
+  // Use the pantry store for managed state
+  const { 
+    items: pantryItems, 
+    categories: expandedCategories,
+    isLoading,
+    error,
+    loadingStates,
+    fetchPantryItems,
+    addItem,
+    updateItem,
+    deleteItem,
+    toggleCategory,
+    searchItems,
+    getItemsByCategory
+  } = usePantry();
+  
+  // Local component state
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState({});
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({
     name: '',
@@ -44,52 +62,47 @@ export default function PantryPage() {
     expiry_date: ''
   });
   
+  // Initialize preloading when user is available
+  useEffect(() => {
+    if (!authLoading && user) {
+      console.log("[PantryPage] User authenticated, initializing preload store");
+      
+      // Pre-initialize with auth token
+      const getToken = async () => {
+        try {
+          const token = await getAccessToken({
+            authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+          });
+          
+          if (token) {
+            // Initialize the preload store
+            initialize(user.sub, token);
+            
+            // Preload pantry data - this will use cached data if available
+            pantryData().catch(err => console.warn("Pantry preload error:", err));
+          }
+        } catch (error) {
+          console.error("Error getting auth token:", error);
+        }
+      };
+      
+      getToken();
+    }
+  }, [user, authLoading, initialize, pantryData]);
+  
+  // Load pantry items when user is available
   useEffect(() => {
     if (!authLoading && user) {
       fetchPantryItems();
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, fetchPantryItems]);
   
-  const fetchPantryItems = async () => {
-    try {
-      setIsLoading(true);
-      
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/items`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch pantry items');
-      }
-      
-      const data = await response.json();
-      setPantryItems(data.items || []);
-      
-      // Initialize expanded states for categories
-      const categories = {};
-      (data.items || []).forEach(item => {
-        if (item.category) {
-          categories[item.category] = false; // Start with all categories collapsed
-        }
-      });
-      setExpandedCategories(categories);
-      
-    } catch (error) {
-      console.error('Error fetching pantry items:', error);
-      toast.error('Failed to load your pantry items');
-    } finally {
-      setIsLoading(false);
+  // Show error toast if we get an API error
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
     }
-  };
+  }, [error]);
   
   const handleAddItem = async () => {
     try {
@@ -98,28 +111,10 @@ export default function PantryPage() {
         return;
       }
       
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
+      // Use the store's addItem method instead of direct API call
+      await addItem(newItemForm);
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/add-item`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(newItemForm)
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to add pantry item');
-      }
-      
-      const newItem = await response.json();
-      setPantryItems(prev => [...prev, newItem]);
+      // Reset form
       setShowAddItemModal(false);
       setNewItemForm({
         name: '',
@@ -143,30 +138,8 @@ export default function PantryPage() {
         return;
       }
       
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/items/${editingItem.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(editForm)
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to update pantry item');
-      }
-      
-      const updatedItem = await response.json();
-      setPantryItems(prev => prev.map(item => 
-        item.id === editingItem.id ? updatedItem : item
-      ));
+      // Use the store's updateItem method
+      await updateItem(editingItem.id, editForm);
       
       setEditingItem(null);
       toast.success('Item updated successfully');
@@ -179,25 +152,8 @@ export default function PantryPage() {
   
   const handleDeleteItem = async (itemId) => {
     try {
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/items/${itemId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete pantry item');
-      }
-      
-      setPantryItems(prev => prev.filter(item => item.id !== itemId));
+      // Use the store's deleteItem method
+      await deleteItem(itemId);
       toast.success('Item removed from pantry');
       
     } catch (error) {
@@ -296,21 +252,16 @@ export default function PantryPage() {
     }
   };
   
-  // Group items by category
-  const itemsByCategory = {};
-  pantryItems.forEach(item => {
-    const category = item.category || 'Other';
-    if (!itemsByCategory[category]) {
-      itemsByCategory[category] = [];
-    }
-    itemsByCategory[category].push(item);
-  });
+  // Get the items by category using our store helper
+  const itemsByCategory = getItemsByCategory();
   
-  // Filter items based on search query
+  // Filter categories based on search query
   const filteredCategories = Object.keys(itemsByCategory).filter(category => {
     if (!searchQuery) return true;
+    
     // Check if category matches search
     if (category.toLowerCase().includes(searchQuery.toLowerCase())) return true;
+    
     // Check if any item in category matches search
     return itemsByCategory[category].some(item => 
       item.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -430,10 +381,7 @@ export default function PantryPage() {
                   <div key={category} className="border border-gray-100 rounded-lg overflow-hidden">
                     <div 
                       className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition"
-                      onClick={() => setExpandedCategories(prev => ({
-                        ...prev,
-                        [category]: !prev[category]
-                      }))}
+                      onClick={() => toggleCategory(category)}
                     >
                       <div className="flex items-center">
                         <div className="w-7 h-7 flex items-center justify-center rounded-full bg-teal-50 text-teal-600 mr-3">

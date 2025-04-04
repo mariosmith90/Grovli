@@ -160,6 +160,79 @@ export function usePreload() {
       }
     },
     
+    // Pantry data preload - using optimized browser-side caching
+    pantryData: async () => {
+      const userId = store.userId;
+      const token = store.getToken();
+      
+      if (!userId || !token) return;
+      
+      console.log("[usePreload] Preloading pantry page data with browser-side caching");
+      
+      // Check if we already have a valid cached version first
+      if (typeof window !== 'undefined') {
+        const preloadTimestamp = localStorage.getItem('grovli_pantry_preload_timestamp');
+        const pageLoadTimestamp = sessionStorage.getItem('grovli_page_load_timestamp');
+        const now = Date.now();
+        
+        // Detect page reload by comparing sessionStorage timestamp with current time
+        const isPageReload = !pageLoadTimestamp || (now - parseInt(pageLoadTimestamp, 10) < 2000);
+        
+        // Update page load timestamp for future reference
+        sessionStorage.setItem('grovli_page_load_timestamp', now.toString());
+        
+        // If page was reloaded, force a fresh preload regardless of timestamp
+        if (isPageReload) {
+          console.log("[usePreload] Page reload detected, forcing fresh pantry preload");
+        }
+        // If it wasn't a reload and we've preloaded within the last 5 minutes, use cached data
+        else if (preloadTimestamp && (now - parseInt(preloadTimestamp, 10)) < 5 * 60 * 1000) {
+          console.log("[usePreload] Using recently preloaded pantry data (< 5 minutes ago)");
+          return;
+        }
+        
+        // Set timestamp to indicate we're preloading now
+        localStorage.setItem('grovli_pantry_preload_timestamp', now.toString());
+      }
+      
+      try {
+        // We'll use parallel requests instead of server-side prefetching
+        console.log('[usePreload] Starting parallel client-side pantry preloading');
+        
+        // Try to import pantry store
+        let pantryStore;
+        try {
+          const { getPantryState } = await import('../stores/pantryStore');
+          pantryStore = getPantryState();
+        } catch (importError) {
+          console.error('[usePreload] Failed to import pantry store:', importError);
+        }
+        
+        // Trigger preload using the API endpoint
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        
+        // First, direct API preload
+        await store.preloadApiData('userPantry', `${apiUrl}/api/user-pantry/items`);
+        
+        // Then try to update the pantry store data if available
+        if (pantryStore && typeof pantryStore.fetchPantryItems === 'function') {
+          console.log('[usePreload] Using pantry store to preload data');
+          try {
+            await pantryStore.fetchPantryItems();
+            console.log('[usePreload] Pantry store data successfully preloaded');
+          } catch (pantryError) {
+            console.warn('[usePreload] Failed to update pantry store:', pantryError);
+          }
+        }
+        
+        console.log('[usePreload] Pantry data preloading completed');
+        return true;
+      } catch (error) {
+        console.warn('[usePreload] Pantry data prefetch failed:', error);
+        return false;
+      }
+    },
+    
     // Get the current preloading state
     get state() {
       return {

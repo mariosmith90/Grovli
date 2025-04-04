@@ -438,12 +438,96 @@ export const fetchSavedMeals = async (mealType) => {
   try {
     console.log(`Fetching saved meals for ${mealType}...`);
     
-    // Fetch saved recipes
-    const data = await apiService.makeRequest('/api/user-recipes/saved-recipes/');
+    // Check if we have a recent cache (within last 2 minutes)
+    if (typeof window !== 'undefined') {
+      const timestamp = localStorage.getItem('grovli_savedmeals_timestamp');
+      if (timestamp) {
+        const timeDiff = Date.now() - parseInt(timestamp, 10);
+        // If cached within last 2 minutes, use cached data
+        if (timeDiff < 2 * 60 * 1000) {
+          console.log(`Using cached saved meals (${timeDiff}ms old)`);
+          // If we already have data in the store for this meal type
+          if (profileStore.savedMeals[mealType]?.length > 0) {
+            console.log(`Found ${profileStore.savedMeals[mealType].length} cached meals for ${mealType}`);
+            profileStore.setIsLoadingSavedMeals(false);
+            return profileStore.savedMeals[mealType];
+          }
+        }
+      }
+    }
     
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      console.log('No saved recipes data available');
-      return [];
+    // Fetch saved recipes with enhanced error handling and retries
+    let data = [];
+    let attemptCount = 0;
+    const maxAttempts = 2;
+    
+    while (attemptCount < maxAttempts) {
+      try {
+        attemptCount++;
+        console.log(`Fetching saved recipes attempt ${attemptCount}/${maxAttempts}`);
+        
+        // Create controller with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.log("API request timeout, aborting");
+          controller.abort();
+        }, 8000); // 8 second timeout
+        
+        const response = await apiService.makeRequest('/api/user-recipes/saved-recipes/', {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Extensive validation
+        if (!response) {
+          console.warn('API returned null or undefined data');
+          // Initialize with empty array but continue
+          data = [];
+        } else if (!Array.isArray(response)) {
+          console.warn('API returned non-array data:', response);
+          
+          // Try to extract data from non-array response
+          if (response.recipes && Array.isArray(response.recipes)) {
+            console.log('Found recipes array in response object');
+            data = [...response.recipes];
+            break; // Success, exit retry loop
+          } else if (response.data && Array.isArray(response.data)) {
+            console.log('Found data array in response object');
+            data = [...response.data];
+            break; // Success, exit retry loop
+          } else {
+            // Initialize with empty array but continue to retry
+            data = [];
+          }
+        } else if (response.length === 0) {
+          console.log('No saved recipes data available (empty array)');
+          data = [];
+          break; // Empty is valid, exit retry loop
+        } else {
+          // Valid data - use it
+          console.log(`Found ${response.length} recipes in response`);
+          data = [...response]; // Make a copy to be safe
+          break; // Success, exit retry loop
+        }
+        
+        // Only retry if we didn't break out of the loop
+        if (attemptCount < maxAttempts) {
+          console.log(`Retrying saved recipes fetch (attempt ${attemptCount+1}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        }
+      } catch (apiError) {
+        console.error(`Error fetching saved recipes (attempt ${attemptCount}):`, apiError);
+        
+        // Continue with empty data rather than failing completely
+        data = [];
+        
+        // Only retry if we have attempts left
+        if (attemptCount < maxAttempts) {
+          console.log(`Retrying after error (attempt ${attemptCount+1}/${maxAttempts})`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        }
+      }
     }
     
     console.log(`Received saved recipes data:`, data);
@@ -476,9 +560,17 @@ export const fetchSavedMeals = async (mealType) => {
         if (category !== mealType) continue;
         
         try {
+          // Create a controller with timeout for details fetch
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+          
           // Fetch details for this meal
           console.log(`Fetching details for meal ${recipe.title} (${recipe.recipe_id})`);
-          const mealDetails = await apiService.makeRequest(`/mealplan/${recipe.recipe_id}`);
+          const mealDetails = await apiService.makeRequest(`/mealplan/${recipe.recipe_id}`, {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          
           console.log(`Meal details for ${recipe.title}:`, mealDetails);
           
           // Format the meal data
@@ -513,12 +605,26 @@ export const fetchSavedMeals = async (mealType) => {
     // Update the store
     profileStore.setSavedMeals(categorizedMeals);
     
+    // Store last update timestamp in localStorage for caching
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('grovli_savedmeals_timestamp', Date.now().toString());
+      localStorage.setItem(`grovli_savedmeals_${mealType}_count`, (categorizedMeals[mealType]?.length || 0).toString());
+    }
+    
     return categorizedMeals[mealType];
   } catch (error) {
     console.error('Error fetching saved meals:', error);
-    return [];
+    
+    // Even on error, make sure we have an entry for this meal type in savedMeals
+    const fallbackMeals = { ...profileStore.savedMeals };
+    if (!fallbackMeals[mealType]) {
+      fallbackMeals[mealType] = [];
+    }
+    profileStore.setSavedMeals(fallbackMeals);
+    
+    return fallbackMeals[mealType] || [];
   } finally {
-    // Clear loading state
+    // Always clear loading state
     profileStore.setIsLoadingSavedMeals(false);
   }
 };
