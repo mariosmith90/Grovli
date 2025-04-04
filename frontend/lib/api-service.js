@@ -2,16 +2,28 @@
 
 import { getAuthState } from './stores/authStore';
 
-// Browser-based API Response Cache - improves performance for profile page preloading
-// and works reliably in production environments
+// Enhanced Browser-based API Response Cache - improves performance for profile page preloading
+// with optimized caching for better client-side performance
 export const apiResponseCache = {
   CACHE_PREFIX: 'grovli_api_cache_',
-  MAX_AGE: 5 * 60 * 1000, // 5 minutes in milliseconds
+  MAX_AGE: 10 * 60 * 1000, // 10 minutes in milliseconds (extended from 5 minutes)
+  PROFILE_CACHE_TTL: 15 * 60 * 1000, // 15 minutes for profile-related data
   
-  set: (key, data) => {
+  // Try to use sessionStorage first and fall back to localStorage
+  // SessionStorage is faster but cleared when the browser is closed
+  set: (key, data, options = {}) => {
     if (typeof window === 'undefined') return; // Only run in browser
     
     try {
+      // Determine if this is profile-related data for longer TTL
+      const isProfileData = key.includes('/user-profile/') || 
+                           key.includes('/user-plans') || 
+                           key.includes('/user-settings/') || 
+                           key.includes('/meal-completion/');
+                           
+      const ttl = isProfileData ? apiResponseCache.PROFILE_CACHE_TTL : apiResponseCache.MAX_AGE;
+      const priority = options.priority || (isProfileData ? 'high' : 'normal');
+      
       // Normalize API URL in key to prevent issues with production/staging environment differences
       let normalizedKey = key;
       
@@ -30,20 +42,42 @@ export const apiResponseCache = {
       const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
       const cacheEntry = {
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        expires: Date.now() + ttl,
+        priority
       };
       
-      // Use localStorage for persistent caching
-      localStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+      // Try using sessionStorage first (faster) for normal priority items
+      const storage = (priority === 'high') ? localStorage : sessionStorage;
+      const backupStorage = (priority === 'high') ? sessionStorage : localStorage;
       
-      // Also keep track of all cache keys for easy clearing
-      const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
-      if (!cacheKeys.includes(normalizedKey)) {
-        cacheKeys.push(normalizedKey);
-        localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(cacheKeys));
+      try {
+        // Store in primary storage
+        storage.setItem(cacheKey, JSON.stringify(cacheEntry));
+        
+        // For high priority items, also store in backup storage
+        if (priority === 'high') {
+          backupStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+        }
+        
+        // Keep track of all cache keys for easy clearing - store in localStorage
+        const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
+        if (!cacheKeys.includes(normalizedKey)) {
+          cacheKeys.push(normalizedKey);
+          localStorage.setItem(`${apiResponseCache.CACHE_PREFIX}keys`, JSON.stringify(cacheKeys));
+        }
+        
+        console.log(`[BrowserCache] Cached data for: ${normalizedKey} (${priority} priority)`);
+      } catch (storageError) {
+        // If primary storage fails (quota exceeded), try backup storage
+        console.warn(`[BrowserCache] Primary storage failed, trying backup storage`);
+        try {
+          backupStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+        } catch (backupError) {
+          // Both storages failed, log error
+          throw new Error(`Both storage mechanisms failed: ${backupError.message}`);
+        }
       }
-      
-      console.log(`[BrowserCache] Cached data for: ${normalizedKey}`);
     } catch (error) {
       // Handle quota exceeded or other storage errors
       console.warn(`[BrowserCache] Failed to cache data for ${key}:`, error);
@@ -69,15 +103,25 @@ export const apiResponseCache = {
       }
       
       const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
-      const cachedItem = localStorage.getItem(cacheKey);
+      
+      // Try sessionStorage first (faster)
+      let cachedItem = sessionStorage.getItem(cacheKey);
+      let storageType = 'sessionStorage';
+      
+      // If not in sessionStorage, check localStorage
+      if (!cachedItem) {
+        cachedItem = localStorage.getItem(cacheKey);
+        storageType = 'localStorage';
+      }
       
       if (!cachedItem) return null;
       
       const item = JSON.parse(cachedItem);
       
       // Check if cache entry is still valid
-      if (Date.now() - item.timestamp > apiResponseCache.MAX_AGE) {
-        // Clear expired item
+      if (Date.now() > item.expires) {
+        // Clear expired item from both storages
+        sessionStorage.removeItem(cacheKey);
         localStorage.removeItem(cacheKey);
         
         // Update keys list
@@ -88,7 +132,15 @@ export const apiResponseCache = {
         return null;
       }
       
-      console.log(`[BrowserCache] Using cached data for: ${normalizedKey}`);
+      // For high priority items that were found in sessionStorage but not in localStorage,
+      // update localStorage too for redundancy
+      if (storageType === 'sessionStorage' && item.priority === 'high') {
+        if (!localStorage.getItem(cacheKey)) {
+          localStorage.setItem(cacheKey, cachedItem);
+        }
+      }
+      
+      console.log(`[BrowserCache] Using cached data for: ${normalizedKey} from ${storageType}`);
       return item.data;
     } catch (error) {
       console.warn(`[BrowserCache] Error retrieving cached data for ${key}:`, error);
@@ -116,9 +168,10 @@ export const apiResponseCache = {
           }
         }
         
-        // Clear specific item
+        // Clear specific item from both storage types
         const cacheKey = apiResponseCache.CACHE_PREFIX + normalizedKey;
         localStorage.removeItem(cacheKey);
+        sessionStorage.removeItem(cacheKey);
         
         // Update keys list
         const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
@@ -130,9 +183,11 @@ export const apiResponseCache = {
         // Clear all cache items
         const cacheKeys = JSON.parse(localStorage.getItem(`${apiResponseCache.CACHE_PREFIX}keys`) || '[]');
         
-        // Remove all cache entries
+        // Remove all cache entries from both storage types
         cacheKeys.forEach(k => {
-          localStorage.removeItem(apiResponseCache.CACHE_PREFIX + k);
+          const cacheKey = apiResponseCache.CACHE_PREFIX + k;
+          localStorage.removeItem(cacheKey);
+          sessionStorage.removeItem(cacheKey);
         });
         
         // Clear keys list
@@ -155,26 +210,44 @@ export const apiResponseCache = {
       const now = Date.now();
       const expiredKeys = [];
       
-      // Check each cache item for expiration
+      // Check each cache item for expiration in both storage types
       cacheKeys.forEach(key => {
         const cacheKey = apiResponseCache.CACHE_PREFIX + key;
+        let isValidInEither = false;
+        
+        // Check localStorage
         try {
-          const cachedItem = localStorage.getItem(cacheKey);
-          if (cachedItem) {
-            const item = JSON.parse(cachedItem);
-            if (now - item.timestamp > apiResponseCache.MAX_AGE) {
-              // Mark as expired
-              expiredKeys.push(key);
+          const localItem = localStorage.getItem(cacheKey);
+          if (localItem) {
+            const item = JSON.parse(localItem);
+            if (now <= item.expires) {
+              isValidInEither = true;
+            } else {
               localStorage.removeItem(cacheKey);
             }
-          } else {
-            // Key doesn't exist anymore
-            expiredKeys.push(key);
           }
         } catch (e) {
-          // Invalid JSON or other error
-          expiredKeys.push(key);
           localStorage.removeItem(cacheKey);
+        }
+        
+        // Check sessionStorage
+        try {
+          const sessionItem = sessionStorage.getItem(cacheKey);
+          if (sessionItem) {
+            const item = JSON.parse(sessionItem);
+            if (now <= item.expires) {
+              isValidInEither = true;
+            } else {
+              sessionStorage.removeItem(cacheKey);
+            }
+          }
+        } catch (e) {
+          sessionStorage.removeItem(cacheKey);
+        }
+        
+        // If not valid in either storage, mark for removal
+        if (!isValidInEither) {
+          expiredKeys.push(key);
         }
       });
       
@@ -762,123 +835,141 @@ export function useApiService() {
   };
   
   /**
-   * Prefetch profile data via the backend Redis cache system
-   * This is more efficient than client-side preloading since it:
-   * 1. Uses a persistent Redis cache on the server
-   * 2. Can prefetch multiple related items in a single request
-   * 3. Allows optimized background loading without affecting client performance
+   * Enhanced profile data preloading that uses client-side approach with browser caching
    * 
-   * @param {Object} options - Optional settings for what to prefetch
-   * @returns {Promise<Object>} - Response from the prefetch endpoint
+   * @param {Object} options - Optional settings for what to preload
+   * @returns {Promise<Object>} - Indicator of preload success
    */
-  const prefetchProfileData = async (options = {}) => {
+  const preloadProfileData = async (options = {}) => {
     try {
       const userId = authState.userId;
       const token = authState.getAuthToken();
       
       if (!userId || !token) {
-        console.warn("API Service: No user ID or token available for prefetch");
-        return { status: "error", message: "Authentication required" };
+        console.warn("API Service: No user ID or token available for preload");
+        return { success: false, message: "Authentication required" };
       }
       
-      // Default prefetch options
-      const prefetchOptions = {
-        include_meals: true,
-        include_saved_meals: true,
-        include_meal_completions: true,
-        include_settings: true,
-        include_pantry: false,
-        ...options
-      };
+      console.log(`[API Service] Starting client-side profile data preload for user ${userId}`);
       
-      console.log(`[API Service] Prefetching profile data for user ${userId}`);
-      
-      // Call the prefetch endpoint
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${apiUrl}/user-profile/prefetch/${userId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'user-id': userId
-        },
-        body: JSON.stringify(prefetchOptions),
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(`[API Service] Prefetch failed: ${error}`);
-        return { 
-          status: "error", 
-          message: `Failed to prefetch: ${response.status}` 
-        };
+      // Mark preload as in progress
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('preload_last_attempt', Date.now().toString());
       }
       
-      // Get the response
-      const result = await response.json();
-      console.log(`[API Service] Prefetch initiated: ${result.status}`);
+      // Create an array of promises for parallel loading
+      const preloadPromises = [
+        // User profile
+        makeAuthenticatedRequest(`/api/user-profile/${userId}`, {
+          headers: { 'Purpose': 'prefetch' }
+        }).catch(err => {
+          console.warn(`[API Service] Error preloading profile: ${err.message}`);
+          return null;
+        }),
+        
+        // User meal plans
+        makeAuthenticatedRequest(`/api/user-plans/user/${userId}`, {
+          headers: { 'Purpose': 'prefetch' }
+        }).catch(err => {
+          console.warn(`[API Service] Error preloading meal plans: ${err.message}`);
+          return null;
+        }),
+        
+        // User meal completions
+        (async () => {
+          const today = new Date().toISOString().split('T')[0];
+          return makeAuthenticatedRequest(`/user-profile/meal-completion/${userId}/${today}`, {
+            headers: { 'Purpose': 'prefetch' }
+          }).catch(err => {
+            console.warn(`[API Service] Error preloading meal completions: ${err.message}`);
+            return null;
+          });
+        })(),
+        
+        // User settings
+        makeAuthenticatedRequest(`/user-settings/${userId}`, {
+          headers: { 'Purpose': 'prefetch' }
+        }).catch(err => {
+          console.warn(`[API Service] Error preloading user settings: ${err.message}`);
+          return null;
+        })
+      ];
       
-      return result;
-    } catch (error) {
-      console.error(`[API Service] Prefetch error: ${error.message}`);
+      // If saved meals should be included
+      if (options.include_saved_meals !== false) {
+        preloadPromises.push(
+          makeAuthenticatedRequest(`/api/user-recipes/saved-recipes/`, {
+            headers: { 'Purpose': 'prefetch' }
+          }).catch(err => {
+            console.warn(`[API Service] Error preloading saved recipes: ${err.message}`);
+            return null;
+          })
+        );
+      }
+      
+      // Wait for all preloads to complete
+      const results = await Promise.allSettled(preloadPromises);
+      
+      // Check if at least the critical requests succeeded
+      const criticalSuccesses = results.slice(0, 2).filter(r => r.status === 'fulfilled' && r.value !== null);
+      const success = criticalSuccesses.length >= 1; // Need at least profile or meal plans
+      
+      console.log(`[API Service] Client-side preload ${success ? 'succeeded' : 'partially failed'}`);
+      
+      // Mark preload as completed
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('preload_status', success ? 'success' : 'partial');
+        localStorage.setItem('preload_completed', Date.now().toString());
+      }
+      
       return { 
-        status: "error", 
-        message: `Error during prefetch: ${error.message}` 
+        success,
+        items_loaded: results.filter(r => r.status === 'fulfilled' && r.value !== null).length,
+        items_failed: results.filter(r => r.status !== 'fulfilled' || r.value === null).length
+      };
+    } catch (error) {
+      console.error(`[API Service] Preload error: ${error.message}`);
+      
+      // Mark preload as failed
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('preload_status', 'error');
+        localStorage.setItem('preload_error', error.message);
+      }
+      
+      return { 
+        success: false, 
+        message: `Error during preload: ${error.message}` 
       };
     }
   };
   
   /**
-   * Check the status of a previously initiated prefetch operation
-   * @param {string} userId - The user ID to check prefetch status for
-   * @returns {Promise<Object>} - Status response
+   * Check the preload status from client-side storage
+   * @returns {Object} - Status information
    */
-  const checkPrefetchStatus = async () => {
-    try {
-      const userId = authState.userId;
-      const token = authState.getAuthToken();
-      
-      if (!userId || !token) {
-        console.warn("API Service: No user ID or token available for prefetch status check");
-        return { status: "error", message: "Authentication required" };
-      }
-      
-      // Call the prefetch status endpoint
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${apiUrl}/user-profile/prefetch-status/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'user-id': userId
-        },
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(`[API Service] Prefetch status check failed: ${error}`);
-        return { 
-          status: "error", 
-          message: `Failed to check prefetch status: ${response.status}` 
-        };
-      }
-      
-      // Get the response
-      const result = await response.json();
-      return result;
-    } catch (error) {
-      console.error(`[API Service] Prefetch status check error: ${error.message}`);
-      return { 
-        status: "error", 
-        message: `Error checking prefetch status: ${error.message}` 
-      };
+  const checkPreloadStatus = () => {
+    if (typeof window === 'undefined') {
+      return { status: 'unknown', message: 'Not in browser context' };
     }
+    
+    const status = localStorage.getItem('preload_status');
+    const lastAttempt = localStorage.getItem('preload_last_attempt');
+    const completed = localStorage.getItem('preload_completed');
+    
+    return {
+      status: status || 'not_started',
+      last_attempt: lastAttempt ? new Date(parseInt(lastAttempt, 10)).toISOString() : null,
+      completed: completed ? new Date(parseInt(completed, 10)).toISOString() : null,
+      error: localStorage.getItem('preload_error') || null
+    };
   };
 
   return { 
     makeAuthenticatedRequest,
     updateMealPlan,
-    prefetchProfileData,
-    checkPrefetchStatus
+    prefetchProfileData: preloadProfileData,  // Maintain backward compatibility with new implementation
+    checkPrefetchStatus: checkPreloadStatus,  // Maintain backward compatibility with new implementation
+    preloadProfileData,
+    checkPreloadStatus
   };
 }

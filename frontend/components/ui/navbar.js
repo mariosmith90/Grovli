@@ -112,19 +112,32 @@ export function BottomNavbar({ children }) {
   useEffect(() => {
     // First initialize the browser cache system
     if (typeof window !== 'undefined') {
-      console.log("[Navbar] Initializing browser cache system");
+      console.log("[Navbar] Initializing enhanced browser cache system");
       apiResponseCache.init();
+      
+      // Clear any potential Redis prefetch flags from prior implementations
+      localStorage.removeItem('prefetch_status');
+      sessionStorage.removeItem('prefetch_in_progress');
     }
     
     // Then preload profile data if user is authenticated
     if (isAuthenticated && !isLoading && user) {
-      console.log("[Navbar] User authenticated, preloading profile data");
+      console.log("[Navbar] User authenticated, starting client-side preloading");
       
       // Use a short timeout to ensure cache is initialized first
       // This also helps with potential race conditions during app startup
       setTimeout(() => {
         // Preload profile data immediately when the navbar loads and user is authenticated
-        profileData().catch(err => console.warn("Error preloading profile data:", err));
+        // This now uses our optimized browser-side caching approach
+        profileData()
+          .then(success => {
+            console.log(`[Navbar] Initial preloading ${success ? 'completed successfully' : 'had some issues'}`);
+            // Mark in localStorage that preloading has been done recently
+            if (success) {
+              localStorage.setItem('preload_success_timestamp', Date.now().toString());
+            }
+          })
+          .catch(err => console.warn("Error preloading profile data:", err));
       }, 100);
       
       // Set up visibility listener to preload when user returns to the tab
@@ -136,10 +149,17 @@ export function BottomNavbar({ children }) {
           const preloadTimestamp = localStorage.getItem('grovli_profile_preload_timestamp');
           const now = Date.now();
           
-          // If it's been more than 10 minutes since last preload, do it again
-          if (!preloadTimestamp || (now - parseInt(preloadTimestamp, 10) > 10 * 60 * 1000)) {
-            console.log("[Navbar] Tab became active after 10+ min, triggering preload");
-            profileData().catch(err => console.warn("Error preloading profile data on visibility change:", err));
+          // If it's been more than 5 minutes since last preload, do it again
+          // We're using a shorter time (5 minutes instead of 10) for better responsiveness
+          if (!preloadTimestamp || (now - parseInt(preloadTimestamp, 10) > 5 * 60 * 1000)) {
+            console.log("[Navbar] Tab became active after 5+ min, triggering preload refresh");
+            profileData()
+              .then(() => {
+                console.log('[Navbar] Visibility-triggered preload complete');
+              })
+              .catch(err => console.warn("Error preloading profile data on visibility change:", err));
+          } else {
+            console.log("[Navbar] Recent preload exists, no need to refresh cache");
           }
         }
       };

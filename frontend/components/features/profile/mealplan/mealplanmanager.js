@@ -172,8 +172,10 @@ export default function MealPlanManager({
         localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
         
         // Clear API cache for user plans and meal data to ensure fresh data on next load
-        console.log("[MealPlanManager] Clearing API cache after meal plan update");
-        apiResponseCache.clear(); // Clear entire cache to ensure fresh data
+        console.log("[MealPlanManager] Clearing specific API caches after meal plan update");
+        // Only clear related endpoint caches rather than entire cache
+        apiResponseCache.clear('/api/user-plans');
+        apiResponseCache.clear('/user-profile/meal-completion');
         
         // Show success message for adding/removing meals
         if (changeType === 'add') {

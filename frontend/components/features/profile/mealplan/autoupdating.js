@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from "@auth0/nextjs-auth0";
 import { toast } from 'react-hot-toast';
-import { useApiService } from '../../../../lib/api-service';
+import { useApiService, apiResponseCache } from '../../../../lib/api-service';
 import { useAuth } from '../../../../lib/stores/authStore';
 
 /**
@@ -447,6 +447,16 @@ const AutoUpdatingComponent = ({
         
         // Update localStorage to trigger refresh in other components
         localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
+        
+        // Clear specific API caches for user plans and meal data to ensure fresh data on next load
+        console.log("[AutoUpdating] Clearing specific API caches after meal plan update");
+        try {
+          // Use the imported API cache
+          apiResponseCache.clear('/api/user-plans');
+          apiResponseCache.clear('/user-profile/meal-completion');
+        } catch (cacheError) {
+          console.warn("[AutoUpdating] Error clearing API cache:", cacheError);
+        }
         
         // Show success message for adding/removing meals
         if (changeType === 'add') {

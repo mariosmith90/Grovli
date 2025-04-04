@@ -77,14 +77,14 @@ export function usePreload() {
       store.preloadApiData(dataKey, apiEndpoint, options);
     },
     
-    // Enhanced profileData preload - now uses server-side Redis caching
+    // Enhanced profileData preload - using optimized browser-side caching
     profileData: async () => {
       const userId = store.userId;
       const token = store.getToken();
       
       if (!userId || !token) return;
       
-      console.log("[usePreload] Preloading profile page data with Redis cache");
+      console.log("[usePreload] Preloading profile page data with browser-side caching");
       
       // Check if we already have a valid cached version first
       if (typeof window !== 'undefined') {
@@ -125,42 +125,34 @@ export function usePreload() {
           return;
         }
         
-        // Call the prefetch endpoint - this will trigger server-side Redis caching
-        console.log('[usePreload] Calling server-side prefetch endpoint');
-        const prefetchResponse = await apiService.prefetchProfileData({
-          include_meals: true,
-          include_saved_meals: true,
-          include_meal_completions: true,
-          include_settings: true,
-          include_pantry: false
-        });
+        // We'll use parallel requests instead of server-side prefetching
+        console.log('[usePreload] Starting parallel client-side preloading');
         
-        console.log(`[usePreload] Server prefetch initiated with status: ${prefetchResponse.status}`);
-        
-        // Also trigger client-side preloads in parallel to populate browser-side caches
-        store.preloadApiData('userProfile', `/api/user-profile/${userId}`);
-        store.preloadApiData('userMealPlans', '/api/user-plans');
-        
-        // Wait a short time and check if the prefetch is complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        try {
-          const statusResponse = await apiService.checkPrefetchStatus();
-          console.log(`[usePreload] Prefetch status check: ${statusResponse.status}`);
+        // Trigger multiple client-side preloads in parallel to populate browser caches
+        const preloadPromises = [
+          // Preload the user profile
+          store.preloadApiData('userProfile', `/api/user-profile/${userId}`),
           
-          if (statusResponse.status === "complete") {
-            console.log('[usePreload] Prefetch completed successfully');
-            return true;
-          } else if (statusResponse.status === "processing") {
-            console.log('[usePreload] Prefetch still processing, will be ready soon');
-            return true;
-          } else {
-            console.warn(`[usePreload] Prefetch status issue: ${statusResponse.message}`);
-          }
-        } catch (statusError) {
-          console.warn('[usePreload] Error checking prefetch status:', statusError);
-        }
+          // Preload user's meal plans
+          store.preloadApiData('userMealPlans', '/api/user-plans'),
+          
+          // Preload user's meal completions for today
+          (async () => {
+            const today = new Date().toISOString().split('T')[0];
+            return store.preloadApiData(
+              'mealCompletions', 
+              `/user-profile/meal-completion/${userId}/${today}`
+            );
+          })(),
+          
+          // Preload user settings
+          store.preloadApiData('userSettings', `/user-settings/${userId}`)
+        ];
         
+        // Wait for all preloads to complete
+        await Promise.allSettled(preloadPromises);
+        
+        console.log('[usePreload] Client-side preloading completed');
         return true;
       } catch (error) {
         console.warn('[usePreload] Profile data prefetch failed:', error);
