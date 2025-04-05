@@ -5,43 +5,42 @@ import { useUser } from '@auth0/nextjs-auth0';
 import { Coffee, Utensils, Apple, Moon, CheckIcon, PlusCircle, TrashIcon } from 'lucide-react';
 import { useMealCompletionService } from '../../../../lib/services/mealCompletionService';
 import { useCalorieService } from '../../../../lib/services/calorieDataService';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
+import { useMealPlanStore } from '../../../../lib/stores/mealPlanStore';
 
 function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
   const router = useRouter();
   const { user } = useUser();
   const today = new Date().toISOString().split('T')[0];
   
-  // Use our new services
+  // Use the Zustand store directly for consistent state and UI updates
+  const completedMeals = useMealPlanStore(state => state.completedMeals);
+  const toggleMealCompletion = useMealPlanStore(state => state.toggleMealCompletion);
+  
+  // Use our services for API sync and calorie calculation
   const { 
-    completions, 
-    pendingUpdates, 
-    toggleCompletion, 
+    pendingUpdates,
     syncWithBackend,
     getCompletionsForDate 
   } = useMealCompletionService();
   
   const { calculateFromMeals } = useCalorieService();
   
-  // Use Zustand store values directly instead of duplicating in local state
-  // Get today's completions directly from the store for this render
-  const todayCompletions = getCompletionsForDate(new Date());
+  // Get today's completions directly from the Zustand store
+  const todayCompletions = completedMeals;
   
-  // Update calorie calculations when completions or meals change
+  // Update calorie calculations when either completedMeals or meals change
   useEffect(() => {
     try {
-      // Get completions from the store
-      const currentCompletions = getCompletionsForDate(new Date());
-      console.log("Current meal completions from store:", currentCompletions);
-      
       // Calculate calories based on completion status
-      calculateFromMeals(meals, currentCompletions);
+      // Use completedMeals directly from the Zustand store
+      calculateFromMeals(meals, completedMeals);
     } catch (error) {
       console.error("Error calculating calories from completions:", error);
     }
-  }, [completions, meals, getCompletionsForDate, calculateFromMeals]);
+  }, [completedMeals, meals, calculateFromMeals]);
   
-  // Handle meal completion toggle using SWR's optimistic update pattern
+  // Handle meal completion toggle using Zustand's store directly
   const handleToggleCompletion = async (mealType) => {
     if (!user?.sub) {
       return; // Skip if user is not authenticated
@@ -57,24 +56,18 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
     const today = new Date();
     const userId = user.sub;
     
-    // Toggle in our Zustand service (this updates the store and returns the new status)
-    const newStatus = toggleCompletion(mealType, today);
+    // Toggle directly through Zustand store for immediate UI update
+    // This ensures the UI updates immediately with the toggled state
+    const newStatus = toggleMealCompletion(mealType, today);
     
-    // The toggleCompletion function now handles all store updates including:
-    // 1. Updating the meal's completed property
-    // 2. Updating the completedMeals state
-    // 3. Updating calorie calculations
-    
-    // No need to manually call calculateFromMeals here as toggleCompletion
-    // already triggers the calorie recalculation with the updated state
-    
-    // Use SWR pattern for backend sync with optimistic updates
+    // Use SWR pattern for backend sync
     try {
       // Perform the actual backend sync
       await syncWithBackend(userId, mealType, newStatus, today);
     } catch (error) {
       console.error('Error updating meal completion:', error);
-      // The Zustand store and SWR will handle reverting state on error
+      // If there's an error, we could revert the toggle here
+      // But SWR and the Zustand store already handle error cases
     }
   };
   
@@ -112,7 +105,8 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal }) {
           const mealMinutes = timeToMinutes(meal.time);
           const isPast = currentMinutes > mealMinutes;
           
-          // Check completion status directly from our Zustand store
+          // Check completion status from all possible sources to ensure UI consistency
+          // We prioritize the Zustand store state (todayCompletions) since it's the most up-to-date
           const isCompleted = todayCompletions[meal.type] === true || meal.completed === true;
           
           // Determine if this is the current meal (first uncompleted meal in the past)
