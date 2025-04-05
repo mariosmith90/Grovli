@@ -62,7 +62,7 @@ export async function POST(request) {
     // Set expiration for the hash 
     await redis.expire(readyPlansKey, 86400); // Expire after 24 hours
     
-    // 3. For backward compatibility, keep in-memory cache too
+    // 3. Keep in-memory cache for performance
     global.mealReadyCache = global.mealReadyCache || {};
     global.mealReadyCache[cacheKey] = {
       user_id,
@@ -125,6 +125,7 @@ export async function GET(request) {
     const url = new URL(request.url);
     const user_id = url.searchParams.get('user_id');
     const checkReadyPlans = url.searchParams.get('checkReadyPlans') === 'true';
+    const isThrottled = false; // Define this variable since it's used later
     
     if (!user_id) {
       return NextResponse.json(
@@ -133,71 +134,66 @@ export async function GET(request) {
       );
     }
     
-    // Initialize global objects for backward compatibility
+    // Initialize global objects for in-memory caching
     global.mealReadyCache = global.mealReadyCache || {};
     global.lastMealReadyCheck = global.lastMealReadyCheck || {};
     global.readyMealPlans = global.readyMealPlans || {};
     
-    // When used with SWR, we need to be more careful about throttling
-    // SWR has its own deduplication and retry logic
+    // With SWR, we only need to check if this is a special user that gets priority treatment
     const now = Date.now();
-    const lastCheck = global.lastMealReadyCheck[user_id] || 0;
-    let isThrottled = false;
     
-    // Check if there was a very recent check to prevent overwhelming Redis
-    if (now - lastCheck < 5000 && user_id !== "auth0|67b82eb657e61f81cdfdd503" && 
-        user_id !== "google-oauth2|100398622971971910131") { // Special user for immediate checking
-      console.log(`Throttling notification check for user ${user_id} - checked too recently (${now - lastCheck}ms)`);
-      isThrottled = true;
-      
-      // For SWR, we don't need to fully block - we'll still check the local cache
-      // but skip the Redis lookups to reduce backend load
+    // No need for throttling with SWR, but we'll keep track of frequency for monitoring
+    const lastCheck = global.lastMealReadyCheck[user_id] || 0;
+    const timeSinceLastCheck = now - lastCheck;
+    
+    // Mark special users for priority treatment
+    const isPriorityUser = user_id === "auth0|67b82eb657e61f81cdfdd503" || 
+                          user_id === "google-oauth2|100398622971971910131";
+    
+    if (timeSinceLastCheck < 5000) {
+      console.log(`SWR check for user ${user_id} - last checked ${timeSinceLastCheck}ms ago${isPriorityUser ? ' (priority user)' : ''}`);
     }
     
     // Update the last check time
     global.lastMealReadyCheck[user_id] = now;
     
-    // Only update Redis tracking if not throttled
-    if (!isThrottled) {
-      await redis.set(`last_check:${user_id}`, now);
-      await redis.expire(`last_check:${user_id}`, 3600);
-    }
+    // Update Redis tracking for monitoring
+    await redis.set(`last_check:${user_id}`, now);
+    await redis.expire(`last_check:${user_id}`, 3600);
     
     // First check SWR-specific Redis cache - this is optimized for SWR
-    if (!isThrottled) {
-      try {
-        const swrCacheKey = `swr_meal_ready:${user_id}`;
-        const swrCacheData = await redis.get(swrCacheKey);
+    try {
+      const swrCacheKey = `swr_meal_ready:${user_id}`;
+      const swrCacheData = await redis.get(swrCacheKey);
+      
+      if (swrCacheData) {
+        const swrNotification = JSON.parse(swrCacheData);
         
-        if (swrCacheData) {
-          const swrNotification = JSON.parse(swrCacheData);
+        // Return the formatted notification for SWR
+        if (swrNotification.has_notification && swrNotification.notification?.meal_plan_id) {
+          console.log(`[SWR] Found notification in SWR cache: ${swrNotification.notification.meal_plan_id}`);
           
-          // Return the formatted notification for SWR
-          if (swrNotification.has_notification && swrNotification.notification?.meal_plan_id) {
-            console.log(`[SWR] Found notification in SWR cache: ${swrNotification.notification.meal_plan_id}`);
-            
-            // Delete the SWR cache entry to prevent duplicates
-            await redis.del(swrCacheKey);
-            
-            // For SWR, we need to follow its expected response format
-            return NextResponse.json({
-              has_notification: true,
-              notification: {
-                ...swrNotification.notification,
-                timestamp: swrNotification.notification.timestamp || now,
-                from_swr_cache: true
-              }
-            });
-          }
+          // Delete the SWR cache entry to prevent duplicates
+          await redis.del(swrCacheKey);
+          
+          // For SWR, we need to follow its expected response format
+          return NextResponse.json({
+            has_notification: true,
+            notification: {
+              ...swrNotification.notification,
+              timestamp: swrNotification.notification.timestamp || now,
+              from_swr_cache: true
+            }
+          });
         }
-      } catch (redisError) {
-        console.error('[SWR] Error checking SWR-specific Redis cache:', redisError);
-        // Continue with other checks
       }
+    } catch (redisError) {
+      console.error('[SWR] Error checking SWR-specific Redis cache:', redisError);
+      // Continue with other checks
     }
     
     // Then check the ready plans hash if requested
-    if (checkReadyPlans && !isThrottled) {
+    if (checkReadyPlans) {
       try {
         const readyPlansKey = `ready_meal_plans:${user_id}`;
         const redisReadyPlans = await redis.hgetall(readyPlansKey);
@@ -306,102 +302,100 @@ export async function GET(request) {
       }
     }
     
-    // Check the legacy Redis notification cache if not throttled
-    if (!isThrottled) {
-      const cacheKey = `meal_ready:${user_id}`;
-      let cachedNotification = null;
+    // Check the Redis notification cache
+    const cacheKey = `meal_ready:${user_id}`;
+    let cachedNotification = null;
       
-      // First try Redis
+    // First try Redis
+    try {
+      const redisData = await redis.get(cacheKey);
+      if (redisData) {
+        cachedNotification = JSON.parse(redisData);
+      }
+    } catch (redisError) {
+      console.error('[SWR] Error getting notification from Redis:', redisError);
+      // Fall back to memory cache
+    }
+      
+    // Fall back to memory cache if Redis failed or was throttled
+    if (!cachedNotification) {
+      cachedNotification = global.mealReadyCache[cacheKey];
+    }
+      
+    if (cachedNotification) {
+      // Deduplicate notifications
+      const notifKey = `notified:${user_id}:${cachedNotification.meal_plan_id}`;
+      let alreadyNotified = false;
+      
       try {
-        const redisData = await redis.get(cacheKey);
-        if (redisData) {
-          cachedNotification = JSON.parse(redisData);
-        }
+        // Check if already notified recently
+        alreadyNotified = await redis.exists(notifKey);
       } catch (redisError) {
-        console.error('[SWR] Error getting notification from Redis:', redisError);
-        // Fall back to memory cache
+        console.error('[SWR] Error checking notification status in Redis:', redisError);
+        // Fall back to memory tracking
+        global.notifiedMealPlans = global.notifiedMealPlans || {};
+        const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
+        const lastNotified = global.notifiedMealPlans[memoryKey] || 0;
+        alreadyNotified = (now - lastNotified < 120000); // 2 minutes
       }
       
-      // Fall back to memory cache if Redis failed or was throttled
-      if (!cachedNotification) {
-        cachedNotification = global.mealReadyCache[cacheKey];
+      if (alreadyNotified) {
+        console.log(`[SWR] Skipping duplicate notification for meal plan ${cachedNotification.meal_plan_id}`);
+        return NextResponse.json({
+          has_notification: false,
+          duplicate: true
+        });
       }
       
-      if (cachedNotification) {
-        // Deduplicate notifications
-        const notifKey = `notified:${user_id}:${cachedNotification.meal_plan_id}`;
-        let alreadyNotified = false;
-        
-        try {
-          // Check if already notified recently
-          alreadyNotified = await redis.exists(notifKey);
-        } catch (redisError) {
-          console.error('[SWR] Error checking notification status in Redis:', redisError);
-          // Fall back to memory tracking
-          global.notifiedMealPlans = global.notifiedMealPlans || {};
-          const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
-          const lastNotified = global.notifiedMealPlans[memoryKey] || 0;
-          alreadyNotified = (now - lastNotified < 120000); // 2 minutes
-        }
-        
-        if (alreadyNotified) {
-          console.log(`[SWR] Skipping duplicate notification for meal plan ${cachedNotification.meal_plan_id}`);
-          return NextResponse.json({
-            has_notification: false,
-            duplicate: true
-          });
-        }
-        
-        // Mark as notified (expires after 2 minutes)
-        try {
-          await redis.set(notifKey, 'true');
-          await redis.expire(notifKey, 120);
-        } catch (redisError) {
-          console.error('[SWR] Error setting notification status in Redis:', redisError);
-          // Fall back to memory tracking
-          global.notifiedMealPlans = global.notifiedMealPlans || {};
-          const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
-          global.notifiedMealPlans[memoryKey] = now;
-        }
-        
-        // Clear notification cache to prevent duplicates
-        try {
-          await redis.del(cacheKey);
-        } catch (redisError) {
-          console.error('[SWR] Error deleting notification from Redis:', redisError);
-        }
-        
-        // Also clear memory cache
-        delete global.mealReadyCache[cacheKey];
-        
-        // Track notification delivery
-        await redis.hset('notification_deliveries', `${cachedNotification.meal_plan_id}:${now}`, 'swr_direct');
-        
-        // Add to in-memory ready plans cache for backward compatibility
-        global.readyMealPlans = global.readyMealPlans || {};
-        global.readyMealPlans[cachedNotification.meal_plan_id] = {
-          timestamp: now,
-          user_id: user_id,
-          handled: false  // This flag helps prevent duplicate handling
-        };
-        
-        console.log(`
+      // Mark as notified (expires after 2 minutes)
+      try {
+        await redis.set(notifKey, 'true');
+        await redis.expire(notifKey, 120);
+      } catch (redisError) {
+        console.error('[SWR] Error setting notification status in Redis:', redisError);
+        // Fall back to memory tracking
+        global.notifiedMealPlans = global.notifiedMealPlans || {};
+        const memoryKey = `${user_id}:${cachedNotification.meal_plan_id}`;
+        global.notifiedMealPlans[memoryKey] = now;
+      }
+      
+      // Clear notification cache to prevent duplicates
+      try {
+        await redis.del(cacheKey);
+      } catch (redisError) {
+        console.error('[SWR] Error deleting notification from Redis:', redisError);
+      }
+      
+      // Also clear memory cache
+      delete global.mealReadyCache[cacheKey];
+      
+      // Track notification delivery
+      await redis.hset('notification_deliveries', `${cachedNotification.meal_plan_id}:${now}`, 'swr_direct');
+      
+      // Add to in-memory ready plans cache for backward compatibility
+      global.readyMealPlans = global.readyMealPlans || {};
+      global.readyMealPlans[cachedNotification.meal_plan_id] = {
+        timestamp: now,
+        user_id: user_id,
+        handled: false  // This flag helps prevent duplicate handling
+      };
+      
+      console.log(`
 ==================================================
 [SWR] MEAL PLAN READY NOTIFICATION SENT FROM DIRECT CACHE
 - meal_plan_id: ${cachedNotification.meal_plan_id}
 - user_id: ${user_id}
 - time: ${new Date().toISOString()}
 ==================================================
-        `);
-        
-        return NextResponse.json({
-          has_notification: true,
-          notification: {
-            ...cachedNotification,
-            timestamp: now
-          }
-        });
-      }
+      `);
+      
+      return NextResponse.json({
+        has_notification: true,
+        notification: {
+          ...cachedNotification,
+          timestamp: now
+        }
+      });
     }
     
     // No notification found

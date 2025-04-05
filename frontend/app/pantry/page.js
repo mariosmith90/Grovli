@@ -8,10 +8,14 @@ import { Plus, Scan, Camera, Search, X, ShoppingBag, ExternalLink, Trash2, Chevr
 import { toast } from 'react-hot-toast';
 import { usePantry } from '../../lib/stores/pantryStore';
 import { usePreload } from '../../lib/hooks/usePreload';
+import { useApiMutation } from '../../lib/swr-client';
 
 export default function PantryPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useUser();
+  
+  // Initialize API mutation hook for barcode lookup and recipes
+  const apiMutation = useApiMutation();
   
   // Initialize the preload hook for enhanced caching
   const { pantryData, initialize } = usePreload();
@@ -166,31 +170,21 @@ export default function PantryPage() {
     try {
       setIsScanning(true);
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/lookup-barcode`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ barcode })
+      // Use SWR's apiMutation for barcode lookup
+      const result = await apiMutation.post('/api/user-pantry/lookup-barcode', { 
+        barcode 
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to lookup barcode');
-      }
-      
-      const data = await response.json();
-      
-      if (data.found) {
-        setScannedProduct(data.product);
+      if (result.found) {
+        setScannedProduct(result.product);
         // Pre-populate the add item form
         setNewItemForm({
-          name: data.product.name || '',
-          barcode: data.product.barcode,
+          name: result.product.name || '',
+          barcode: result.product.barcode,
           quantity: 1,
-          category: data.product.category || 'Other',
-          nutritional_info: data.product.nutritional_info || {},
-          image_url: data.product.image_url || ''
+          category: result.product.category || 'Other',
+          nutritional_info: result.product.nutritional_info || {},
+          image_url: result.product.image_url || ''
         });
         setShowAddItemModal(true);
       } else {
@@ -211,37 +205,21 @@ export default function PantryPage() {
       setIsScanning(false);
       setIsScannerOpen(false);
     }
-  }, [setIsScanning, setIsScannerOpen, setScannedProduct, setNewItemForm, setShowAddItemModal]);
+  }, [apiMutation, setIsScanning, setIsScannerOpen, setScannedProduct, setNewItemForm, setShowAddItemModal]);
   
   const handleGetRecommendations = useCallback(async () => {
     try {
       setIsLoadingRecommendations(true);
       
-      const token = await getAccessToken({
-        authorizationParams: {
-          audience: "https://grovli.citigrove.com/audience"
-        }
-      });
-      
       // Get ingredient names from pantry items
       const ingredients = pantryItems.map(item => item.name);
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/recommend-meals`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ingredients })
+      // Use SWR's apiMutation for meal recommendations
+      const result = await apiMutation.post('/api/user-pantry/recommend-meals', {
+        ingredients
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to get meal recommendations');
-      }
-      
-      const data = await response.json();
-      setRecommendations(data.recommendations || []);
+      setRecommendations(result.recommendations || []);
       setShowRecommendations(true);
       
     } catch (error) {
@@ -250,7 +228,7 @@ export default function PantryPage() {
     } finally {
       setIsLoadingRecommendations(false);
     }
-  }, [setIsLoadingRecommendations, setRecommendations, setShowRecommendations, pantryItems]);
+  }, [apiMutation, setIsLoadingRecommendations, setRecommendations, setShowRecommendations, pantryItems]);
   
   // Get the items by category using our store helper
   const itemsByCategory = getItemsByCategory();

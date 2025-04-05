@@ -89,15 +89,22 @@ export default function Home() {
     if (!user) return false;
   
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/user-profile/check-onboarding/${user.sub}`);
-  
-      if (response.ok) {
-        const data = await response.json();
-        return data.onboarded;
-      } else {
-        console.error("Failed to fetch onboarding status:", response.status);
-        return false;
+      // Special handling for the onboarding check which may not have auth yet
+      const onboardingKey = `/user-profile/check-onboarding/${user.sub}`;
+      
+      // Try using the API call but don't fail if there's no auth
+      try {
+        const result = await apiMutation.trigger(onboardingKey, { 
+          method: 'GET'
+        });
+        
+        return result?.onboarded || false;
+      } catch (error) {
+        if (error.message === 'Authentication required') {
+          console.log("No auth token yet, assuming onboarding needed");
+          return false; // Assume not onboarded if no auth
+        }
+        throw error; // Re-throw other errors
       }
     } catch (error) {
       console.error("Error checking onboarding status:", error);
@@ -645,22 +652,23 @@ export default function Home() {
       try {
         // Try to find an immediately ready meal plan
         console.log("[MealPage] Checking for immediately ready meal plans");
-        const readyCheckResponse = await fetch(`/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true`);
         
-        if (readyCheckResponse.ok) {
-          const readyData = await readyCheckResponse.json();
-          if (readyData.has_notification && readyData.notification?.meal_plan_id) {
-            console.log("[MealPage] Found immediately ready meal plan:", readyData.notification.meal_plan_id);
-            
-            // Update state
-            setMealPlanReady(true);
-            setIsGenerating(false);
-            setMealGenerationComplete(true);
-            setCurrentMealPlanId(readyData.notification.meal_plan_id);
-            
-            // Store ID
-            localStorage.setItem('currentMealPlanId', readyData.notification.meal_plan_id);
-          }
+        // Use apiMutation.trigger for Next.js API routes to ensure correct handling
+        const readyData = await apiMutation.trigger(`/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true`, {
+          method: 'GET'
+        });
+        
+        if (readyData && readyData.has_notification && readyData.notification?.meal_plan_id) {
+          console.log("[MealPage] Found immediately ready meal plan:", readyData.notification.meal_plan_id);
+          
+          // Update state
+          setMealPlanReady(true);
+          setIsGenerating(false);
+          setMealGenerationComplete(true);
+          setCurrentMealPlanId(readyData.notification.meal_plan_id);
+          
+          // Store ID
+          localStorage.setItem('currentMealPlanId', readyData.notification.meal_plan_id);
         }
       } catch (err) {
         console.error("[MealPage] Error checking for immediately ready meal plans:", err);
@@ -915,15 +923,18 @@ export default function Home() {
               
               console.log(`Fetching meal plan with ID: ${mealPlanApiId}`);
               // Based on backend code, there's no /api/ prefix for the mealplan endpoint
-              const fullUrl = `${apiUrl}/mealplan/by_id/${mealPlanApiId}`;
-              console.log(`Making API request to: ${fullUrl}`);
-              const response = await fetch(fullUrl);
+              // Use SWR's apiMutation.trigger for fetching meal plan
+              const mealPlanKey = `/mealplan/by_id/${mealPlanApiId}`;
+              console.log(`Making API request using SWR to: ${mealPlanKey}`);
               
-              if (!response.ok) {
-                throw new Error(`HTTP error ${response.status}`);
+              // Use the apiMutation hook for the fetch
+              const data = await apiMutation.trigger(mealPlanKey, { 
+                method: 'GET'
+              });
+              
+              if (!data) {
+                throw new Error('Failed to fetch meal plan data');
               }
-              
-              const data = await response.json();
               
               // Check if we received the expected number of meals for Full Day plans
               if (mealType === 'Full Day' && data && data.meal_plan && 
@@ -1020,14 +1031,22 @@ export default function Home() {
   // Check onboarding status only - auth is handled by the context
   useEffect(() => {
     if (!isLoading && user) {
+      // We'll limit how often we redirect to avoid the 100 pushState error
+      let hasRedirected = false;
+      
       checkOnboardingStatus().then((onboardingComplete) => {
-        if (!onboardingComplete) {
+        if (!onboardingComplete && !hasRedirected) {
           console.log("User has not completed onboarding, redirecting...");
+          hasRedirected = true;
           router.push('/onboarding');
-        } else {
+        } else if (onboardingComplete) {
           // Just load profile data - subscription status is handled by auth context
           loadUserProfileData();
         }
+      }).catch(err => {
+        console.error("Failed to check onboarding:", err);
+        // Don't redirect on error - just try to load profile data
+        loadUserProfileData();
       });
     }
   }, [user, isLoading]);

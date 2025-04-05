@@ -338,36 +338,32 @@ export const useMealPlanStore = create(
             
             // Only add nutrition from completed meals that have content
             if (isCompleted && hasMealContent && meal.nutrition) {
-              // Convert string values to numbers if needed
+              // Convert string values to numbers if needed - use parseFloat for decimal values
               const calories = typeof meal.nutrition.calories === 'string' 
-                ? parseInt(meal.nutrition.calories, 10) || 0 
+                ? parseFloat(meal.nutrition.calories) || 0 
                 : meal.nutrition.calories || 0;
                 
               const protein = typeof meal.nutrition.protein === 'string'
-                ? parseInt(meal.nutrition.protein, 10) || 0
+                ? parseFloat(meal.nutrition.protein) || 0
                 : meal.nutrition.protein || 0;
                 
               const carbs = typeof meal.nutrition.carbs === 'string'
-                ? parseInt(meal.nutrition.carbs, 10) || 0
+                ? parseFloat(meal.nutrition.carbs) || 0
                 : meal.nutrition.carbs || 0;
                 
               const fat = typeof meal.nutrition.fat === 'string'
-                ? parseInt(meal.nutrition.fat, 10) || 0
+                ? parseFloat(meal.nutrition.fat) || 0
                 : meal.nutrition.fat || 0;
               
-              // Add to totals
-              totalCalories += calories;
-              totalProtein += protein;
-              totalCarbs += carbs;
-              totalFat += fat;
-              
-              console.log(`Adding meal ${meal.type} calories: ${calories} (completed: ${isCompleted})`);
+              // Add to totals - ensure numbers with || 0
+              totalCalories += calories || 0;
+              totalProtein += protein || 0;
+              totalCarbs += carbs || 0;
+              totalFat += fat || 0;
             }
           });
           
-          console.log(`Total calories updated to: ${totalCalories}`);
-          
-          // Update the calorie data
+          // Update the calorie data with numbers only
           state.calorieData = {
             ...state.calorieData,
             current: totalCalories,
@@ -518,14 +514,14 @@ export const useMealPlanStore = create(
           const state = get();
           const dateKey = formatDateKey(date);
           
-          // Update in profile format
+          // Find the meal in the profile meals
           let newCompleted = false;
           const mealIndex = state.profileMeals.findIndex(meal => meal.type === mealType);
           
           if (mealIndex !== -1) {
             // Current completion status - check both sources
             const currentCompleted = state.profileMeals[mealIndex].completed || 
-                                     state.completedMeals[mealType];
+                                    state.completedMeals[mealType];
             
             // Toggle completion status
             newCompleted = !currentCompleted;
@@ -535,118 +531,94 @@ export const useMealPlanStore = create(
               // Update profile meal status
               state.profileMeals[mealIndex].completed = newCompleted;
               
-              // Update completedMeals state by creating a fresh copy
+              // Update completedMeals state with a new object to trigger updates
               state.completedMeals = {
                 ...state.completedMeals,
                 [mealType]: newCompleted
               };
               
-              // Update planner format
+              // Update planner format if it exists
               if (state.plannerMeals[dateKey]?.[mealType]) {
                 state.plannerMeals[dateKey][mealType].completed = newCompleted;
               }
             });
             
-            // Immediately update calorie counts to avoid any race conditions
-            get().updateCalorieCount();
+            // Force immediate calorie recalculation in a separate transaction 
+            // This prevents any race conditions with state updates
+            setTimeout(() => {
+              get().updateCalorieCount();
+            }, 0);
           } else {
             // If no meal found in profile meals, just update the completion state
             set(state => {
-              // Update completedMeals state
+              // Get current status
+              const currentStatus = state.completedMeals[mealType] || false;
+              
+              // Toggle it
+              const newStatus = !currentStatus;
+              
+              // Update completedMeals state with a completely new object
               state.completedMeals = {
                 ...state.completedMeals,
-                [mealType]: !state.completedMeals[mealType]
+                [mealType]: newStatus
               };
               
-              // Also set the return value
-              newCompleted = state.completedMeals[mealType];
+              // Set return value
+              newCompleted = newStatus;
             });
             
-            // Update calorie counts
-            get().updateCalorieCount();
+            // Force immediate calorie recalculation in a separate transaction
+            setTimeout(() => {
+              get().updateCalorieCount();
+            }, 0);
           }
           
           return newCompleted;
         },
         
-        // Format meals for API submission
+        // Format meals for API submission - redesigned to avoid read-only property issues
         formatMealsForApi: () => {
           const state = get();
           const meals = [];
           
-          // Convert from planner format (preferred for complete data)
-          Object.entries(state.plannerMeals).forEach(([dateKey, dateMeals]) => {
-            Object.entries(dateMeals).forEach(([mealType, meal]) => {
-              if (meal && meal.id) {
-                // Standardize all meal fields to ensure consistency
-                const standardizedMeal = {
-                  id: meal.id,
-                  recipe_id: meal.recipe_id || meal.id,
-                  name: meal.title || meal.name || "",
-                  title: meal.title || meal.name || "",
-                  meal_type: mealType,
-                  type: mealType,
-                  nutrition: meal.nutrition || {
-                    calories: 0,
-                    protein: 0,
-                    carbs: 0,
-                    fat: 0
-                  },
-                  imageUrl: meal.imageUrl || meal.image || "",
-                  image: meal.imageUrl || meal.image || "",
-                  completed: meal.completed || false
-                };
-                
-                // Update the meal in the store to ensure next access has all fields
-                state.plannerMeals[dateKey][mealType] = standardizedMeal;
-                
-                // Add to API submission format
-                meals.push({
-                  date: dateKey,
-                  mealType: mealType,
-                  mealId: meal.id
-                });
-              }
-            });
-          });
-          
-          // If planner format is empty, try profile format
-          if (meals.length === 0 && state.profileMeals.length > 0) {
-            const today = getTodayDateString();
+          try {
+            // Create a deep copy of the planner meals to avoid modifying read-only properties
+            // Use try-catch to handle potential circular references or other JSON issues
+            const plannerMealsCopy = JSON.parse(JSON.stringify(state.plannerMeals || {}));
             
-            state.profileMeals.forEach(meal => {
-              if (meal.id) {
-                // Standardize profile meal format as well
-                const mealType = meal.type;
-                const standardizedMeal = {
-                  ...meal,
-                  name: meal.title || meal.name || "",
-                  title: meal.title || meal.name || "",
-                  meal_type: mealType,
-                  type: mealType,
-                  nutrition: meal.nutrition || {
-                    calories: 0,
-                    protein: 0,
-                    carbs: 0,
-                    fat: 0
-                  },
-                  imageUrl: meal.imageUrl || meal.image || "",
-                  image: meal.imageUrl || meal.image || ""
-                };
-                
-                // Update in the store
-                const mealIndex = state.profileMeals.findIndex(m => m.type === mealType);
-                if (mealIndex !== -1) {
-                  state.profileMeals[mealIndex] = standardizedMeal;
+            // Convert from planner format (preferred for complete data)
+            Object.entries(plannerMealsCopy).forEach(([dateKey, dateMeals]) => {
+              Object.entries(dateMeals).forEach(([mealType, meal]) => {
+                if (meal && meal.id) {
+                  // Just extract the minimal data needed for API submission
+                  meals.push({
+                    date: dateKey,
+                    mealType: mealType,
+                    mealId: meal.id
+                  });
                 }
-                
-                meals.push({
-                  date: today,
-                  mealType: mealType,
-                  mealId: meal.id
-                });
-              }
+              });
             });
+            
+            // If planner format is empty, try profile format
+            if (meals.length === 0 && Array.isArray(state.profileMeals) && state.profileMeals.length > 0) {
+              const today = getTodayDateString();
+              
+              // Use safer map instead of forEach to avoid modifying the original
+              state.profileMeals
+                .filter(meal => meal && meal.id) // Only process meals with IDs
+                .forEach(meal => {
+                  // Extract just what we need for the API
+                  meals.push({
+                    date: today,
+                    mealType: meal.type,
+                    mealId: meal.id
+                  });
+                });
+            }
+          } catch (err) {
+            console.error('Error in formatMealsForApi:', err);
+            // Return an empty array to avoid breaking the API call
           }
           
           return {

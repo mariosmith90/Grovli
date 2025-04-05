@@ -69,27 +69,28 @@ export default function RecipePage() {
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [changingRecipe, setChangingRecipe] = useState(false);
 
-  const checkIfRecipeIsSaved = async (recipeId) => {
-    if (!user) return;
-
-    try {
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${recipeId}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIsSaved(data.isSaved);
+  // Use SWR for checking if recipe is saved
+  const { data: savedStatus, mutate: mutateSavedStatus } = useApiGet(
+    user && currentMealId ? `/api/user-recipes/is-saved/${currentMealId}` : null,
+    {
+      revalidateOnFocus: false,
+      onSuccess: (data) => {
+        setIsSaved(data?.isSaved || false);
+      },
+      onError: (error) => {
+        console.error("Error checking saved status:", error);
       }
-    } catch (error) {
-      console.error("Error checking saved status:", error);
     }
+  );
+  
+  // Compatibility layer for old code
+  const checkIfRecipeIsSaved = async (recipeId) => {
+    if (!user || !recipeId) return;
+    
+    // Just trigger a mutation of the SWR data for the correct ID
+    await mutateSavedStatus(
+      `/api/user-recipes/is-saved/${recipeId}`
+    );
   };
 
   // Make the updateRecipeData function available globally

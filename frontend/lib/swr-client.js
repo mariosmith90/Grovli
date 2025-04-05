@@ -92,21 +92,46 @@ export const swrLocalCache = {
  * This serves as the core fetcher for all SWR requests
  */
 export const fetcher = async (url) => {
-  // Get auth state directly from Zustand store
-  const authState = getAuthState();
-  const token = authState.getAuthToken();
+  // Skip auth requirement for Next.js API routes (webhook endpoints)
+  const isNextJsApiRoute = url.startsWith('/api/webhook/');
   
-  if (!token) {
-    throw new Error('Authentication required');
+  // Get auth state from Zustand 
+  const authState = getAuthState();
+  const token = authState.getAuthToken?.();
+  
+  // DEBUG - log URLs being called for diagnosis
+  console.log(`[SWR] Fetching ${url} with auth token: ${!!token}`);
+  
+  // Either throw authentication error or skip auth for webhook routes
+  if (!token && !isNextJsApiRoute) {
+    // Special check for onboarding status since this is a common failing point
+    if (url.includes('/user-profile/check-onboarding/')) {
+      console.warn(`[SWR] Onboarding check without auth token: ${url}`);
+      // Let the request proceed - the backend will handle access
+    } else {
+      throw new Error('Authentication required');
+    }
   }
   
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-  const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+  
+  let fullUrl;
+  if (isNextJsApiRoute) {
+    // For Next.js API routes, use the window origin as base URL
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    fullUrl = `${baseUrl}${url}`;
+  } else {
+    // For backend API routes, use the NEXT_PUBLIC_API_URL env variable
+    fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+  }
   
   // For cached GET requests, try cache first
-  if (url.startsWith('/api/user-profile/') || 
+  if (url.startsWith('/user-profile/') || 
       url.startsWith('/api/user-plans') || 
-      url.startsWith('/user-profile/meal-completion')) {
+      url.startsWith('/api/user-recipes') ||
+      url.startsWith('/api/user-pantry') ||
+      url.startsWith('/user-settings') ||
+      url.startsWith('/api/webhook/')) {
     const cachedData = swrLocalCache.get(url);
     if (cachedData) {
       console.log(`[SWR] Using cached data for: ${url}`);
@@ -114,12 +139,19 @@ export const fetcher = async (url) => {
     }
   }
   
+  // Prepare headers based on URL type
+  const headers = {
+    'Content-Type': 'application/json',
+    'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+  };
+  
+  // Add Authorization header for non-webhook routes only if we have a token
+  if (token && !isNextJsApiRoute) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(fullUrl, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-    },
+    headers,
     credentials: 'include',
     mode: 'cors'
   });
@@ -139,9 +171,12 @@ export const fetcher = async (url) => {
   const data = await response.json();
   
   // Cache specific endpoint data
-  if (url.startsWith('/api/user-profile/') || 
+  if (url.startsWith('/user-profile/') || 
       url.startsWith('/api/user-plans') || 
-      url.startsWith('/user-profile/meal-completion')) {
+      url.startsWith('/api/user-recipes') ||
+      url.startsWith('/api/user-pantry') ||
+      url.startsWith('/user-settings') ||
+      url.startsWith('/api/webhook/')) {
     swrLocalCache.set(url, data);
   }
   
@@ -184,24 +219,54 @@ export function useApiMutation() {
     setState({ isLoading: true, error: null, data: null });
     
     try {
+      // Skip auth requirement for certain routes
+      const isNextJsApiRoute = url.startsWith('/api/webhook/');
+      
+      // Get auth state from Zustand
       const authState = getAuthState();
       const token = authState.getAuthToken();
       
-      if (!token) {
-        throw new Error('Authentication required');
+      // DEBUG - log URLs being called for diagnosis
+      console.log(`[SWR API] Calling ${url} with auth token: ${!!token}`);
+      
+      // Either throw authentication error or skip auth for webhook routes
+      if (!token && !isNextJsApiRoute) {
+        // Special check for onboarding status since this is a common failing point
+        if (url.includes('/user-profile/check-onboarding/')) {
+          console.warn(`[SWR] Onboarding check without auth token: ${url}`);
+          // Let the request proceed - the backend will handle access
+        } else {
+          throw new Error('Authentication required');
+        }
       }
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+      
+      let fullUrl;
+      if (isNextJsApiRoute) {
+        // For Next.js API routes, use the window origin as base URL
+        const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+        fullUrl = `${baseUrl}${url}`;
+      } else {
+        // For backend API routes, use the NEXT_PUBLIC_API_URL env variable
+        fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+      }
+      
+      // Prepare headers based on URL type
+      const headers = {
+        'Content-Type': 'application/json',
+        'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+      };
+      
+      // Add Authorization header for non-webhook routes only if we have a token
+      if (token && !isNextJsApiRoute) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       
       // Prepare fetch options with AbortController signal if provided
       const fetchOptions = {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-        },
+        headers,
         ...(body ? { body: JSON.stringify(body) } : {}),
         credentials: 'include',
         mode: 'cors'
@@ -455,78 +520,74 @@ export function useApiMutation() {
 }
 
 /**
- * Hook for preloading profile data
+ * Function for preloading profile data
+ * This is NOT a hook anymore - it's a regular function that can be called anywhere
  */
-export function useProfilePreloader() {
-  const [status, setStatus] = useState({
-    isLoading: false,
-    isComplete: false,
-    error: null
-  });
+export async function preloadProfileData(userId) {
+  if (!userId) return { success: false, message: "No user ID provided" };
   
-  const { mutate: globalMutate } = useSWRConfig();
-  
-  const preloadProfileData = async (userId) => {
-    if (!userId) return { success: false, message: "No user ID provided" };
+  try {
+    // URLs to preload
+    const today = new Date().toISOString().split('T')[0];
+    const urls = [
+      `/user-profile/${userId}`,
+      `/api/user-plans/user/${userId}`,
+      `/user-profile/meal-completion/${userId}/${today}`,
+      `/user-settings/${userId}`,
+      `/api/user-recipes/saved-recipes/`
+    ];
     
-    setStatus({ isLoading: true, isComplete: false, error: null });
-    
-    try {
-      // URLs to preload
-      const urls = [
-        `/api/user-profile/${userId}`,
-        `/api/user-plans/user/${userId}`,
-        `/user-profile/meal-completion/${userId}/${new Date().toISOString().split('T')[0]}`,
-        `/user-settings/${userId}`,
-        `/api/user-recipes/saved-recipes/`
-      ];
-      
-      // Load all in parallel
-      const results = await Promise.allSettled(
-        urls.map(url => fetcher(url))
-      );
-      
-      // Process results
-      const successCount = results.filter(r => r.status === 'fulfilled').length;
-      const success = successCount > 0;
-      
-      // Warm up the SWR cache with our results
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          // Prime the SWR cache
-          globalMutate(urls[index], result.value, false);
+    // Load all in parallel with Promise.allSettled
+    const results = await Promise.allSettled(
+      urls.map(url => {
+        try {
+          return fetcher(url).catch(err => {
+            console.error(`Error preloading ${url}:`, err);
+            return undefined;
+          });
+        } catch (e) {
+          console.error(`Error setting up fetch for ${url}:`, e);
+          return Promise.resolve(undefined);
         }
-      });
-      
-      setStatus({ 
-        isLoading: false, 
-        isComplete: true, 
-        error: null 
-      });
-      
-      return { 
-        success,
-        items_loaded: successCount,
-        items_failed: results.length - successCount
-      };
-    } catch (error) {
-      setStatus({ 
-        isLoading: false, 
-        isComplete: false, 
-        error: error.message 
-      });
-      
-      return { 
-        success: false, 
-        message: error.message 
-      };
-    }
-  };
-  
-  return {
-    ...status,
-    preloadProfileData
-  };
+      })
+    );
+    
+    // Process results
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== undefined).length;
+    const success = successCount > 0;
+    
+    // Warm up the SWR cache with our results
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value !== undefined) {
+        // Prime the SWR cache using a more direct approach
+        try {
+          if (typeof window !== 'undefined') {
+            // Store in our custom cache
+            swrLocalCache.set(urls[index], result.value);
+            
+            // Also trigger SWR's cache
+            mutate(urls[index], result.value, false);
+          }
+        } catch (e) {
+          console.error(`Failed to cache ${urls[index]}:`, e);
+        }
+      }
+    });
+    
+    console.log(`[SWR] Preloaded profile data: ${successCount}/${urls.length} endpoints successful`);
+    
+    return { 
+      success,
+      items_loaded: successCount,
+      items_failed: results.length - successCount
+    };
+  } catch (error) {
+    console.error('[SWR] Profile data prefetch failed:', error);
+    return { 
+      success: false, 
+      message: error.message 
+    };
+  }
 }
 
 /**
@@ -657,7 +718,10 @@ export function useMealPlanGenerator() {
     }
     
     try {
-      const data = await apiMutation.get(`/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true&mealPlanId=${mealPlanId}`);
+      // Use proper method for Next.js API routes
+      const data = await apiMutation.trigger(`/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true&mealPlanId=${mealPlanId}`, {
+        method: 'GET'
+      });
       return data;
     } catch (error) {
       console.error('[SWR] Error checking meal plan status:', error);
@@ -686,7 +750,7 @@ export function useMealPlanNotifications(userId) {
   
   const { mutate: globalMutate } = useSWRConfig();
   
-  // SWR key for the meal notification endpoint
+  // SWR key for the meal notification endpoint with correct URL
   const mealReadyKey = userId ? `/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true` : null;
   
   // Use SWR with a customized fetcher to handle the meal plan notification endpoint
@@ -764,6 +828,7 @@ export function useMealPlanNotifications(userId) {
   const checkForNotifications = useCallback(async () => {
     setStatus(prev => ({ ...prev, isPolling: true }));
     try {
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
       await mutate();
       return true;
     } catch (error) {
@@ -923,6 +988,28 @@ export function SWRProvider({ children }) {
     } catch (error) {
       console.warn(`[SWR] Error initializing cache:`, error);
     }
+  }, []);
+  
+  // Provide SWR's global focus revalidation for the document
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Revalidate when the page becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Access the SWR mutator to trigger revalidation events
+        mutate();
+      }
+    };
+    
+    // Add event listeners for visibility and focus
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', () => mutate());
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', () => mutate());
+    };
   }, []);
   
   return children;

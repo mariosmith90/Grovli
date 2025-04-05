@@ -13,27 +13,50 @@ import { fetcher, swrLocalCache, SWRProvider } from '../lib/swr-client';
 export function Providers({ children }) {
   return (
     <SWRConfig value={{
-      fetcher,
+      // Core configuration
+      fetcher,                  // Global fetcher function for all SWR hooks
       provider: () => new Map(), // Use a custom Map instance for the cache
-      revalidateOnFocus: false, // Disable auto revalidation on window focus
-      revalidateIfStale: true,  // Revalidate if data is stale
-      dedupingInterval: 5000,   // Dedupe requests within 5 seconds
-      errorRetryCount: 2,       // Only retry failed requests twice
-      shouldRetryOnError: (err) => !err.status || err.status >= 500,  // Only retry on server errors
+      
+      // Revalidation strategy
+      revalidateOnFocus: true,  // Enable SWR's built-in focus revalidation (recommended)
+      revalidateOnReconnect: true, // Revalidate when network reconnects
+      revalidateIfStale: true,  // Always revalidate stale data in the background
+      
+      // Performance tuning
+      dedupingInterval: 3000,   // Dedupe identical requests within 3 seconds
+      focusThrottleInterval: 10000, // Throttle focus events every 10 seconds
+      loadingTimeout: 4000,     // Consider slow after 4 seconds
+      
+      // Error handling
+      errorRetryCount: 3,       // Retry failed requests 3 times
+      errorRetryInterval: 5000, // Start with 5-second retry delay (with backoff)
+      shouldRetryOnError: (err) => {
+        // Don't retry on client errors (except 408 Request Timeout)
+        if (err.status && err.status !== 408 && err.status < 500) return false;
+        return true;
+      },
+      
+      // Lifecycle events
       onError: (error, key) => {
-        if (error.status !== 403 && error.status !== 404) {
-          console.error(`SWR Error for ${key}:`, error);
+        // Only log server errors and unexpected errors, not common client errors
+        if (!error.status || error.status >= 500) {
+          console.error(`[SWR] Error for ${key}:`, error);
+        } else if (error.status !== 404) {
+          // Log client errors except 404s (which are common)
+          console.warn(`[SWR] API client error for ${key}: ${error.status}`);
         }
       },
       onLoadingSlow: (key) => {
-        console.warn(`SWR slow loading for ${key}`);
+        console.warn(`[SWR] Slow loading for ${key} (>4s)`);
       },
       onSuccess: (data, key) => {
-        // Backup successful responses to localStorage via our custom cache
+        // Persist successful responses to localStorage via our custom cache
         if (typeof window !== 'undefined' && key && data) {
+          // Cache user-specific data that changes infrequently
           if (key.startsWith('/api/user-profile/') || 
               key.startsWith('/api/user-plans') || 
-              key.startsWith('/user-profile/meal-completion')) {
+              key.startsWith('/user-profile/meal-completion') ||
+              key.startsWith('/api/user-recipes/saved-recipes')) {
             swrLocalCache.set(key, data);
           }
         }
@@ -76,12 +99,26 @@ function Auth0Sync() {
         // This ensures the profile page loads instantly when user navigates there
         setTimeout(async () => {
           try {
-            const { useProfilePreloader } = require('../lib/swr-client');
-            const preloader = useProfilePreloader();
+            // Import the fetcher function to directly preload data without using hooks
+            const { fetcher, mutate } = await import('../lib/swr-client');
             
-            // Use our SWR preloader to prefetch all necessary data
-            const result = await preloader.preloadProfileData(user.sub);
-            console.log("Profile data preload result:", result);
+            // Define the keys we want to preload
+            const today = new Date().toISOString().split('T')[0];
+            const keysToPreload = [
+              `/api/user-profile/${user.sub}`,
+              `/api/user-plans/user/${user.sub}`,
+              `/user-profile/meal-completion/${user.sub}/${today}`,
+              `/user-settings/${user.sub}`
+            ];
+            
+            // Use Promise.allSettled to preload all data
+            await Promise.allSettled(
+              keysToPreload.map(key => 
+                mutate(key, fetcher(key), false)
+              )
+            );
+            
+            console.log("Successfully preloaded profile data for:", user.sub);
           } catch (err) {
             console.warn('Prefetch of profile data failed silently', err);
           }

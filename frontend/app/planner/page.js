@@ -18,7 +18,8 @@ import {
   Loader 
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useApiGet, useApiMutation, mutate } from '../../lib/swr-client';
+import { useApiGet, useApiMutation } from '../../lib/swr-client';
+import { mutate } from 'swr';
 import { useMealPlanStore, initializeMealPlanStore, formatDateKey } from '../../lib/stores/mealPlanStore';
 import AutoUpdatingComponent from '../../components/features/profile/mealplan/autoupdating';
 import DuplicateMeals from '../../components/features/planner/duplicatemeals';

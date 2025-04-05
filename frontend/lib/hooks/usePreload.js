@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '../stores/authStore';
 import { useSWRConfig, mutate } from 'swr';
-import { useApiGet, useProfilePreloader } from '../swr-client';
+import { useApiGet } from '../swr-client';
 
 /**
  * Enhanced SWR-based custom hook for preloading assets, routes, and API data.
@@ -24,12 +24,11 @@ export function usePreload() {
   const pathname = usePathname();
   const store = useAuthStore();
   const { mutate: globalMutate } = useSWRConfig();
-  const { preloadProfileData } = useProfilePreloader();
   
   // Define common API endpoints for use with SWR
   const userId = store?.userId;
   const userPlansKey = userId ? `/api/user-plans/user/${userId}` : null;
-  const userProfileKey = userId ? `/api/user-profile/${userId}` : null;
+  const userProfileKey = userId ? `/user-profile/${userId}` : null;
   
   // SWR-optimized preloading methods
   
@@ -102,154 +101,189 @@ export function usePreload() {
       }
     },
     
-    // Preload API data - following SWR docs
-    api: (key, endpoint, options = {}) => {
+    // Streamlined API data preload - directly using SWR's pattern
+    api: async (key, endpoint, options = {}) => {
       if (!key) return;
       
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const fullUrl = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+        // Import fetcher to ensure consistency with other SWR calls
+        const { fetcher } = await import('../swr-client');
         
-        // Get headers - either from options or from auth store
-        const headers = options.headers || store.getAuthHeaders();
-        
-        // Use the exact pattern from SWR docs
-        globalMutate(
-          key,
-          fetch(fullUrl, {
-            headers,
-            credentials: 'include',
-            ...options
-          })
-          .then(res => res.ok ? res.json() : null)
-          .catch(err => {
-            console.warn(`[usePreload] Error prefetching ${key}:`, err);
-            return null;
-          }),
-          false // Skip revalidation as recommended in the docs
+        // Use SWR's recommended pattern directly
+        return globalMutate(
+          key, 
+          fetcher(endpoint),
+          false
         );
       } catch (error) {
         console.warn(`[usePreload] Error setting up prefetch for ${key}:`, error);
       }
     },
     
-    // Enhanced profileData preload - following SWR docs exactly
+    // Streamlined profileData preload - using SWR's recommended pattern with better error handling
     profileData: async () => {
       if (!userId) return false;
       
-      console.log("[usePreload] Preloading profile data using SWR docs patterns");
-      
       try {
-        // Define the profile-related endpoints to preload
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const headers = store.getAuthHeaders();
-        const today = new Date().toISOString().split('T')[0];
+        // Get auth token directly from the store to ensure it's available
+        const token = store.getToken?.() || (typeof window !== 'undefined' ? 
+          localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken') : null);
         
-        // Define all the keys we want to preload
-        const preloadKeys = [
-          // User profile
-          { key: userProfileKey, endpoint: userProfileKey },
-          
-          // User meal plans
-          { key: userPlansKey, endpoint: userPlansKey },
-          
-          // Today's meal completions
-          { 
-            key: `/user-profile/meal-completion/${userId}/${today}`,
-            endpoint: `/user-profile/meal-completion/${userId}/${today}`
-          },
-          
-          // User settings
-          { 
-            key: `/user-settings/${userId}`,
-            endpoint: `/user-settings/${userId}`
-          }
-        ];
-        
-        // Following the SWR docs exactly, use mutate with fetch promises for prefetching
-        // https://swr.vercel.app/docs/prefetching
-        await Promise.all(
-          preloadKeys
-            .filter(item => item.key && item.endpoint)
-            .map(({ key, endpoint }) => 
-              globalMutate(
-                key,
-                fetch(`${apiUrl}${endpoint}`, { headers, credentials: 'include' })
-                  .then(res => res.ok ? res.json() : null)
-                  .catch(() => null),
-                false // Skip revalidation as recommended in the docs
-              )
-            )
-        );
-        
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('grovli_profile_preload_timestamp', Date.now().toString());
+        if (!token) {
+          console.warn('[usePreload] Authentication token not available for profile data preload');
+          return false;
         }
         
-        console.log('[usePreload] Profile data preloaded with SWR');
-        return true;
+        // Define today's date for meal completions
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Define the keys we want to preload using the same keys that components will use
+        const keysToPreload = [
+          userProfileKey,
+          userPlansKey,
+          `/user-profile/meal-completion/${userId}/${today}`,
+          `/user-settings/${userId}`
+        ].filter(Boolean); // Remove any null/undefined keys
+        
+        // Log that we're starting preload with token
+        console.log(`[usePreload] Starting profile preload for user ${userId} with token available: ${!!token}`);
+        
+        // Use a more resilient approach, handling each key independently
+        const results = await Promise.allSettled(
+          keysToPreload.map(key => {
+            try {
+              // Use a custom fetcher with explicit token to ensure authentication
+              const customFetch = async () => {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+                const fullUrl = `${apiUrl}${key}`;
+                
+                const response = await fetch(fullUrl, {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'X-Source': 'preload'
+                  }
+                });
+                
+                if (!response.ok) {
+                  throw new Error(`API request failed with status ${response.status}`);
+                }
+                
+                return response.json();
+              };
+              
+              // Use SWR's mutate to prime the cache
+              return globalMutate(key, customFetch().catch(err => {
+                console.error(`[usePreload] Failed to preload ${key}:`, err);
+                return undefined;
+              }), false);
+            } catch (e) {
+              console.error(`[usePreload] Error setting up mutation for ${key}:`, e);
+              return Promise.resolve(); // Keep going
+            }
+          })
+        );
+        
+        // Log overall success/failure
+        const successCount = results.filter(r => r.status === 'fulfilled').length;
+        console.log(`[usePreload] Profile data preloaded: ${successCount}/${keysToPreload.length} successful`);
+        
+        // Return true if at least some preloads succeeded
+        return successCount > 0;
       } catch (error) {
-        console.warn('[usePreload] Profile data prefetch failed:', error);
+        console.error('[usePreload] Profile data prefetch failed:', error);
         return false;
       }
     },
     
-    // Pantry data preload - following SWR docs precisely
+    // Streamlined pantry data preload - using SWR's recommended pattern with better error handling
     pantryData: async () => {
       if (!userId) return false;
       
-      console.log("[usePreload] Preloading pantry data using SWR docs pattern");
-      
-      // Define the pantry endpoint for SWR
-      const pantryKey = userId ? `/api/user-pantry/items` : null;
-      if (!pantryKey) return false;
-      
       try {
-        // Following the SWR prefetching docs exactly:
-        // https://swr.vercel.app/docs/prefetching
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const headers = store.getAuthHeaders();
+        // Get auth token directly from the store to ensure it's available
+        const token = store.getToken?.() || (typeof window !== 'undefined' ? 
+          localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken') : null);
         
-        // Preload the main pantry items data
-        globalMutate(
-          pantryKey,
-          fetch(`${apiUrl}${pantryKey}`, { headers, credentials: 'include' })
-            .then(res => res.ok ? res.json() : null),
-          false // Skip revalidation
-        );
+        if (!token) {
+          console.warn('[usePreload] Authentication token not available for pantry data preload');
+          return false;
+        }
         
-        // Preload related pantry data in parallel
-        const relatedKeys = [
-          '/api/user-pantry/categories',
-          '/api/user-pantry/recent'
+        // Import fetcher from swr-client but we'll use our own authentication
+        const { fetcher } = await import('../swr-client');
+        
+        // Define the pantry-related keys to preload
+        // Note: Only "items" endpoint exists in the backend API
+        const keysToPreload = [
+          '/api/user-pantry/items'
         ];
         
-        // Preload each related key
-        relatedKeys.forEach(key => {
-          globalMutate(
-            key,
-            fetch(`${apiUrl}${key}`, { headers, credentials: 'include' })
-              .then(res => res.ok ? res.json() : null)
-              .catch(() => null), // Silent catch
-            false // Skip revalidation
-          );
-        });
+        // Log that we're starting preload with token
+        console.log(`[usePreload] Starting pantry preload for user ${userId} with token available: ${!!token}`);
         
-        console.log('[usePreload] Pantry data preloaded with SWR');
-        return true;
+        // Use a more resilient approach, handling each key independently
+        const results = await Promise.allSettled(
+          keysToPreload.map(key => {
+            try {
+              // Use a custom fetcher with explicit token to ensure authentication
+              const customFetch = async () => {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+                const fullUrl = `${apiUrl}${key}`;
+                
+                const response = await fetch(fullUrl, {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'X-Source': 'preload'
+                  }
+                });
+                
+                if (!response.ok) {
+                  throw new Error(`API request failed with status ${response.status}`);
+                }
+                
+                return response.json();
+              };
+              
+              // Use SWR's mutate to prime the cache
+              return globalMutate(key, customFetch().catch(err => {
+                console.error(`[usePreload] Failed to preload ${key}:`, err);
+                return undefined;
+              }), false);
+            } catch (e) {
+              console.error(`[usePreload] Error setting up mutation for ${key}:`, e);
+              return Promise.resolve(); // Keep going
+            }
+          })
+        );
+        
+        // Log overall success/failure
+        const successCount = results.filter(r => r.status === 'fulfilled').length;
+        console.log(`[usePreload] Pantry data preloaded: ${successCount}/${keysToPreload.length} successful`);
+        
+        // Return true if at least some preloads succeeded
+        return successCount > 0;
       } catch (error) {
-        console.warn('[usePreload] Pantry data prefetch failed:', error);
+        console.error('[usePreload] Pantry data prefetch failed:', error);
         return false;
       }
     },
     
-    // Initialize SWR caches for critical paths - following SWR docs
+    // Streamlined initialization for critical paths with better error handling
     initialize: async () => {
       if (!userId) return false;
       
-      console.log("[usePreload] Initializing SWR caches for critical paths");
-      
       try {
+        // Get auth token directly from the store to ensure it's available
+        const token = store.getToken?.() || (typeof window !== 'undefined' ? 
+          localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken') : null);
+        
+        if (!token) {
+          console.warn('[usePreload] Authentication token not available for preload initialization');
+          return false;
+        }
+        
         // Define the critical paths to preload
         const criticalPaths = [
           userProfileKey,
@@ -259,36 +293,51 @@ export function usePreload() {
           `/user-settings/${userId}`
         ].filter(Boolean); // Filter out null values
         
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const headers = store.getAuthHeaders();
+        // Log that we're starting preload with token
+        console.log(`[usePreload] Starting initialization for user ${userId} with token available: ${!!token}`);
         
-        // Following SWR docs: https://swr.vercel.app/docs/prefetching
-        // Preload all critical paths in parallel
-        await Promise.all(
-          criticalPaths.map(path => 
-            // Use mutate with a fetch promise and skip revalidation flag (false)
-            globalMutate(
-              path, 
-              fetch(`${apiUrl}${path}`, {
-                headers,
-                credentials: 'include'
-              })
-              .then(res => {
-                if (!res.ok) throw new Error(`Failed to fetch ${path}`);
-                return res.json();
-              })
-              .catch(err => {
-                console.warn(`[usePreload] Failed to preload ${path}:`, err);
-                // Return undefined instead of rejecting to avoid breaking Promise.all
+        // Use a more resilient approach, handling each path independently
+        const results = await Promise.allSettled(
+          criticalPaths.map(path => {
+            try {
+              // Use a custom fetcher with explicit token to ensure authentication
+              const customFetch = async () => {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+                const fullUrl = `${apiUrl}${path}`;
+                
+                const response = await fetch(fullUrl, {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'X-Source': 'preload-init'
+                  }
+                });
+                
+                if (!response.ok) {
+                  throw new Error(`API request failed with status ${response.status}`);
+                }
+                
+                return response.json();
+              };
+              
+              // Use SWR's mutate to prime the cache
+              return globalMutate(path, customFetch().catch(err => {
+                console.error(`[usePreload] Failed to initialize ${path}:`, err);
                 return undefined;
-              }),
-              false // Skip revalidation as per SWR docs
-            )
-          )
+              }), false);
+            } catch (e) {
+              console.error(`[usePreload] Error setting up mutation for ${path}:`, e);
+              return Promise.resolve(); // Keep going
+            }
+          })
         );
         
-        console.log("[usePreload] SWR cache initialization complete");
-        return true;
+        // Log overall success/failure
+        const successCount = results.filter(r => r.status === 'fulfilled').length;
+        console.log(`[usePreload] SWR cache initialization: ${successCount}/${criticalPaths.length} successful`);
+        
+        // Return true if at least some initializations succeeded
+        return successCount > 0;
       } catch (error) {
         console.error("[usePreload] Error initializing SWR caches:", error);
         return false;

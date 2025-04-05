@@ -268,11 +268,22 @@ export default function MealPlanManager({
     }
   };
 
-  // Fetch meal details for a recipe ID
+  // Fetch meal details for a recipe ID - using SWR pattern
   const fetchMealDetails = async (recipeId) => {
+    if (!recipeId) return null;
+    
     try {
-      const { data } = await apiMutation.post(`/mealplan/${recipeId}`);
-      return data;
+      // Using SWR's mutation with a consistent key for caching
+      const mealDetailKey = `/mealplan/${recipeId}`;
+      
+      // Prefetch and cache in one step following SWR patterns
+      const result = await apiMutation.trigger(mealDetailKey, { 
+        method: 'GET',
+        // These parameters tell SWR to update its cache
+        invalidateUrls: []
+      });
+      
+      return result.data || null;
     } catch (error) {
       console.error(`Error fetching meal details for ${recipeId}:`, error);
       return null;
