@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 // Import Auth0's useUser hook
 import { useUser } from "@auth0/nextjs-auth0";
@@ -13,6 +13,8 @@ import SearchBox from '../../components/features/meals/searchbox';
 import CuisineSelector from '../../components/features/meals/cuisineselector';
 import MealTypeSelector from '../../components/features/meals/mealtypeselector';
 import MealPlanGenerator from '../../components/features/meals/mealplangenerator';
+// Import SWR hooks
+import { useMealPlanGenerator, useApiMutation, useMealPlanNotifications } from '../../lib/swr-client';
 import Header from '../../components/ui/header';
 
 export default function Home() {
@@ -399,26 +401,48 @@ export default function Home() {
     });
   };
 
-  // Use the MealPlanGenerator as a custom hook
-  const { generateMealPlan: mealPlanGenerator } = MealPlanGenerator({
-    preferences,
-    mealType,
-    numDays,
-    globalSettings,
-    isPro,
-    getAuthHeaders,
-    onError: (errorMessage) => setError(errorMessage),
-    onProcessingStarted: () => {
-      setSelectedRecipes([]);
-      setShowChatbot(true);
-      setMealPlanReady(false);
-      setMealPlan([]);
-      setOrderingPlanIngredients(false);
-      // Make sure displayedMealType is set properly before generating a new plan
-      setDisplayedMealType(mealType);
-    },
-    showChatbot
-  });
+  // Use the proper useMealPlanGenerator hook from swr-client
+  const { generateMealPlan } = useMealPlanGenerator();
+  const apiMutation = useApiMutation();
+  
+  // Wrap the hook in a function with the same interface for backward compatibility
+  const mealPlanGenerator = useCallback(async () => {
+    // Prepare for meal generation
+    setSelectedRecipes([]);
+    setShowChatbot(true);
+    setMealPlanReady(false);
+    setMealPlan([]);
+    setOrderingPlanIngredients(false);
+    // Make sure displayedMealType is set properly before generating a new plan
+    setDisplayedMealType(mealType);
+    
+    // Call the actual generator
+    return await generateMealPlan({
+      preferences,
+      mealType,
+      numDays,
+      globalSettings,
+      isPro,
+      getAuthHeaders,
+      onError: (errorMessage) => setError(errorMessage),
+      onProcessingStarted: () => {} // Already handled above
+    });
+  }, [
+    preferences, 
+    mealType, 
+    numDays, 
+    globalSettings, 
+    isPro, 
+    getAuthHeaders, 
+    setError, 
+    generateMealPlan,
+    setSelectedRecipes,
+    setShowChatbot,
+    setMealPlanReady,
+    setMealPlan,
+    setOrderingPlanIngredients,
+    setDisplayedMealType
+  ]);
   
   // Main function to generate a meal plan - memoized to avoid recreation on every render
   const fetchMealPlan = useCallback(async () => {
@@ -1008,129 +1032,73 @@ export default function Home() {
     }
   }, [user, isLoading]);
 
-  // Check meal plan status when component mounts and when certain states change
-  // Centralized polling mechanism that combines all meal plan status checks 
+  // Use SWR for meal plan notifications
+  const {
+    mealPlanReady: swrMealPlanReady,
+    notification: swrNotification,
+    checkForNotifications,
+    acknowledgeMealPlan
+  } = useMealPlanNotifications(userId);
+
+  // Handle SWR notifications when meal plan is ready
+  useEffect(() => {
+    if (swrMealPlanReady && swrNotification?.meal_plan_id) {
+      console.log(`[MealPage] SWR notification received for meal plan: ${swrNotification.meal_plan_id}`);
+      
+      // Update component state
+      setMealGenerationComplete(true);
+      setCurrentMealPlanId(swrNotification.meal_plan_id);
+      setIsGenerating(false);
+      setMealPlanReady(true);
+      
+      if (showChatbot) {
+        setShowChatbot(false);
+      }
+      
+      // Store in localStorage for persistence
+      if (typeof window !== 'undefined') {
+        window.mealLoading = false;
+        window.mealPlanReady = true;
+        localStorage.setItem('currentMealPlanId', swrNotification.meal_plan_id);
+        localStorage.setItem('hasViewedGeneratedMeals', 'false');
+        
+        // Update context state in localStorage
+        const currentState = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
+        localStorage.setItem('mealGenerationState', JSON.stringify({
+          ...currentState,
+          isGenerating: false,
+          mealGenerationComplete: true,
+          currentMealPlanId: swrNotification.meal_plan_id
+        }));
+        
+        console.log("✅ [MealPage] Meal plan is fully ready with all images generated!");
+        
+        // Process the meal plan
+        handleMealPlanReady({
+          meal_plan_id: swrNotification.meal_plan_id,
+          meal_plan_ready: true,
+          all_meals_ready: true
+        });
+      }
+      
+      // Acknowledge the notification to prevent duplicates
+      acknowledgeMealPlan();
+    }
+  }, [swrMealPlanReady, swrNotification, acknowledgeMealPlan, setMealGenerationComplete, setCurrentMealPlanId, setIsGenerating, showChatbot, setShowChatbot, handleMealPlanReady]);
+  
+  // Check for meal plan status when generating
   useEffect(() => {
     // Skip if not generating or already complete
     if (!isGenerating || mealGenerationComplete) {
       return;
     }
     
-    console.log("[MealPage] Setting up centralized polling for meal plan status");
+    console.log("[MealPage] Checking for meal plan status using SWR");
     
-    // Single function that checks all possible sources for meal plan status
-    const checkMealPlanStatus = async () => {
-      // Avoid multiple concurrent checks
-      if (typeof window !== 'undefined' && window._mealPageChecking) {
-        console.log("[MealPage] Skipping duplicate status check");
-        return;
-      }
-      
-      if (typeof window !== 'undefined') {
-        window._mealPageChecking = true;
-      }
-      
-      try {
-        // Early return if we're no longer generating
-        if (!isGenerating || mealGenerationComplete) {
-          console.log("[MealPage] Meal generation no longer in progress, stopping checks");
-          if (typeof window !== 'undefined') {
-            window._mealPageChecking = false;
-          }
-          return;
-        }
-        
-        if (typeof window !== 'undefined') {
-          window._mealPageCheckingNotification = true;
-        }
-        
-        // Use authenticated headers
-        const headers = await getAuthHeaders();
-        
-        // Check with the backend directly to see if the meal plan is ready
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        console.log("[MealPage] Checking meal plan status for user:", userId);
-        
-        const response = await fetch(`${apiUrl}/mealplan/get_latest_session`, {
-          headers
-        });
-        
-        if (!response.ok) {
-          console.error(`[MealPage] Error checking meal plan status: ${response.status}`);
-          return;
-        }
-        
-        const data = await response.json();
-        
-        // Check if the response was throttled - if so, handle gracefully
-        if (data.throttled) {
-          console.log('[MealPage] Session check was throttled, will try again later');
-          return;
-        }
-        
-        // Check both meal_plan_ready AND the all_meals_ready flag to ensure images are also generated
-        if (data.meal_plan_ready && data.meal_plan_id && data.all_meals_ready) {
-          console.log("[MealPage] Found completely ready meal plan with all images:", data.meal_plan_id);
-          
-          // Update state in this component and the meal generation context
-          setMealGenerationComplete(true);
-          setCurrentMealPlanId(data.meal_plan_id);
-          setIsGenerating(false);
-          setMealPlanReady(true);
-          
-          if (showChatbot) {
-            setShowChatbot(false);
-          }
-          
-          // Store in localStorage for persistence
-          if (typeof window !== 'undefined') {
-            window.mealLoading = false;
-            window.mealPlanReady = true;
-            localStorage.setItem('currentMealPlanId', data.meal_plan_id);
-            localStorage.setItem('hasViewedGeneratedMeals', 'false');
-            
-            // Update context state in localStorage
-            const currentState = JSON.parse(localStorage.getItem('mealGenerationState') || '{}');
-            localStorage.setItem('mealGenerationState', JSON.stringify({
-              ...currentState,
-              isGenerating: false,
-              mealGenerationComplete: true,
-              currentMealPlanId: data.meal_plan_id
-            }));
-            
-            console.log("✅ [MealPage] Meal plan is fully ready with all images generated!");
-            
-            // Process the meal plan using our central handler
-            handleMealPlanReady(data);
-          }
-        } else if (data.meal_plan_ready && !data.all_meals_ready) {
-          // Meals are ready but images are still processing
-          console.log("⏱️ [MealPage] Meal data is ready but still waiting for images to be generated...");
-          if (typeof window !== 'undefined') {
-            window.imagesGenerating = true;
-          }
-        } else if (data.meal_plan_processing) {
-          console.log("⏳ [MealPage] Meal plan still generating, will continue checking...");
-        }
-      } catch (error) {
-        console.error("[MealPage] Error checking meal plan status:", error);
-      } finally {
-        // Always clear the checking flag when we're done
-        if (typeof window !== 'undefined') {
-          window._mealPageChecking = false;
-          window._mealPageCheckingNotification = false;
-        }
-      }
-    };
+    // Trigger SWR check
+    checkForNotifications();
     
-    // Check immediately
-    checkMealPlanStatus();
-    
-    // Set up interval to check periodically, with shorter initial check
-    const firstCheckId = setTimeout(() => checkMealPlanStatus(), 10000); // 10 seconds initially
-    const intervalId = setInterval(() => checkMealPlanStatus(), 30000);  // Then every 30 seconds
-    
-    // Set up event listener for meal plan ready events
+    // Set up backward-compatibility event listener
     const handleMealPlanReadyEvent = (event) => {
       console.log("[MealPage] Received mealPlanReady event:", event.detail);
       
@@ -1151,15 +1119,11 @@ export default function Home() {
     }
     
     return () => {
-      clearTimeout(firstCheckId);
-      clearInterval(intervalId);
-      
       if (typeof window !== 'undefined') {
-        window._mealPageCheckingNotification = false;
         window.removeEventListener('mealPlanReady', handleMealPlanReadyEvent);
       }
     };
-  }, [userId, isGenerating, mealGenerationComplete, showChatbot, setMealGenerationComplete, setCurrentMealPlanId, setIsGenerating, getAuthHeaders, handleMealPlanReady]);
+  }, [userId, isGenerating, mealGenerationComplete, checkForNotifications, showChatbot, setMealGenerationComplete, setCurrentMealPlanId, setIsGenerating]);
 
   // Save selected recipes to user's profile
   const saveSelectedRecipes = async () => {

@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useEffect } from 'react'
+import { useMealPlanNotifications, useMealPlanDetails } from '../swr-client'
 
 // Create the meal store using Zustand best practices
 export const useMealStore = create(
@@ -496,6 +497,113 @@ export const useMealStatus = () => {
     isComplete,
     hasViewed,
     isReadyToView: isComplete && !hasViewed
+  };
+};
+
+/**
+ * Hook that combines Zustand state with SWR notification system
+ * This provides a unified API for meal plan notifications
+ */
+export const useMealNotifications = (userId) => {
+  // Get Zustand store state
+  const storeState = useMealStore();
+  
+  // Use the SWR notification hook
+  const {
+    mealPlanReady,
+    readyMealPlanId,
+    notification,
+    checkForNotifications,
+    isLoading,
+    acknowledgeMealPlan
+  } = useMealPlanNotifications(userId);
+  
+  // When a notification is received via SWR, update the Zustand store
+  useEffect(() => {
+    if (mealPlanReady && readyMealPlanId && !storeState.mealGenerationComplete) {
+      console.log(`[MealStore] SWR notification received for meal plan: ${readyMealPlanId}`);
+      
+      // Handle the notification
+      storeState.handleMealPlanNotification({
+        meal_plan_id: readyMealPlanId,
+        user_id: userId,
+        timestamp: Date.now(),
+        source: 'swr'
+      });
+    }
+  }, [mealPlanReady, readyMealPlanId, userId, storeState]);
+  
+  // Method to check notifications and handle them
+  const notifyMealPlanReady = async () => {
+    if (!userId) return false;
+    
+    try {
+      // Check for notifications using SWR
+      await checkForNotifications();
+      
+      // If a notification was received, the effect above will handle it
+      return true;
+    } catch (error) {
+      console.error('[MealNotifications] Error checking notifications:', error);
+      return false;
+    }
+  };
+  
+  // Get meal plan details if we have a meal plan ID
+  const { 
+    mealPlan, 
+    isLoading: isLoadingMealPlan,
+    refreshMealPlan
+  } = useMealPlanDetails(
+    storeState.currentMealPlanId,
+    userId
+  );
+  
+  // When meal plan data is loaded via SWR, update the Zustand store
+  useEffect(() => {
+    if (mealPlan && Array.isArray(mealPlan) && mealPlan.length > 0 && storeState.currentMealPlanId) {
+      console.log(`[MealStore] SWR meal plan loaded with ${mealPlan.length} meals`);
+      
+      // Only update if we don't already have a meal plan or if it's different
+      if (!storeState.mealPlan || storeState.mealPlan.length === 0) {
+        storeState.setMealPlan(mealPlan);
+      }
+    }
+  }, [mealPlan, storeState]);
+  
+  return {
+    isGenerating: storeState.isGenerating,
+    mealGenerationComplete: storeState.mealGenerationComplete,
+    currentMealPlanId: storeState.currentMealPlanId,
+    mealPlan: storeState.mealPlan || mealPlan,
+    hasViewedGeneratedMeals: storeState.hasViewedGeneratedMeals,
+    
+    // SWR notification status
+    mealPlanReady,
+    notification,
+    isLoading: isLoading || isLoadingMealPlan,
+    
+    // Zustand actions
+    setIsGenerating: storeState.setIsGenerating,
+    setMealGenerationComplete: storeState.setMealGenerationComplete,
+    setCurrentMealPlanId: storeState.setCurrentMealPlanId,
+    setMealPlan: storeState.setMealPlan,
+    setHasViewedGeneratedMeals: storeState.setHasViewedGeneratedMeals,
+    resetMealGeneration: storeState.resetMealGeneration,
+    viewGeneratedMeals: storeState.viewGeneratedMeals,
+    markMealsAsViewed: storeState.markMealsAsViewed,
+    
+    // SWR actions
+    notifyMealPlanReady,
+    checkForNotifications,
+    acknowledgeMealPlan,
+    refreshMealPlan,
+    
+    // Helper methods
+    handleMealPlanSuccess: (meals, mealPlanId) => {
+      storeState.handleMealPlanSuccess(meals, mealPlanId);
+      acknowledgeMealPlan();
+    }
   };
 };
 

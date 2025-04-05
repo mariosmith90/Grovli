@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import useSWR, { useSWRConfig, mutate } from 'swr';
 import { getAuthState } from './stores/authStore';
 
@@ -669,6 +669,218 @@ export function useMealPlanGenerator() {
     generateMealPlan,
     checkMealPlanStatus,
     ...apiMutation
+  };
+}
+
+/**
+ * Hook for checking meal plan notifications
+ * This replaces the old polling approach with a more efficient SWR-based solution
+ */
+export function useMealPlanNotifications(userId) {
+  const [status, setStatus] = useState({
+    isPolling: false,
+    lastCheckedAt: null,
+    mealPlanReady: false,
+    readyMealPlanId: null
+  });
+  
+  const { mutate: globalMutate } = useSWRConfig();
+  
+  // SWR key for the meal notification endpoint
+  const mealReadyKey = userId ? `/api/webhook/meal-ready?user_id=${userId}&checkReadyPlans=true` : null;
+  
+  // Use SWR with a customized fetcher to handle the meal plan notification endpoint
+  const { 
+    data, 
+    error, 
+    mutate,
+    isValidating
+  } = useApiGet(mealReadyKey, {
+    // Don't automatically revalidate on focus - we'll control this ourselves
+    revalidateOnFocus: false,
+    // Use a shorter dedupe interval since this is polling
+    dedupingInterval: 5000,
+    // Refresh every 30 seconds if the window is visible
+    refreshInterval: (data) => {
+      // Don't keep polling if we already found a notification
+      if (data?.has_notification) return 0;
+      
+      // Only poll when the page is visible
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return 0;
+      }
+      
+      return 30000; // 30 seconds
+    },
+    // Handle successful polling 
+    onSuccess: (data) => {
+      setStatus(prev => ({
+        ...prev,
+        isPolling: true,
+        lastCheckedAt: new Date(),
+      }));
+      
+      // If we have a notification, update state
+      if (data?.has_notification && data.notification?.meal_plan_id) {
+        console.log(`[SWR] Meal plan notification detected: ${data.notification.meal_plan_id}`);
+        setStatus(prev => ({
+          ...prev,
+          mealPlanReady: true,
+          readyMealPlanId: data.notification.meal_plan_id
+        }));
+        
+        // Dispatch an event for compatibility with existing code
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('mealPlanReady', {
+            detail: {
+              mealPlanId: data.notification.meal_plan_id,
+              timestamp: data.notification.timestamp,
+              source: 'swr'
+            }
+          }));
+        }
+        
+        // After notification is detected, stop polling
+        return {
+          ...data,
+          stopPolling: true
+        };
+      }
+      
+      return data;
+    },
+    // Handle errors
+    onError: (error) => {
+      console.error(`[SWR] Error checking meal plan notification:`, error);
+      setStatus(prev => ({
+        ...prev,
+        isPolling: false,
+        lastCheckedAt: new Date()
+      }));
+    }
+  });
+  
+  // Method to manually check for notifications
+  const checkForNotifications = useCallback(async () => {
+    setStatus(prev => ({ ...prev, isPolling: true }));
+    try {
+      await mutate();
+      return true;
+    } catch (error) {
+      console.error(`[SWR] Error checking for notifications:`, error);
+      return false;
+    } finally {
+      setStatus(prev => ({ 
+        ...prev, 
+        isPolling: false,
+        lastCheckedAt: new Date()
+      }));
+    }
+  }, [mutate]);
+  
+  // When user ID changes, reset status
+  useEffect(() => {
+    setStatus({
+      isPolling: false,
+      lastCheckedAt: null,
+      mealPlanReady: false,
+      readyMealPlanId: null
+    });
+  }, [userId]);
+  
+  // Methods to handle the meal plan notification
+  const acknowledgeMealPlan = useCallback(async () => {
+    if (!status.mealPlanReady || !status.readyMealPlanId) {
+      return false;
+    }
+    
+    // Reset status
+    setStatus(prev => ({
+      ...prev,
+      mealPlanReady: false,
+      readyMealPlanId: null
+    }));
+    
+    // Invalidate the cache key to force a fresh check next time
+    globalMutate(mealReadyKey);
+    
+    return true;
+  }, [status.mealPlanReady, status.readyMealPlanId, globalMutate, mealReadyKey]);
+  
+  return {
+    ...status,
+    isLoading: isValidating,
+    error,
+    notification: data?.has_notification ? data.notification : null,
+    checkForNotifications,
+    acknowledgeMealPlan
+  };
+}
+
+/**
+ * Hook for fetching meal plan details
+ */
+export function useMealPlanDetails(mealPlanId, userId) {
+  // SWR key for the meal plan details endpoint
+  const mealPlanKey = userId && mealPlanId ? `/mealplan/by_id/${mealPlanId}` : null;
+  
+  // Use SWR to fetch meal plan details
+  const {
+    data,
+    error,
+    mutate,
+    isValidating
+  } = useApiGet(mealPlanKey, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000,
+    onSuccess: (data) => {
+      // Check if the meal plan data is valid
+      if (data?.meal_plan && Array.isArray(data.meal_plan)) {
+        console.log(`[SWR] Successfully loaded meal plan: ${mealPlanId}`);
+        
+        // Store in localStorage for persistence
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('currentMealPlanId', mealPlanId);
+        }
+      }
+    }
+  });
+  
+  // Ensure meal plan data is valid
+  const isValidMealPlan = data?.meal_plan && Array.isArray(data.meal_plan);
+  
+  // Process the meal plan data for consistent field names
+  const processedMealPlan = useMemo(() => {
+    if (!isValidMealPlan) return null;
+    
+    // Process the meal plan to ensure consistent field names
+    return data.meal_plan.map(meal => ({
+      ...meal,
+      id: meal.id || meal.recipe_id,
+      recipe_id: meal.recipe_id || meal.id,
+      name: meal.title || meal.name || "",
+      title: meal.title || meal.name || "",
+      meal_type: meal.meal_type || meal.type || "",
+      type: meal.type || meal.meal_type || "",
+      nutrition: meal.nutrition || {
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0
+      },
+      image: meal.imageUrl || meal.image || "",
+      imageUrl: meal.imageUrl || meal.image || "",
+      completed: meal.completed || false
+    }));
+  }, [isValidMealPlan, data]);
+  
+  return {
+    mealPlan: processedMealPlan,
+    originalData: data,
+    isLoading: isValidating,
+    error,
+    refreshMealPlan: mutate,
+    isValidMealPlan
   };
 }
 

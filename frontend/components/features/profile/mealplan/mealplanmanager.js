@@ -234,32 +234,36 @@ export default function MealPlanManager({
   // Save meal completion status
   const saveMealCompletion = async (mealType, completed) => {
     try {
-      await apiMutation.post('/user-profile/meal-completion', {
-        user_id: userId,
-        date: getTodayDateString(),
-        meal_type: mealType,
-        completed
-      }, {
-        invalidateUrls: [
-          `/user-profile/meal-completion/${userId}/${getTodayDateString()}`
-        ]
-      });
+      // Update local state immediately for UI feedback (optimistic update)
+      const previousState = { ...completedMeals };
       
-      // Update local state immediately for UI feedback
+      // Update local state
       setCompletedMeals(prev => ({
         ...prev,
         [mealType]: completed
       }));
       
-      // Trigger SWR revalidation
-      mutateCompletions();
-      
-      // Call the callback
+      // Call the callback immediately for optimistic UI update
       if (onMealCompletion) {
         onMealCompletion(mealType, completed);
       }
+      
+      // Save to API using SWR mutation
+      await apiMutation.saveMealCompletion(userId, mealType, completed);
+      
+      // Trigger SWR revalidation after successful save
+      mutateCompletions();
     } catch (error) {
       console.error('Error saving meal completion:', error);
+      
+      // Revert to previous state on error
+      setCompletedMeals(prev => ({ ...prev, [mealType]: !completed }));
+      
+      // Call callback with reverted state
+      if (onMealCompletion) {
+        onMealCompletion(mealType, !completed);
+      }
+      
       throw error;
     }
   };
@@ -298,6 +302,20 @@ export default function MealPlanManager({
       snack: '3:30 PM',
       dinner: '7:00 PM'
     };
+    
+    // Merge completion data from multiple sources with priority
+    // 1. API completion data (completionData)
+    // 2. Provided initial completions 
+    // 3. Default to false
+    const mergedCompletions = {
+      ...initialCompletions,
+      ...completionData
+    };
+    
+    // Update local completion state
+    if (Object.keys(mergedCompletions).length > 0) {
+      setCompletedMeals(mergedCompletions);
+    }
   
     // For each meal in today's plan, fetch details and update the meal plan
     for (const mealItem of todaysMeals) {
@@ -315,7 +333,9 @@ export default function MealPlanManager({
           const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
           
           if (mealIndex !== -1) {
-            // Use the saved meal data directly
+            // Use the saved meal data directly with proper completion status
+            const isCompleted = mergedCompletions[mealType] === true;
+            
             updatedMealPlan[mealIndex] = {
               ...updatedMealPlan[mealIndex],
               name: meal.title || meal.name || "",
@@ -332,7 +352,7 @@ export default function MealPlanManager({
               imageUrl: meal.imageUrl || meal.image || "",
               recipe_id: meal.recipe_id || recipeId,
               id: recipeId,
-              completed: completionData?.[mealType] || initialCompletions[mealType] || false,
+              completed: isCompleted,
               time: mealItem.time || mealTypeToTime[mealType]
             };
           }
@@ -348,6 +368,9 @@ export default function MealPlanManager({
             const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
             
             if (mealIndex !== -1) {
+              // Use freshly fetched data with proper completion status
+              const isCompleted = mergedCompletions[mealType] === true;
+              
               updatedMealPlan[mealIndex] = {
                 ...updatedMealPlan[mealIndex],
                 name: mealDetails.title || mealDetails.name || "",
@@ -364,7 +387,7 @@ export default function MealPlanManager({
                 imageUrl: mealDetails.imageUrl || mealDetails.image || "",
                 recipe_id: mealDetails.recipe_id || recipeId,
                 id: recipeId,
-                completed: completionData?.[mealType] || initialCompletions[mealType] || false,
+                completed: isCompleted,
                 time: mealItem.time || mealTypeToTime[mealType]
               };
             }
@@ -375,9 +398,9 @@ export default function MealPlanManager({
       }
     }
     
-    // Call the callback with the updated plan
+    // Call the callback with the updated plan and completion data
     if (onPlanLoaded) {
-      onPlanLoaded(updatedMealPlan, completedMeals);
+      onPlanLoaded(updatedMealPlan, mergedCompletions);
     }
   };
 

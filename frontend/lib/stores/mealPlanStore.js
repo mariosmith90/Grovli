@@ -294,7 +294,22 @@ export const useMealPlanStore = create(
         }),
         
         setCompletedMeals: (completions) => set(state => {
-          state.completedMeals = completions;
+          // Create a fresh copy of the completions to avoid read-only issues
+          state.completedMeals = { ...completions };
+          
+          // Also update the completed property on profileMeals for consistency
+          if (state.profileMeals && state.profileMeals.length > 0) {
+            state.profileMeals.forEach((meal, index) => {
+              if (meal.type && completions[meal.type] !== undefined) {
+                state.profileMeals[index].completed = completions[meal.type];
+              }
+            });
+          }
+          
+          // After updating completions, also update the calorie counts
+          setTimeout(() => {
+            get().updateCalorieCount();
+          }, 0);
         }),
         
         setCalorieData: (data) => set(state => {
@@ -305,22 +320,54 @@ export const useMealPlanStore = create(
           state.globalSettings = { ...state.globalSettings, ...settings };
         }),
         
-        // Update calorie count based on current meal plan
+        // Update calorie count based on current meal plan and completion status
         updateCalorieCount: () => set(state => {
           let totalCalories = 0;
           let totalProtein = 0;
           let totalCarbs = 0;
           let totalFat = 0;
           
+          // Only count calories from completed meals
           state.profileMeals.forEach(meal => {
-            if (meal.nutrition) {
-              totalCalories += meal.nutrition.calories || 0;
-              totalProtein += meal.nutrition.protein || 0;
-              totalCarbs += meal.nutrition.carbs || 0;
-              totalFat += meal.nutrition.fat || 0;
+            // Check if meal is completed - first check the meal's own completed property,
+            // then fall back to the completedMeals state object
+            const isCompleted = meal.completed === true || state.completedMeals[meal.type] === true;
+            
+            // Check if the meal has actual content (has an id)
+            const hasMealContent = !!meal.id;
+            
+            // Only add nutrition from completed meals that have content
+            if (isCompleted && hasMealContent && meal.nutrition) {
+              // Convert string values to numbers if needed
+              const calories = typeof meal.nutrition.calories === 'string' 
+                ? parseInt(meal.nutrition.calories, 10) || 0 
+                : meal.nutrition.calories || 0;
+                
+              const protein = typeof meal.nutrition.protein === 'string'
+                ? parseInt(meal.nutrition.protein, 10) || 0
+                : meal.nutrition.protein || 0;
+                
+              const carbs = typeof meal.nutrition.carbs === 'string'
+                ? parseInt(meal.nutrition.carbs, 10) || 0
+                : meal.nutrition.carbs || 0;
+                
+              const fat = typeof meal.nutrition.fat === 'string'
+                ? parseInt(meal.nutrition.fat, 10) || 0
+                : meal.nutrition.fat || 0;
+              
+              // Add to totals
+              totalCalories += calories;
+              totalProtein += protein;
+              totalCarbs += carbs;
+              totalFat += fat;
+              
+              console.log(`Adding meal ${meal.type} calories: ${calories} (completed: ${isCompleted})`);
             }
           });
           
+          console.log(`Total calories updated to: ${totalCalories}`);
+          
+          // Update the calorie data
           state.calorieData = {
             ...state.calorieData,
             current: totalCalories,
@@ -466,7 +513,7 @@ export const useMealPlanStore = create(
           }
         },
         
-        // Toggle meal completion in both formats
+        // Toggle meal completion in both formats and update calorie data
         toggleMealCompletion: (mealType, date) => {
           const state = get();
           const dateKey = formatDateKey(date);
@@ -476,19 +523,47 @@ export const useMealPlanStore = create(
           const mealIndex = state.profileMeals.findIndex(meal => meal.type === mealType);
           
           if (mealIndex !== -1) {
-            // Toggle completion status
-            newCompleted = !state.profileMeals[mealIndex].completed;
+            // Current completion status - check both sources
+            const currentCompleted = state.profileMeals[mealIndex].completed || 
+                                     state.completedMeals[mealType];
             
+            // Toggle completion status
+            newCompleted = !currentCompleted;
+            
+            // Update both state formats to ensure consistency
             set(state => {
+              // Update profile meal status
               state.profileMeals[mealIndex].completed = newCompleted;
+              
+              // Update completedMeals state by creating a fresh copy
+              state.completedMeals = {
+                ...state.completedMeals,
+                [mealType]: newCompleted
+              };
+              
+              // Update planner format
+              if (state.plannerMeals[dateKey]?.[mealType]) {
+                state.plannerMeals[dateKey][mealType].completed = newCompleted;
+              }
             });
-          }
-          
-          // Update in planner format
-          if (state.plannerMeals[dateKey]?.[mealType]) {
+            
+            // Immediately update calorie counts to avoid any race conditions
+            get().updateCalorieCount();
+          } else {
+            // If no meal found in profile meals, just update the completion state
             set(state => {
-              state.plannerMeals[dateKey][mealType].completed = newCompleted;
+              // Update completedMeals state
+              state.completedMeals = {
+                ...state.completedMeals,
+                [mealType]: !state.completedMeals[mealType]
+              };
+              
+              // Also set the return value
+              newCompleted = state.completedMeals[mealType];
             });
+            
+            // Update calorie counts
+            get().updateCalorieCount();
           }
           
           return newCompleted;

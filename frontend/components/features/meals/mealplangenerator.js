@@ -1,10 +1,12 @@
 "use client";
-import { useState } from 'react';
-import { useMealStore } from '../../../lib/stores/mealStore';
-import { useMealPlanGenerator } from '../../../lib/swr-client';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '../../../lib/stores/authStore';
+import { useMealStore, useMealNotifications } from '../../../lib/stores/mealStore';
+import { useMealPlanGenerator, useApiMutation } from '../../../lib/swr-client';
 
 /**
  * Enhanced meal plan generator component that uses SWR for API requests
+ * and notification handling
  */
 export default function MealPlanGenerator({
   preferences,
@@ -18,6 +20,7 @@ export default function MealPlanGenerator({
   showChatbot
 }) {
   const [loading, setLoading] = useState(false);
+  const [polling, setPolling] = useState(false);
   
   // Get global store methods
   const { 
@@ -28,8 +31,88 @@ export default function MealPlanGenerator({
     setHasViewedGeneratedMeals
   } = useMealStore();
   
-  // Get SWR meal plan generator hook
+  // Get auth context for user ID
+  const auth = useAuth();
+  const userId = auth.userId;
+  
+  // Use SWR hooks
   const { generateMealPlan: swrGenerateMealPlan } = useMealPlanGenerator();
+  const apiMutation = useApiMutation();
+  
+  // Use the new notification hook
+  const { 
+    notifyMealPlanReady, 
+    mealPlanReady, 
+    notification,
+    checkForNotifications
+  } = useMealNotifications(userId);
+  
+  // Set up polling for notifications when needed
+  useEffect(() => {
+    if (polling && userId) {
+      console.log('[MealPlanGenerator] Starting SWR notification polling');
+      
+      // Check immediately
+      checkForNotifications();
+      
+      // Set intervals for checking
+      const initialCheck = setTimeout(() => {
+        notifyMealPlanReady();
+      }, 5000);
+      
+      const pollingInterval = setInterval(() => {
+        notifyMealPlanReady();
+      }, 15000);
+      
+      return () => {
+        clearTimeout(initialCheck);
+        clearInterval(pollingInterval);
+      };
+    }
+  }, [polling, userId, notifyMealPlanReady, checkForNotifications]);
+  
+  // Handle notifications when received
+  useEffect(() => {
+    if (mealPlanReady && notification?.meal_plan_id) {
+      console.log(`[MealPlanGenerator] SWR notification received for: ${notification.meal_plan_id}`);
+      
+      // Stop polling
+      setPolling(false);
+      
+      // Fetch the meal plan if needed
+      if (!useMealStore.getState().mealPlan?.length) {
+        fetchMealPlanById(notification.meal_plan_id);
+      }
+    }
+  }, [mealPlanReady, notification]);
+  
+  // Function to fetch meal plan by ID
+  const fetchMealPlanById = useCallback(async (mealPlanId) => {
+    if (!mealPlanId) return null;
+    
+    try {
+      // Use API mutation for fetching
+      const response = await apiMutation.trigger(`/mealplan/by_id/${mealPlanId}`, {
+        method: 'GET'
+      });
+      
+      if (response?.meal_plan && Array.isArray(response.meal_plan)) {
+        console.log(`[MealPlanGenerator] Fetched meal plan with ${response.meal_plan.length} meals`);
+        
+        // Process the meal plan with Zustand
+        useMealStore.getState().handleMealPlanSuccess(
+          response.meal_plan,
+          mealPlanId
+        );
+        
+        return response.meal_plan;
+      }
+    } catch (error) {
+      console.error('[MealPlanGenerator] Error fetching meal plan:', error);
+    }
+    
+    return null;
+  }, [apiMutation]);
 
   // Main function to generate a meal plan
   const generateMealPlan = async () => {
@@ -99,6 +182,9 @@ export default function MealPlanGenerator({
         // Use the store's combined action for task checking
         useMealStore.getState().startTaskChecking(taskIdentifier);
         
+        // Start SWR polling for notifications
+        setPolling(true);
+        
         return {
           immediate: false,
           mealPlanId: result.mealPlanId,
@@ -122,6 +208,9 @@ export default function MealPlanGenerator({
   // Return the meal plan generation function and loading state
   return { 
     generateMealPlan,
-    loading
+    loading,
+    fetchMealPlanById,
+    mealPlanReady,
+    notification
   };
 }

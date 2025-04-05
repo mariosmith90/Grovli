@@ -8,7 +8,14 @@
  * for a smooth transition without breaking existing code.
  */
 
-import { useApiGet, useApiMutation, fetcher, swrLocalCache, useProfilePreloader } from './swr-client';
+import { 
+  useApiGet, 
+  useApiMutation, 
+  fetcher, 
+  swrLocalCache, 
+  useProfilePreloader,
+  useMealPlanGenerator
+} from './swr-client';
 
 console.warn(
   '[DEPRECATED] api-service.js is deprecated and will be removed in a future version. ' +
@@ -70,6 +77,18 @@ export function useApiService() {
       throw error;
     }
   };
+  
+  /**
+   * Special function for meal completion updates (now using SWR)
+   */
+  const saveMealCompletion = async (userId, mealType, completed, date) => {
+    try {
+      return await apiMutation.saveMealCompletion(userId, mealType, completed, date);
+    } catch (error) {
+      console.error(`Legacy saveMealCompletion error: ${error.message}`);
+      throw error;
+    }
+  };
 
   /**
    * Legacy profile data preloading (now using SWR)
@@ -101,10 +120,21 @@ export function useApiService() {
   return { 
     makeAuthenticatedRequest,
     updateMealPlan,
+    saveMealCompletion,
     preloadProfileData,
     checkPreloadStatus
   };
 }
 
 // Re-export everything from swr-client for compatibility
-export { useApiGet, useApiMutation, fetcher, swrLocalCache, useProfilePreloader } from './swr-client';
+export { 
+  useApiGet, 
+  useApiMutation, 
+  fetcher, 
+  swrLocalCache, 
+  useProfilePreloader,
+  useMealPlanGenerator,
+  // New SWR meal plan notification hooks
+  useMealPlanNotifications,
+  useMealPlanDetails
+} from './swr-client';

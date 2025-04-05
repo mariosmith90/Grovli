@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import { 
@@ -18,7 +18,7 @@ import {
   Loader 
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useApiGet, useApiMutation } from '../../lib/swr-client';
+import { useApiGet, useApiMutation, mutate } from '../../lib/swr-client';
 import { useMealPlanStore, initializeMealPlanStore, formatDateKey } from '../../lib/stores/mealPlanStore';
 import AutoUpdatingComponent from '../../components/features/profile/mealplan/autoupdating';
 import DuplicateMeals from '../../components/features/planner/duplicatemeals';
@@ -299,8 +299,8 @@ export default function MealPlannerCalendar() {
         loadPlanToCalendar(mostRecentPlan);
       }
       
-      // Clear API cache to ensure fresh data on next request
-      apiResponseCache.clear('/api/user-plans');
+      // Clear SWR cache to ensure fresh data on next request
+      mutate('/api/user-plans');
       
     } catch (error) {
       console.error('Error fetching user meal plans:', error);

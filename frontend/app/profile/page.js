@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -53,50 +53,52 @@ export default function ProfilePage() {
   const timelineRef = useRef(null);
   
   // Scroll to today in the timeline when data is ready
-  useEffect(() => {
+  const scrollToToday = useCallback(() => {
     if (typeof window === 'undefined') return;
     if (timelineRef.current) {
-      const scrollToToday = () => {
-        const todayElement = timelineRef.current.querySelector('[data-today="true"]');
-        if (!todayElement) return;
-        
-        // Detect mobile for optimized scrolling
-        const isMobile = window.navigator.userAgent.includes('Mobile');
-        
-        try {
-          if (isMobile) {
-            // Simple scroll for mobile (better performance)
-            const container = timelineRef.current;
-            const elementOffset = todayElement.offsetLeft;
-            const containerWidth = container.clientWidth;
-            
-            // Center the element
-            const scrollTo = elementOffset - (containerWidth / 2) + (todayElement.offsetWidth / 2);
-            container.scrollLeft = scrollTo;
-          } else {
-            // Smooth scroll for desktop
-            todayElement.scrollIntoView({
-              behavior: 'smooth',
-              block: 'nearest',
-              inline: 'center'
-            });
-          }
-        } catch (err) {
-          console.error("Error scrolling to today:", err);
-          
-          // Fallback manual scroll
-          if (timelineRef.current) {
-            const scrollPosition = todayElement.offsetLeft - (timelineRef.current.clientWidth / 2);
-            timelineRef.current.scrollLeft = scrollPosition;
-          }
-        }
-      };
+      const todayElement = timelineRef.current.querySelector('[data-today="true"]');
+      if (!todayElement) return;
       
-      // Small delay to ensure DOM is fully rendered
-      const scrollTimeout = setTimeout(scrollToToday, 300);
-      return () => clearTimeout(scrollTimeout);
+      // Detect mobile for optimized scrolling
+      const isMobile = window.navigator.userAgent.includes('Mobile');
+      
+      try {
+        if (isMobile) {
+          // Simple scroll for mobile (better performance)
+          const container = timelineRef.current;
+          const elementOffset = todayElement.offsetLeft;
+          const containerWidth = container.clientWidth;
+          
+          // Center the element
+          const scrollTo = elementOffset - (containerWidth / 2) + (todayElement.offsetWidth / 2);
+          container.scrollLeft = scrollTo;
+        } else {
+          // Smooth scroll for desktop
+          todayElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'center'
+          });
+        }
+      } catch (err) {
+        console.error("Error scrolling to today:", err);
+        
+        // Fallback manual scroll
+        if (timelineRef.current) {
+          const scrollPosition = todayElement.offsetLeft - (timelineRef.current.clientWidth / 2);
+          timelineRef.current.scrollLeft = scrollPosition;
+        }
+      }
     }
-  }, [mealPlan]);
+  }, [timelineRef]);
+  
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Small delay to ensure DOM is fully rendered
+    const scrollTimeout = setTimeout(scrollToToday, 300);
+    return () => clearTimeout(scrollTimeout);
+  }, [mealPlan, scrollToToday]);
 
   // We've removed the custom hydration code since it was causing issues with the profile page loading
 

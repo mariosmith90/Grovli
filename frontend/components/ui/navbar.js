@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@auth0/nextjs-auth0';
-// Import the new Zustand store instead of the old context
-import { useMealStore } from '../../lib/stores/mealStore';
+// Import the new Zustand store and notification hook
+import { useMealStore, useMealNotifications } from '../../lib/stores/mealStore';
 import { useAuth } from '../../lib/stores/authStore';
 import { usePreload } from '../../lib/hooks/usePreload';
-import { apiResponseCache } from '../../lib/api-service';
+import { swrLocalCache } from '../../lib/swr-client';
 import {
   Home, Menu, X, Calendar, ShoppingBag, User, 
   BookOpen, Utensils, Plus, Settings, LogOut,
@@ -34,26 +34,41 @@ export function BottomNavbar({ children }) {
   const isAuthenticated = auth0Authenticated || !!user;
   
   // Use our new Zustand store with safer destructuring
-  // First check if the hook is available and usable
   const mealStore = useMealStore();
   
-  // Safely destructure values with fallbacks to prevent errors
-  const isGenerating = mealStore?.isGenerating || false;
-  const mealGenerationComplete = mealStore?.mealGenerationComplete || false;
-  const currentMealPlanId = mealStore?.currentMealPlanId || null;
-  const hasViewedGeneratedMeals = mealStore?.hasViewedGeneratedMeals || false;
+  // Use our new SWR-based notification hook
+  const {
+    isGenerating,
+    mealGenerationComplete,
+    currentMealPlanId,
+    hasViewedGeneratedMeals,
+    setIsGenerating,
+    setMealGenerationComplete,
+    setCurrentMealPlanId,
+    setHasViewedGeneratedMeals,
+    resetMealGeneration,
+    notifyMealPlanReady,
+    mealPlanReady,
+    notification,
+    acknowledgeMealPlan
+  } = useMealNotifications(user?.sub);
+  
+  // Get additional fields from the raw store if needed for backward compatibility
   const currentJobId = mealStore?.currentJobId || null;
   const taskTrackingId = mealStore?.taskTrackingId || null;
   const backgroundTaskId = mealStore?.backgroundTaskId || null;
   
-  // Safely access methods with noop fallbacks to prevent errors
-  const setIsGenerating = mealStore?.setIsGenerating || (() => {});
-  const setMealGenerationComplete = mealStore?.setMealGenerationComplete || (() => {});
-  const setCurrentMealPlanId = mealStore?.setCurrentMealPlanId || (() => {});
-  const setHasViewedGeneratedMeals = mealStore?.setHasViewedGeneratedMeals || (() => {});
-  const resetMealGeneration = mealStore?.resetMealGeneration || (() => {});
-  const notifyMealPlanReady = mealStore?.notifyMealPlanReady || (() => {});
-  const notifyMealPlanComplete = mealStore?.handleMealPlanNotification || (() => false);
+  // This function is now handled by the SWR notification system 
+  const notifyMealPlanComplete = (notificationData) => {
+    // Forward to the notification hook's handler
+    if (notificationData && notificationData.meal_plan_id) {
+      // The notification hook will handle this internally
+      return true;
+    }
+    return false;
+  };
+  
+  // Get the markHydrated function from the Zustand store
   const markStoreHydrated = mealStore?.actions?.markHydrated || (() => {});
   
   const [isPro, setIsPro] = useState(false);
@@ -560,10 +575,10 @@ export function BottomNavbar({ children }) {
     }
   }, [pathname, setHasViewedGeneratedMeals]);
   
-  // Listen for changes in generation state and poll for meal plan ready notifications
+  // Listen for changes in generation state and use SWR for notifications
   useEffect(() => {
-    // Only poll if we're generating or if a poll was interrupted
-    if ((!isGenerating && !window.interruptedPolling) || !user) return;
+    // Only continue if we have a user and we're generating meals
+    if (!isGenerating || !user) return;
     
     // Update fabButtonState to match isGenerating immediately
     setFabButtonState(prev => ({
@@ -572,73 +587,23 @@ export function BottomNavbar({ children }) {
       isReady: mealGenerationComplete && !hasViewedGeneratedMeals
     }));
     
-    // Use trackingId from selectors
-    const trackingId = taskTrackingId || backgroundTaskId;
+    console.log(`[Navbar] Starting SWR notification check`);
     
-    console.log(`[Navbar] Starting polling with jobId: ${currentJobId}, trackingId: ${trackingId}`);
-    
-    // Set up polling with proper job tracking
-    let pollTimer;
-    const checkForCompletedMeal = async () => {
+    // Set up our SWR polling
+    // No need to set up intervals - SWR handles this internally
+    const checkForNotifications = async () => {
       try {
-        // Only check if we're still generating
-        if (!isGenerating && !window.interruptedPolling) return;
-        
-        // Always update the store hydration state first
-        markStoreHydrated();
-        
-        // Check API with added tracking params
-        console.log("[Navbar] Checking for completed meal plan");
-        const response = await fetch(`/api/webhook/meal-ready?user_id=${user.sub}&checkReadyPlans=true` + 
-          (currentJobId ? `&jobId=${currentJobId}` : '') +
-          (trackingId ? `&taskId=${trackingId}` : '')
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
-          // If we found a notification, update the state through the Zustand store
-          if (data.has_notification && data.notification) {
-            console.log("[Navbar] 🎉 Found completed meal plan notification:", data.notification);
-            
-            // Clear the interrupted polling flag
-            window.interruptedPolling = false;
-            
-            // Use the Zustand handler for atomic state update
-            const handled = notifyMealPlanComplete({
-              ...data.notification,
-              jobId: currentJobId,
-              taskId: trackingId,
-              timestamp: new Date().toISOString(),
-              source: 'navbar_poll'
-            });
-            
-            if (handled) {
-              // Update only the visual button state immediately - Zustand handles the rest
-              setFabButtonState({
-                isLoading: false,
-                isReady: true
-              });
-            } else {
-              console.log("[Navbar] Store declined to handle the notification");
-            }
-          }
-        }
+        // Use our new SWR hook for checking notifications
+        await notifyMealPlanReady();
       } catch (error) {
         console.error("[Navbar] Error checking for meal completion:", error);
-        // Mark that polling was interrupted so we can resume on reload
-        if (typeof window !== 'undefined') {
-          window.interruptedPolling = true;
-        }
       }
     };
     
-    // Start polling every 5 seconds
-    pollTimer = setInterval(checkForCompletedMeal, 5000);
-    
     // Initial check - run immediately
-    checkForCompletedMeal();
+    checkForNotifications();
     
-    // Also listen for direct events
+    // Also listen for direct events for backward compatibility
     const handleMealReady = (event) => {
       console.log("[Navbar] Received direct mealPlanReady event:", event?.detail);
       
@@ -662,7 +627,6 @@ export function BottomNavbar({ children }) {
     }
     
     return () => {
-      clearInterval(pollTimer);
       if (typeof window !== 'undefined') {
         window.removeEventListener('mealPlanReady', handleMealReady);
       }
@@ -672,12 +636,22 @@ export function BottomNavbar({ children }) {
     user, 
     mealGenerationComplete, 
     hasViewedGeneratedMeals, 
-    currentJobId, 
-    taskTrackingId, 
-    backgroundTaskId, 
-    markStoreHydrated,
-    notifyMealPlanComplete
+    currentJobId,
+    notifyMealPlanReady
   ]);
+  
+  // Handle SWR notifications when they arrive
+  useEffect(() => {
+    if (mealPlanReady && notification?.meal_plan_id) {
+      console.log(`[Navbar] SWR notification received for meal plan: ${notification.meal_plan_id}`);
+      
+      // Update the visual button state
+      setFabButtonState({
+        isLoading: false,
+        isReady: true
+      });
+    }
+  }, [mealPlanReady, notification]);
   
   // Get FAB state based on component state
   const getFabState = () => {

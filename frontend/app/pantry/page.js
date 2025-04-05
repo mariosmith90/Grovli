@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, getAccessToken } from "@auth0/nextjs-auth0";
 import BarcodeScanner from '../../components/features/pantry/barcode';
@@ -104,7 +104,7 @@ export default function PantryPage() {
     }
   }, [error]);
   
-  const handleAddItem = async () => {
+  const handleAddItem = useCallback(async () => {
     try {
       if (!newItemForm.name.trim()) {
         toast.error('Item name is required');
@@ -129,9 +129,9 @@ export default function PantryPage() {
       console.error('Error adding pantry item:', error);
       toast.error('Failed to add item to pantry');
     }
-  };
+  }, [addItem, newItemForm]);
   
-  const handleUpdateItem = async () => {
+  const handleUpdateItem = useCallback(async () => {
     try {
       if (!editForm.name.trim()) {
         toast.error('Item name is required');
@@ -148,9 +148,9 @@ export default function PantryPage() {
       console.error('Error updating pantry item:', error);
       toast.error('Failed to update item');
     }
-  };
+  }, [editForm, editingItem, updateItem]);
   
-  const handleDeleteItem = async (itemId) => {
+  const handleDeleteItem = useCallback(async (itemId) => {
     try {
       // Use the store's deleteItem method
       await deleteItem(itemId);
@@ -160,9 +160,9 @@ export default function PantryPage() {
       console.error('Error deleting pantry item:', error);
       toast.error('Failed to remove item');
     }
-  };
+  }, [deleteItem]);
   
-  const handleLookupBarcode = async (barcode) => {
+  const handleLookupBarcode = useCallback(async (barcode) => {
     try {
       setIsScanning(true);
       
@@ -211,9 +211,9 @@ export default function PantryPage() {
       setIsScanning(false);
       setIsScannerOpen(false);
     }
-  };
+  }, [setIsScanning, setIsScannerOpen, setScannedProduct, setNewItemForm, setShowAddItemModal]);
   
-  const handleGetRecommendations = async () => {
+  const handleGetRecommendations = useCallback(async () => {
     try {
       setIsLoadingRecommendations(true);
       
@@ -250,7 +250,7 @@ export default function PantryPage() {
     } finally {
       setIsLoadingRecommendations(false);
     }
-  };
+  }, [setIsLoadingRecommendations, setRecommendations, setShowRecommendations, pantryItems]);
   
   // Get the items by category using our store helper
   const itemsByCategory = getItemsByCategory();
