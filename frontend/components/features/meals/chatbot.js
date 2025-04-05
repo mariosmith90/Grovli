@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../../lib/stores/authStore';
+import { useApiGet, useApiMutation } from '../../../lib/swr-client';
 
 const ChatbotWindow = ({ 
   preferences, 
@@ -28,6 +29,9 @@ const ChatbotWindow = ({
 
   // Meal plan state
   const [mealPlanNotification, setMealPlanNotification] = useState(null);
+  
+  // Get SWR mutation hook for API calls - MOVED UP to fix hook order
+  const apiMutation = useApiMutation();
 
   // Configuration
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -229,96 +233,106 @@ const ChatbotWindow = ({
     onMealPlanReady
   ]);
 
-  // Effect to check meal plan status - simplified to rely on the centralized polling mechanism
-useEffect(() => {
-  // This effect handles checking for notification arrival from the main meal plan polling system
-  if (sessionId && !mealPlanNotification && !mealPlanReady) {
-    // Listen for global meal plan ready event
-    const handleMealPlanReadyEvent = (event) => {
-      console.log("[Chatbot] Received mealPlanReady event:", event.detail);
-      
-      if (event.detail.mealPlanId) {
-        const mealPlanId = event.detail.mealPlanId;
-        
-        // Create a synthetic notification since the main polling system detected a ready meal plan
-        console.log("[Chatbot] Creating notification for meal plan from global event:", mealPlanId);
-        const notification = {
-          role: 'assistant',
-          content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
-          timestamp: new Date().toISOString(),
-          meal_plan_id: mealPlanId,
-          is_notification: true,
-          messageId: generateMessageId()
-        };
-        
-        setMealPlanNotification(notification);
-        setMessages(prev => [...prev.filter(m => !m.isTyping && !m.is_notification), notification]);
-        onMealPlanReady?.();
-      }
+  // Helper function to create a meal plan notification - MOVED UP to fix initialization order
+  const createMealPlanNotification = useCallback((mealPlanId) => {
+    const notification = {
+      role: 'assistant',
+      content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
+      timestamp: new Date().toISOString(),
+      meal_plan_id: mealPlanId,
+      is_notification: true,
+      messageId: generateMessageId()
     };
     
-    if (typeof window !== 'undefined') {
+    setMealPlanNotification(notification);
+    setMessages(prev => [...prev.filter(m => !m.isTyping && !m.is_notification), notification]);
+    onMealPlanReady?.();
+  }, [generateMessageId, onMealPlanReady]);
+
+  // Use SWR to check for ready meal plans
+  const { data: readyMealPlanData } = useApiGet(
+    (sessionId && !mealPlanNotification && !mealPlanReady && user?.sub) 
+      ? `/api/webhook/meal-ready?user_id=${user.sub}&checkReadyPlans=true` 
+      : null,
+    {
+      refreshInterval: 10000, // Poll every 10 seconds
+      revalidateOnFocus: true,
+      onSuccess: (data) => {
+        if (data?.has_notification && data.notification?.meal_plan_id) {
+          const mealPlanId = data.notification.meal_plan_id;
+          console.log("[Chatbot] Found ready meal plan from webhook cache:", mealPlanId);
+          
+          // Use the helper function for consistency
+          // Store meal plan ID in localStorage
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('currentMealPlanId', mealPlanId);
+          }
+          
+          // Create notification using the shared helper function
+          createMealPlanNotification(mealPlanId);
+        }
+      }
+    }
+  );
+  
+  // Still listen for global events (can be useful for cross-tab synchronization)
+  useEffect(() => {
+    if (sessionId && !mealPlanNotification && !mealPlanReady && typeof window !== 'undefined') {
+      // Listen for global meal plan ready event
+      const handleMealPlanReadyEvent = (event) => {
+        if (event.detail?.mealPlanId) {
+          console.log("[Chatbot] Received mealPlanReady event:", event.detail);
+          createMealPlanNotification(event.detail.mealPlanId);
+        }
+      };
+      
       window.addEventListener('mealPlanReady', handleMealPlanReadyEvent);
       
       // Check if meal plan is already ready according to localStorage
       const mealPlanId = localStorage.getItem('currentMealPlanId');
       if (mealPlanId && mealPlanReady) {
-        // Create synthetic notification for already-ready meal plan
         console.log("[Chatbot] Creating notification for already-ready meal plan:", mealPlanId);
-        const notification = {
-          role: 'assistant',
-          content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
-          timestamp: new Date().toISOString(),
-          meal_plan_id: mealPlanId,
-          is_notification: true,
-          messageId: generateMessageId()
-        };
-        
-        setMealPlanNotification(notification);
-        setMessages(prev => [...prev.filter(m => !m.isTyping && !m.is_notification), notification]);
+        createMealPlanNotification(mealPlanId);
       }
-    }
-    
-    return () => {
-      if (typeof window !== 'undefined') {
+      
+      return () => {
         window.removeEventListener('mealPlanReady', handleMealPlanReadyEvent);
-      }
-    };
-  }
-}, [sessionId, mealPlanNotification, mealPlanReady, onMealPlanReady, generateMessageId]);
+      };
+    }
+  }, [sessionId, mealPlanNotification, mealPlanReady, createMealPlanNotification]);
 
-  // Start chat session
+/* This hook was moved to a higher position in the component */
+  
+  // Start chat session using SWR
   const startChatSession = useCallback(async () => {
     try {
       setIsLoading(true);
-      // Get auth headers from context
-      const authHeaders = await getAuthHeaders();
-      // Add content type
-      authHeaders['Content-Type'] = 'application/json';
       
-      const response = await fetch(`${apiUrl}/chatbot/start_session`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user_id: userId || 'anonymous',
-          user_name: user?.name || user?.nickname,
-          message: 'Hello',
-          dietary_preferences: preferences,
-          meal_type: mealType
-        })
+      // Use SWR mutation to start session
+      const data = await apiMutation.post('/chatbot/start_session', {
+        user_id: userId || 'anonymous',
+        user_name: user?.name || user?.nickname,
+        message: 'Hello',
+        dietary_preferences: preferences,
+        meal_type: mealType
       });
-
-      const data = await response.json();
-      setSessionId(data.session_id);
-
-      // Process initial messages
-      const initialMessages = processNewMessages(data.messages);
-      setMessages(initialMessages);
-
-      // Set initial suggested responses
-      const lastMessage = initialMessages[initialMessages.length - 1];
-      const responses = generateSuggestedResponses(lastMessage.content);
-      setSuggestedResponses(responses);
+      
+      if (data && data.session_id) {
+        setSessionId(data.session_id);
+        
+        // Process initial messages
+        const initialMessages = processNewMessages(data.messages || []);
+        setMessages(initialMessages);
+        
+        // Set initial suggested responses
+        if (initialMessages.length > 0) {
+          const lastMessage = initialMessages[initialMessages.length - 1];
+          const responses = generateSuggestedResponses(lastMessage.content);
+          setSuggestedResponses(responses);
+        }
+      } else {
+        throw new Error('No session ID returned');
+      }
     } catch (error) {
       console.error('Error starting chat session:', error);
       setMessages([{
@@ -330,15 +344,17 @@ useEffect(() => {
       setIsLoading(false);
     }
   }, [
-    apiUrl, 
     user, 
+    userId,
     preferences, 
     mealType, 
     processNewMessages, 
-    generateSuggestedResponses
+    generateSuggestedResponses,
+    apiMutation,
+    generateMessageId
   ]);
-
-  // Send message
+  
+  // Send message function
   const sendMessage = useCallback(async (messageText) => {
     if (!messageText || !sessionId) return;
 
@@ -353,28 +369,19 @@ useEffect(() => {
     setSuggestedResponses([]);
 
     try {
-      // Get auth headers from context
-      const authHeaders = await getAuthHeaders();
-      // Add content type
-      authHeaders['Content-Type'] = 'application/json';
-      
-      const sendResponse = await fetch(`${apiUrl}/chatbot/send_message`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user_id: userId || 'anonymous',
-          session_id: sessionId,
-          message: messageText,
-          dietary_preferences: preferences,
-          meal_type: mealType
-        })
+      // Use SWR mutation to send message
+      await apiMutation.post('/chatbot/send_message', {
+        user_id: userId || 'anonymous',
+        session_id: sessionId,
+        message: messageText,
+        dietary_preferences: preferences,
+        meal_type: mealType
+      }, {
+        // Trigger a revalidation of the session data
+        invalidateUrls: [`/chatbot/get_session/${sessionId}`]
       });
       
-      // We fetch messages directly after sending, rather than setting up polling
-      if (sendResponse.ok) {
-        // Add a small delay to allow the backend to process the message
-        setTimeout(() => fetchMessages(), 500);
-      }
+      // SWR will automatically revalidate the session data - no need for manual fetching
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages(prev => [...prev, {
@@ -386,12 +393,10 @@ useEffect(() => {
   }, [
     sessionId, 
     userId,
-    user, 
     preferences, 
     mealType, 
-    apiUrl, 
-    fetchMessages,
-    getAuthHeaders
+    apiMutation,
+    generateMessageId
   ]);
 
   // Effect to start chat session
@@ -401,25 +406,86 @@ useEffect(() => {
     }
   }, [isVisible, sessionId, startChatSession]);
 
-  // Effect to fetch messages when sessionId changes and set up a single polling interval
-  useEffect(() => {
-    if (sessionId && !mealPlanNotification) {
-      // Initial fetch immediately when session is created
-      fetchMessages();
-      
-      // Set up a single polling interval for messages - 
-      // this ensures new messages arrive without relying on multiple polling systems
-      const messagePollingId = setInterval(() => {
-        if (!mealPlanNotification) {
-          fetchMessages();
+  // Use SWR for message polling instead of manual interval
+  const { data: sessionData } = useApiGet(
+    sessionId && !mealPlanNotification ? `/chatbot/get_session/${sessionId}` : null,
+    {
+      refreshInterval: 5000, // Poll every 5 seconds
+      dedupingInterval: 2000, // Deduplicate requests within 2 seconds
+      revalidateOnFocus: true,
+      onSuccess: (data) => {
+        if (!data) return;
+        
+        // First check if meal plan is ready regardless of messages
+        if (data.meal_plan_ready && data.meal_plan_id) {
+          console.log("[Chatbot] Meal plan is ready:", data.meal_plan_id);
+          
+          // Store the meal plan ID in localStorage for persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('currentMealPlanId', data.meal_plan_id);
+            console.log(`[Chatbot] Stored currentMealPlanId in localStorage: ${data.meal_plan_id}`);
+          }
+          
+          // Check if notification is in messages
+          const hasNotification = data.messages.some(
+            msg => msg.is_notification && msg.meal_plan_id === data.meal_plan_id
+          );
+          
+          if (!hasNotification && !mealPlanNotification) {
+            console.log("[Chatbot] Notification missing but meal plan is ready. Creating notification.");
+            // Create a synthetic notification if none exists
+            const syntheticNotification = {
+              role: 'assistant',
+              content: "Great news! Your meal plan with all meal images is now ready. You can view it by clicking the 'View Meal Plan' button.",
+              timestamp: new Date().toISOString(),
+              meal_plan_id: data.meal_plan_id,
+              is_notification: true,
+              messageId: generateMessageId()
+            };
+            
+            setMessages(prev => [...prev.filter(m => !m.isTyping), syntheticNotification]);
+            setMealPlanNotification(syntheticNotification);
+            
+            // Notify the meal generation context
+            onMealPlanReady?.();
+            return;
+          }
         }
-      }, 5000); // Poll every 5 seconds
-      
-      return () => {
-        clearInterval(messagePollingId);
-      };
+        
+        // Process new messages
+        const newMessages = processNewMessages(data.messages);
+        
+        if (newMessages.length) {
+          setMessages(prev => {
+            // Remove typing indicators and add new messages
+            const filteredPrev = prev.filter(m => !m.isTyping);
+            return [...filteredPrev, ...newMessages];
+          });
+          
+          // Handle suggested responses for last assistant message
+          const lastAssistantMessage = newMessages
+            .filter(m => m.role === 'assistant' && !m.is_notification)
+            .pop();
+          
+          if (lastAssistantMessage) {
+            const responses = generateSuggestedResponses(lastAssistantMessage.content);
+            setSuggestedResponses(responses);
+          }
+          
+          // Check for meal plan notification
+          const notification = newMessages.find(m => m.is_notification);
+          if (notification) {
+            console.log("Found notification in messages:", notification);
+            setMealPlanNotification(notification);
+            onMealPlanReady?.();
+          }
+        }
+      },
+      onError: (error) => {
+        console.error('Error fetching messages:', error);
+      }
     }
-  }, [sessionId, mealPlanNotification, fetchMessages]);
+  );
 
   // Scroll to bottom when messages change
   useEffect(() => {

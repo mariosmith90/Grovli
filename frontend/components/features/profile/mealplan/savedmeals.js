@@ -62,7 +62,13 @@ function SavedMeals({ mealType, onSelectMeal, savedMeals={}, isLoading, handleCr
               />
               <div className="ml-3">
                 <h4 className="font-medium">{meal.name}</h4>
-                <p className="text-sm text-gray-600">{meal.calories} calories</p>
+                <p className="text-sm text-gray-600">
+                  {(meal.nutrition && typeof meal.nutrition.calories === 'number') 
+                    ? meal.nutrition.calories 
+                    : (typeof meal.calories === 'number') 
+                      ? meal.calories 
+                      : 0} calories
+                </p>
               </div>
             </div>
           );

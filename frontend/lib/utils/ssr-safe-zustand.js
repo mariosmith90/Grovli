@@ -8,6 +8,39 @@
 import { useEffect, useState } from 'react';
 
 /**
+ * Middleware for Zustand that makes stores SSR-safe
+ * @param {Function} config - Store creation function
+ * @returns {Function} - SSR-safe store function
+ */
+export function ssr(config) {
+  return (set, get, api) => {
+    // Check if we're running in a browser environment
+    const isBrowser = typeof window !== 'undefined';
+    
+    // Return the config with SSR safeguards
+    return config(
+      (...args) => {
+        if (!isBrowser) {
+          // During SSR, we don't update the store to avoid errors
+          console.log("[SSR-Safe Zustand] Skipping store update during SSR");
+          return;
+        }
+        set(...args);
+      },
+      () => {
+        if (!isBrowser) {
+          // During SSR, return an empty object to avoid errors
+          console.log("[SSR-Safe Zustand] Returning empty state during SSR");
+          return {};
+        }
+        return get();
+      },
+      api
+    );
+  };
+}
+
+/**
  * Higher-order component function to make Zustand components SSR-safe
  * @param {React.ComponentType} Component - The component to wrap
  * @returns {React.ComponentType} - The wrapped component

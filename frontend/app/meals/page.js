@@ -75,8 +75,8 @@ export default function Home() {
     displayedMealType: storeDisplayedMealType,
     setDisplayedMealType: setStoreDisplayedMealType,
     resetMealGeneration,
-    updateGlobalState,
-    notifyMealPlanReady
+    notifyMealPlanReady,
+    handleMealPlanSuccess
   } = useMealStore();
   
   // Get additional actions needed for proper functionality
@@ -457,13 +457,11 @@ export default function Home() {
           });
         }
         
-        // Update UI
+        // Use the central handler to ensure proper propagation and SWR integration
+        handleMealPlanSuccess(processedMealPlan, result.mealPlanId || `${mealType}_${Date.now()}`);
         setMealPlan(processedMealPlan);
         setDisplayedMealType(mealType);
         setShowChatbot(false);
-        setIsGenerating(false);
-        setMealGenerationComplete(true);
-        setHasViewedGeneratedMeals(true);
       } else if (result?.error) {
         setShowChatbot(false);
         setIsGenerating(false);

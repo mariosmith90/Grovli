@@ -108,7 +108,7 @@ function MealTimeline({ meals, onAddMeal, onRemoveMeal, toggleMealCompletion, co
                           )}
                           <div className={isCompleted ? "opacity-70" : ""}>
                             <p className={isCompleted ? "line-through text-gray-500" : ""}>{meal.name}</p>
-                            <p className="text-sm text-gray-600">{meal.calories} calories</p>
+                            <p className="text-sm text-gray-600">{meal.nutrition?.calories} calories</p>
                           </div>
                         </div>
                         

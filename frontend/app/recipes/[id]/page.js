@@ -8,6 +8,7 @@ import { Download } from 'lucide-react';
 import { toast } from "react-hot-toast";
 import { RecipeModal } from "../../../components/ui/recipemodal";
 import { PlannerOverlay } from "../../../components/features/planner/planner";
+import { useApiGet, useApiMutation } from "../../../lib/swr-client";
 
 // Helper function to parse instructions
 function parseInstructions(instructions) {
@@ -137,62 +138,53 @@ export default function RecipePage() {
     }
   }, [recipe, currentMealId]);
 
-  useEffect(() => {
-    if (!currentMealId) return;
-    
-    const fetchRecipe = async () => {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${currentMealId}`);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Recipe not found: ${errorText}`);
+  // Use SWR to fetch recipe data
+  const { 
+    data: recipeData, 
+    error: recipeError,
+    isLoading: recipeLoading
+  } = useApiGet(
+    currentMealId ? `/mealplan/${currentMealId}` : null,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000, // Cache for 1 minute
+      onSuccess: (data) => {
+        if (data) {
+          setRecipe(data);
+          setLoading(false);
         }
-        
-        const data = await response.json();
-        console.log("Recipe data from fetch:", data);
-        console.log("Image URL:", data.imageUrl);
-        setRecipe(data);
-      } catch (error) {
-        console.error("Error fetching recipe:", error);
-        setError(`Failed to load recipe: ${error.message}`);
-      } finally {
+      },
+      onError: (err) => {
+        console.error("Error fetching recipe:", err);
+        setError(`Failed to load recipe: ${err.message || "Unknown error"}`);
         setLoading(false);
       }
-    };
+    }
+  ); 
 
-    fetchRecipe();
-  }, [currentMealId]); 
-
-  // Check if recipe is saved
-  useEffect(() => {
-    if (!user || !recipe) return;
-
-    const checkIfSaved = async () => {
-      try {
-        const accessToken = await getAccessToken({
-          authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-        });
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/is-saved/${currentMealId}`, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+  // Use SWR to check if recipe is saved
+  const { 
+    data: savedStatusData
+  } = useApiGet(
+    user && recipe ? `/api/user-recipes/is-saved/${currentMealId}` : null,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 30000, // Cache for 30 seconds
+      onSuccess: (data) => {
+        if (data && typeof data.isSaved === 'boolean') {
           setIsSaved(data.isSaved);
         }
-      } catch (error) {
-        console.error("Error checking saved status:", error);
+      },
+      onError: (err) => {
+        console.error("Error checking saved status:", err);
       }
-    };
+    }
+  );
 
-    checkIfSaved();
-  }, [user, recipe, currentMealId]);
-
-  // Add ingredients to pantry
+  // Get API mutation hook for data modifications
+  const apiMutation = useApiMutation();
+  
+  // Add ingredients to pantry using SWR
   const addIngredientsToUserPantry = async () => {
     if (!user) {
       router.push('/auth/login?returnTo=' + encodeURIComponent(window.location.pathname));
@@ -200,28 +192,17 @@ export default function RecipePage() {
     }
   
     try {
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-  
       // Prepare ingredients for adding to pantry
       const ingredientsToAdd = recipe.ingredients.map(ingredient => ({
         name: ingredient.name,
         quantity: ingredient.quantity ? parseFloat(ingredient.quantity) : 1,
       }));
   
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-pantry/bulk-add`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify(ingredientsToAdd)
+      // Use SWR mutation to add ingredients to pantry
+      await apiMutation.post('/api/user-pantry/bulk-add', ingredientsToAdd, {
+        // Invalidate any pantry-related cache
+        invalidateUrls: ['/api/user-pantry/items']
       });
-  
-      if (!response.ok) {
-        throw new Error('Failed to add ingredients to pantry');
-      }
   
       toast.success(`Added ${ingredientsToAdd.length} ingredients to your pantry`);
       setShowIngredientConfirmation(false);
@@ -231,7 +212,7 @@ export default function RecipePage() {
     }
   };
 
-  // Handle saving recipe
+  // Handle saving recipe using SWR
   const handleSaveRecipe = async () => {
     if (!user) {
       router.push('/auth/login?returnTo=' + encodeURIComponent(window.location.pathname));
@@ -241,25 +222,17 @@ export default function RecipePage() {
     try {
       setSaving(true);
       
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
+      // Use SWR mutation to save recipe
+      await apiMutation.post('/api/user-recipes/saved-recipes/', {
+        recipes: [recipe],
+        plan_name: `Recipe - ${recipe.title}`
+      }, {
+        // Invalidate saved recipes and saved status endpoints
+        invalidateUrls: [
+          '/api/user-recipes/saved-recipes',
+          `/api/user-recipes/is-saved/${currentMealId}`
+        ]
       });
-      
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({
-          recipes: [recipe],
-          plan_name: `Recipe - ${recipe.title}`
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save recipe");
-      }
 
       toast.success("Recipe saved successfully!");
       setIsSaved(true);

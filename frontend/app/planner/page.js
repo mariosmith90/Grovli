@@ -17,7 +17,9 @@ import {
   Save,
   Loader 
 } from 'lucide-react';
-import { toast } from 'react-hot-toast'; // Import toast for notifications
+import { toast } from 'react-hot-toast';
+import { useApiGet, useApiMutation } from '../../lib/swr-client';
+import { useMealPlanStore, initializeMealPlanStore, formatDateKey } from '../../lib/stores/mealPlanStore';
 import AutoUpdatingComponent from '../../components/features/profile/mealplan/autoupdating';
 import DuplicateMeals from '../../components/features/planner/duplicatemeals';
 
@@ -57,6 +59,9 @@ export default function MealPlannerCalendar() {
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [sourceDateForDuplicate, setSourceDateForDuplicate] = useState(null);
   const [targetDateForDuplicate, setTargetDateForDuplicate] = useState(null);
+  
+  // Use Zustand store for state sharing
+  const mealPlanStore = useMealPlanStore();
 
   const autoSaveTimeoutRef = useRef(null);
   const lastLoadedRef = useRef(null);
@@ -106,6 +111,8 @@ export default function MealPlannerCalendar() {
     }
   };
 
+  // We've removed the custom hydration code since it was causing issues with page loading
+  
   // Get the start of the week containing the selected date
   const getWeekDays = (date) => {
     const currentDate = new Date(date);
@@ -131,28 +138,53 @@ export default function MealPlannerCalendar() {
     setCalendarDays(days);
   }, [selectedDate]); // Update when selectedDate changes
 
-  // Fetch saved meals when authenticated
+  // Set up SWR for data fetching
+  const userId = user?.sub;
+  const userPlansKey = userId ? `/api/user-plans/user/${userId}` : null;
+  const apiMutation = useApiMutation();
+  
+  // Fetch user's meal plans using SWR
+  const { 
+    data: fetchedUserPlans,
+    error: plansError,
+    mutate: mutatePlans
+  } = useApiGet(userPlansKey, {
+    onSuccess: (plans) => {
+      if (plans && Array.isArray(plans)) {
+        setUserPlans(plans);
+        setIsLoadingPlans(false);
+        
+        // Load the most recent plan if available
+        if (plans.length > 0) {
+          const sortedPlans = [...plans].sort((a, b) => 
+            new Date(b.updated_at) - new Date(a.updated_at)
+          );
+          const mostRecentPlan = sortedPlans[0];
+          
+          // Only load if we don't already have a plan loaded or if it's a different plan
+          if (!activePlanId || activePlanId !== mostRecentPlan.id) {
+            loadPlanToCalendar(mostRecentPlan);
+          }
+        }
+      }
+    },
+    onError: (error) => {
+      console.error('Error fetching user meal plans:', error);
+      toast.error('Failed to load your meal plans');
+      setIsLoadingPlans(false);
+    }
+  });
+  
+  // Initialize and use the meal plan store
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      // Fetch data immediately when component mounts
+      // Initialize the store safely
+      initializeMealPlanStore();
+      
+      // Fetch saved meals immediately
       fetchSavedMeals();
-      fetchUserMealPlans();
       
-      // Set up a handler for when the page becomes visible again
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-          console.log('Page became visible, refreshing meal plans...');
-          fetchUserMealPlans();
-        }
-      };
-      
-      // Listen for visibility changes (handles tab switching)
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      
-      // Clean up event listener on unmount
-      return () => {
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-      };
+      // SWR takes care of fetching the meal plans
     }
   }, [isAuthenticated, isLoading]);
 
@@ -231,6 +263,8 @@ export default function MealPlannerCalendar() {
 
     try {
       setIsLoadingPlans(true);
+      // Set loading state in the Zustand store too
+      mealPlanStore.setIsLoading(true);
       
       // Get access token using Auth0
       const accessToken = await getAccessToken({
@@ -265,11 +299,15 @@ export default function MealPlannerCalendar() {
         loadPlanToCalendar(mostRecentPlan);
       }
       
+      // Clear API cache to ensure fresh data on next request
+      apiResponseCache.clear('/api/user-plans');
+      
     } catch (error) {
       console.error('Error fetching user meal plans:', error);
       toast.error('Failed to load your meal plans');
     } finally {
       setIsLoadingPlans(false);
+      mealPlanStore.setIsLoading(false);
     }
   };
 
@@ -286,6 +324,10 @@ export default function MealPlannerCalendar() {
     
     setActivePlanId(plan.id);
     setPlanName(plan.name || "Unnamed Plan");
+    
+    // Set in the Zustand store too
+    mealPlanStore.setActivePlanId(plan.id);
+    mealPlanStore.setPlanName(plan.name || "Unnamed Plan");
     
     // Convert plan format to mealPlan state format
     const newMealPlan = {};
@@ -325,12 +367,15 @@ export default function MealPlannerCalendar() {
           id: mealItem.meal.id || mealItem.mealId,
           name: mealName, // Use our proper name with fallbacks
           title: mealName, // Keep title consistent
-          calories: mealItem.meal.calories || 
-                  (mealItem.meal.nutrition && mealItem.meal.nutrition.calories) || 0,
-          protein: (mealItem.meal.nutrition && mealItem.meal.nutrition.protein) || 0,
-          carbs: (mealItem.meal.nutrition && mealItem.meal.nutrition.carbs) || 0,
-          fat: (mealItem.meal.nutrition && mealItem.meal.nutrition.fat) || 0,
+          nutrition: {
+            calories: mealItem.meal.calories || 
+                    (mealItem.meal.nutrition && mealItem.meal.nutrition.calories) || 0,
+            protein: (mealItem.meal.nutrition && mealItem.meal.nutrition.protein) || 0,
+            carbs: (mealItem.meal.nutrition && mealItem.meal.nutrition.carbs) || 0,
+            fat: (mealItem.meal.nutrition && mealItem.meal.nutrition.fat) || 0
+          },
           image: mealItem.meal.imageUrl || mealItem.meal.image_url || "",
+          imageUrl: mealItem.meal.imageUrl || mealItem.meal.image_url || "",
           ingredients: mealItem.meal.ingredients || [],
           instructions: mealItem.meal.instructions || ""
         };
@@ -343,13 +388,15 @@ export default function MealPlannerCalendar() {
           id: mealItem.mealId,
           name: mealName, // Use better fallback name
           title: mealName, // Keep title consistent
-          calories: 0,
-          image: ""
+          nutrition: {
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0
+          },
+          image: "",
+          imageUrl: ""
         };
-        
-        // You might want to fetch the full meal details here
-        // This could be an async operation, in which case you'd want to
-        // update the mealPlan state after the fetch completes
       } else {
         console.error("Unable to process meal item:", mealItem);
         return;
@@ -357,82 +404,77 @@ export default function MealPlannerCalendar() {
       
       // Store the processed meal in our mealPlan state
       newMealPlan[dateKey][mealType] = mealData;
+      
+      // Also update the Zustand store with each meal
+      mealPlanStore.updateMeal(mealData, mealType, dateKey);
     });
     
-    // Update the state with the fully processed meal plan
+    // Update the local state
     console.log("Setting meal plan state:", newMealPlan);
     setMealPlan(newMealPlan);
+    
+    // Also update the Zustand store's planner meals
+    mealPlanStore.setPlannerMeals(newMealPlan);
     
     // Show success message
     toast.success(`Loaded meal plan: ${plan.name || "Unnamed Plan"}`);
   };
 
-  // Fetch saved meals from API
-  const fetchSavedMeals = async () => {
-    if (!user) return;
-
-    try {
-      setIsLoadingSavedMeals(true);
-      
-      // Get access token using Auth0
-      const accessToken = await getAccessToken({
-        authorizationParams: { audience: "https://grovli.citigrove.com/audience" }
-      });
-      
-      // API request
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/user-recipes/saved-recipes/`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
+  // Fetch saved meals using SWR
+  const savedMealsKey = userId ? '/api/user-recipes/saved-recipes/' : null;
+  const { 
+    data: savedMealsData,
+    error: savedMealsError,
+    mutate: mutateSavedMeals
+  } = useApiGet(savedMealsKey, {
+    onSuccess: (data) => {
       // Process meals by category
       const categorizedMeals = { breakfast: [], lunch: [], dinner: [], snack: [] };
       
-      // Group recipes by meal type
-      data.forEach(plan => {
-        if (plan.recipes && Array.isArray(plan.recipes)) {
-          plan.recipes.forEach(recipe => {
-            const mealType = (recipe.meal_type || '').toLowerCase();
-            const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
-              ? mealType : 'snack';
-            
-            const formattedMeal = {
-              id: recipe.id,
-              name: recipe.title,
-              calories: recipe.nutrition?.calories || 0,
-              protein: recipe.nutrition?.protein || 0,
-              carbs: recipe.nutrition?.carbs || 0,
-              fat: recipe.nutrition?.fat || 0,
-              image: recipe.imageUrl || recipe.image_url || "",
-              ingredients: recipe.ingredients || [],
-              instructions: recipe.instructions || ''
-            };
-            
-            // Add if not duplicate
-            if (!categorizedMeals[category].some(meal => meal.name === formattedMeal.name)) {
-              categorizedMeals[category].push(formattedMeal);
-            }
-          });
-        }
-      });
+      if (Array.isArray(data)) {
+        // Group recipes by meal type
+        data.forEach(plan => {
+          if (plan.recipes && Array.isArray(plan.recipes)) {
+            plan.recipes.forEach(recipe => {
+              const mealType = (recipe.meal_type || '').toLowerCase();
+              const category = ['breakfast', 'lunch', 'dinner', 'snack'].includes(mealType) 
+                ? mealType : 'snack';
+              
+              const formattedMeal = {
+                id: recipe.id,
+                name: recipe.title,
+                calories: recipe.nutrition?.calories || 0,
+                protein: recipe.nutrition?.protein || 0,
+                carbs: recipe.nutrition?.carbs || 0,
+                fat: recipe.nutrition?.fat || 0,
+                image: recipe.imageUrl || recipe.image_url || "",
+                ingredients: recipe.ingredients || [],
+                instructions: recipe.instructions || ''
+              };
+              
+              // Add if not duplicate
+              if (!categorizedMeals[category].some(meal => meal.name === formattedMeal.name)) {
+                categorizedMeals[category].push(formattedMeal);
+              }
+            });
+          }
+        });
+      }
       
       setSavedMeals(categorizedMeals);
-      
-    } catch (error) {
+      setIsLoadingSavedMeals(false);
+    },
+    onError: (error) => {
       console.error('Error fetching saved meals:', error);
       toast.error('Failed to load your saved meals');
-    } finally {
       setIsLoadingSavedMeals(false);
     }
+  });
+  
+  // Simple wrapper function to maintain backward compatibility
+  const fetchSavedMeals = () => {
+    setIsLoadingSavedMeals(true);
+    mutateSavedMeals();
   };
 
   // Open meal selector

@@ -1,6 +1,6 @@
 "use client";
 
-import { useProfileStore, getTodayDateString } from '../stores/profileStore';
+import { useMealPlanStore, getTodayDateString } from '../stores/mealPlanStore';
 import { getAuthState } from '../stores/authStore';
 
 /**
@@ -133,31 +133,29 @@ export const saveMealCompletion = async (userId, mealType, completed) => {
   }
 };
 
-// Load meal completions from the API
+// DEPRECATED: This function is deprecated - use useApiGet from swr-client.js instead
 export const loadMealCompletions = async (userId) => {
+  console.warn("DEPRECATED: loadMealCompletions is deprecated. Use useApiGet from swr-client.js instead.");
   if (!userId) return {};
   
   const apiService = getApiService();
   const today = getTodayDateString();
   
   try {
-    console.log(`Loading meal completions for ${userId} on ${today}`);
-    
     // Get completions from API
     const completions = await apiService.makeRequest(`/user-profile/meal-completion/${userId}/${today}`);
-    console.log("Loaded meal completions:", completions);
     
-    // Update the store
-    const profileStore = useProfileStore.getState();
-    profileStore.setCompletedMeals(completions);
+    // Update the Zustand store
+    const mealPlanStore = useMealPlanStore.getState();
+    mealPlanStore.setCompletedMeals(completions);
     
-    // Also update meal plan with completion statuses
-    const { mealPlan } = profileStore;
-    const updatedMealPlan = mealPlan.map(meal => ({
+    // Also update profileMeals with completion statuses
+    const { profileMeals } = mealPlanStore;
+    const updatedMealPlan = profileMeals.map(meal => ({
       ...meal,
       completed: completions[meal.type] || false
     }));
-    profileStore.setMealPlan(updatedMealPlan);
+    mealPlanStore.setProfileMeals(updatedMealPlan);
     
     return completions;
   } catch (error) {
@@ -166,29 +164,25 @@ export const loadMealCompletions = async (userId) => {
   }
 };
 
-// Fetch user meal plans from the API
+// This function is deprecated - use SWR hooks for fetching meal plans
 export const fetchUserMealPlans = async (userId) => {
+  console.warn("DEPRECATED: fetchUserMealPlans is deprecated. Use useApiGet from swr-client.js instead.");
   if (!userId) return null;
   
   const apiService = getApiService();
-  const profileStore = useProfileStore.getState();
+  const mealPlanStore = useMealPlanStore.getState();
   
   try {
-    console.log("Starting fetchUserMealPlans");
-    profileStore.setIsLoadingPlans(true);
-    profileStore.setIsDataReady(false);
+    mealPlanStore.setIsLoading(true);
     
     // Load completions first
-    console.log("Loading meal completions for user:", userId);
     const completions = await loadMealCompletions(userId);
     
     // Then load plans
-    console.log("Fetching meal plans for user:", userId);
     let plans;
     
     try {
       plans = await apiService.makeRequest(`/api/user-plans/user/${userId}`);
-      console.log("Plans API response:", plans);
       
       if (!Array.isArray(plans)) {
         console.warn("API did not return an array of plans, using empty array");
@@ -199,49 +193,24 @@ export const fetchUserMealPlans = async (userId) => {
       plans = [];
     }
     
-    // Check for null plans
-    if (!plans) {
-      console.log("No plans returned from API");
-      profileStore.setUserPlans([]);
-      profileStore.setIsDataReady(true);
-      return null;
-    }
-    
-    console.log(`Retrieved ${plans.length} meal plans`);
-    profileStore.setUserPlans(plans);
-    
     // If we have plans, load the latest one
     if (plans.length > 0) {
       const sortedPlans = [...plans].sort((a, b) => 
         new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
       );
       
-      console.log("Loading latest plan to calendar:", sortedPlans[0]?.id);
-      
       // Only proceed if we have a valid plan object
       if (sortedPlans[0] && typeof sortedPlans[0] === 'object') {
         await loadPlanToCalendar(sortedPlans[0], completions);
-      } else {
-        console.error("Invalid plan object:", sortedPlans[0]);
-        profileStore.setIsDataReady(true);
-      }
-    } else {
-      console.log("No meal plans found for user");
-      profileStore.setIsDataReady(true);
+      } 
     }
     
     return plans;
   } catch (error) {
     console.error('Error fetching user meal plans:', error);
-    
-    // Update store on error
-    profileStore.setUserPlans([]);
-    
     return null;
   } finally {
-    // Always update these states no matter what
-    profileStore.setIsLoadingPlans(false);
-    profileStore.setIsDataReady(true);
+    mealPlanStore.setIsLoading(false);
   }
 };
 
@@ -252,11 +221,33 @@ export const loadPlanToCalendar = async (plan, initialCompletions = {}) => {
   }
   
   const apiService = getApiService();
-  const profileStore = useProfileStore.getState();
+  const mealPlanStore = useMealPlanStore.getState();
   
-  // Get the plan structure from the store
-  const { todaysMeals, updatedMealPlan, mealTypeToTime } = 
-    profileStore.setActivePlanWithMeals(plan, initialCompletions);
+  // Set active plan in the Zustand store
+  mealPlanStore.setActivePlanId(plan.id);
+  mealPlanStore.setPlanName(plan.name || "My Meal Plan");
+  
+  // Default meal type to time mapping
+  const mealTypeToTime = {
+    breakfast: '8:00 AM',
+    lunch: '12:30 PM',
+    snack: '3:30 PM',
+    dinner: '7:00 PM'
+  };
+  
+  // Get today's date
+  const today = getTodayDateString();
+  
+  // Filter for today's meals
+  const todaysMeals = plan.meals.filter(mealItem => 
+    mealItem.date === today || mealItem.current_day === true
+  );
+  
+  // Create updated meal plan based on default structure
+  const updatedMealPlan = mealPlanStore.profileMeals.map(meal => ({
+    ...meal,
+    completed: initialCompletions[meal.type] || false
+  }));
   
   // Handle no meals case
   if (!todaysMeals || todaysMeals.length === 0) {
@@ -281,49 +272,54 @@ export const loadPlanToCalendar = async (plan, initialCompletions = {}) => {
       const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
       
       if (mealIndex !== -1) {
-        // Log the full response for debugging
-        console.log(`Full mealItem for ${mealType}:`, JSON.stringify(mealItem, null, 2));
-        console.log(`Full mealDetails for ${mealType}:`, JSON.stringify(mealDetails, null, 2));
-        
         // Get name safely
         const mealName = mealDetails?.title || mealDetails?.name;
-        console.log(`Using direct meal name for ${mealType}:`, mealName);
         
-        // Update meal plan entry with safe defaults
-        updatedMealPlan[mealIndex] = {
-          ...updatedMealPlan[mealIndex],
+        // Prepare the meal object with all needed properties
+        const normalizedMeal = {
+          id: recipeId,
+          mealId: recipeId,
           name: mealName,
           title: mealName,
-          calories: mealDetails?.nutrition?.calories || (meal && meal?.nutrition?.calories) || 0,
-          protein: mealDetails?.nutrition?.protein || (meal && meal?.nutrition?.protein) || 0,
-          carbs: mealDetails?.nutrition?.carbs || (meal && meal?.nutrition?.carbs) || 0,
-          fat: mealDetails?.nutrition?.fat || (meal && meal?.nutrition?.fat) || 0,
+          nutrition: {
+            calories: mealDetails?.nutrition?.calories || (meal && meal?.nutrition?.calories) || 0,
+            protein: mealDetails?.nutrition?.protein || (meal && meal?.nutrition?.protein) || 0,
+            carbs: mealDetails?.nutrition?.carbs || (meal && meal?.nutrition?.carbs) || 0,
+            fat: mealDetails?.nutrition?.fat || (meal && meal?.nutrition?.fat) || 0
+          },
           image: mealDetails?.imageUrl || (meal && meal?.imageUrl) || "",
-          id: recipeId,
+          imageUrl: mealDetails?.imageUrl || (meal && meal?.imageUrl) || "",
           completed: initialCompletions[mealType] || false,
           time: mealItem.time || mealTypeToTime[mealType]
         };
+        
+        // Update the updatedMealPlan array (for profile format)
+        updatedMealPlan[mealIndex] = {
+          ...updatedMealPlan[mealIndex],
+          ...normalizedMeal
+        };
+        
+        // Also update the planner format in the store
+        mealPlanStore.updateMeal(normalizedMeal, mealType, today);
       }
     } catch (error) {
       console.error(`Error fetching meal details for ${mealType}:`, error);
     }
   }
   
-  // Update the store with the completed meal plan
-  profileStore.setMealPlan(updatedMealPlan);
+  // Update the store with the completed meal plan (profile format)
+  mealPlanStore.setProfileMeals(updatedMealPlan);
   
-  // Update current and next meal info
-  const indices = profileStore.getUpdatedMealIndices();
-  profileStore.setCurrentMealIndex(indices.currentMealIndex);
-  
-  // Update next meal card if valid
-  const nextIndex = indices.nextMealIndex;
-  if (nextIndex >= 0 && nextIndex < updatedMealPlan.length) {
-    profileStore.updateNextMealCard(updatedMealPlan[nextIndex]);
-  }
+  // Update meal times to find current/next meal
+  mealPlanStore.updateMealTimes();
   
   // Recalculate calorie counts
-  profileStore.updateCalorieCount();
+  mealPlanStore.updateCalorieCount();
+  
+  // We no longer need to dispatch events since we're using Zustand's store
+  // to notify other components of changes. The subscribeWithSelector middleware
+  // will automatically notify subscribers when the store changes.
+  console.log("Profile service: Updated plan via Zustand store, planId:", plan.id);
   
   return updatedMealPlan;
 };
@@ -332,93 +328,119 @@ export const loadPlanToCalendar = async (plan, initialCompletions = {}) => {
 export const loadDataForDate = async (date, userId) => {
   if (!userId) return null;
   
-  const profileStore = useProfileStore.getState();
-  const { userPlans, activePlanId, mealPlan } = profileStore;
+  const mealPlanStore = useMealPlanStore.getState();
+  const { activePlanId, profileMeals } = mealPlanStore;
   
   try {
-    const dateString = date.toISOString().split('T')[0];
+    // Ensure date is a proper Date object
+    const safeDate = date instanceof Date ? date : new Date(date);
+    const dateString = safeDate.toISOString().split('T')[0];
+    const apiService = getApiService();
     
-    // If we have a loaded plan, filter for the selected date
-    if (userPlans.length > 0 && activePlanId) {
-      const activePlan = userPlans.find(plan => plan.id === activePlanId);
+    // Check if we have the planner meals for this date
+    const plannerMeals = mealPlanStore.plannerMeals?.[dateString] || {};
+    
+    // Start with existing profile meals
+    const updatedProfileMeals = [...profileMeals];
+    
+    // Reset all meals to default
+    updatedProfileMeals.forEach(meal => {
+      if (!meal) return;
       
-      if (activePlan) {
-        // Get meals for the selected date
-        const dateMeals = activePlan.meals.filter(meal => meal.date === dateString);
+      meal.name = '';
+      meal.nutrition = {
+        calories: 0,
+        protein: 0,
+        carbs: 0, 
+        fat: 0
+      };
+      meal.image = '';
+      meal.imageUrl = '';
+      meal.completed = false;
+      meal.id = null;
+    });
+    
+    // Check if we have any meals for this date (handle empty object)
+    const hasMeals = Object.keys(plannerMeals).length > 0;
+    
+    // If we have planner meals for this date, use them
+    if (hasMeals) {
+      console.log("Using planner meals for date:", dateString);
+      
+      // Update profileMeals with data from plannerMeals (with safety checks)
+      Object.entries(plannerMeals).forEach(([mealType, meal]) => {
+        // Skip if meal is null or undefined
+        if (!meal) return;
         
-        // Start with existing meal plan
-        const updatedMealPlan = [...mealPlan];
+        const mealIndex = updatedProfileMeals.findIndex(m => m?.type === mealType);
         
-        // Reset all meals to default
-        updatedMealPlan.forEach(meal => {
-          meal.name = '';
-          meal.calories = 0;
-          meal.protein = 0;
-          meal.carbs = 0;
-          meal.fat = 0;
-          meal.image = '';
-          meal.completed = false;
-          meal.id = null;
-        });
-        
-        // Log raw data for debugging
-        console.log("Raw dateMeals data:", JSON.stringify(dateMeals, null, 2));
-        
-        // Update with date's meals
-        for (const mealItem of dateMeals) {
-          const { mealType, meal } = mealItem;
-          const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+        if (mealIndex !== -1) {
+          // Get name with fallbacks
+          const mealName = meal.title || meal.name || "";
           
-          // Log full meal item for debugging
-          console.log(`Full mealItem for ${mealType}:`, JSON.stringify(mealItem, null, 2));
-          
-          if (mealIndex !== -1 && meal) {
-            // Use the meal name with fallbacks
-            const mealName = meal.title || meal.name;
-            console.log(`Using direct meal name for ${mealType}:`, mealName);
-            
-            // Update the meal
-            updatedMealPlan[mealIndex] = {
-              ...updatedMealPlan[mealIndex],
-              name: mealName,
-              title: mealName,
-              calories: meal.calories || meal.nutrition?.calories || 0,
-              protein: meal.protein || meal.nutrition?.protein || 0,
-              carbs: meal.carbs || meal.nutrition?.carbs || 0,
-              fat: meal.fat || meal.nutrition?.fat || 0,
-              image: meal.image || meal.imageUrl || "",
-              id: meal.id,
-              completed: dateString === getTodayDateString() ? 
-                (profileStore.completedMeals[mealType] || false) : false
-            };
-          }
+          // Update the meal in profile format
+          updatedProfileMeals[mealIndex] = {
+            ...updatedProfileMeals[mealIndex],
+            type: mealType, // Ensure type is preserved
+            time: updatedProfileMeals[mealIndex].time, // Preserve time
+            name: mealName,
+            title: mealName,
+            nutrition: {
+              calories: meal.nutrition?.calories || 0,
+              protein: meal.nutrition?.protein || 0,
+              carbs: meal.nutrition?.carbs || 0,
+              fat: meal.nutrition?.fat || 0
+            },
+            image: meal.image || meal.imageUrl || "",
+            imageUrl: meal.imageUrl || meal.image || "",
+            id: meal.id,
+            completed: dateString === getTodayDateString() ? 
+              (mealPlanStore.completedMeals[mealType] || false) : false
+          };
         }
-        
-        // Update the store
-        profileStore.setMealPlan(updatedMealPlan);
-        
-        // For today, load completions; otherwise clear them
-        if (dateString === getTodayDateString()) {
-          await loadMealCompletions(userId);
-        } else {
-          profileStore.setCompletedMeals({});
-        }
-        
-        // Update indices and calorie counts
-        const { currentMealIndex, nextMealIndex } = profileStore.getUpdatedMealIndices();
-        profileStore.setCurrentMealIndex(currentMealIndex);
-        
-        if (nextMealIndex >= 0 && nextMealIndex < updatedMealPlan.length) {
-          profileStore.updateNextMealCard(updatedMealPlan[nextMealIndex]);
-        }
-        
-        profileStore.updateCalorieCount();
-        
-        return updatedMealPlan;
+      });
+      
+      console.log("Updated profile meals:", updatedProfileMeals);
+      
+      // Update the store with profile format meals
+      try {
+        mealPlanStore.setProfileMeals(updatedProfileMeals);
+      } catch (err) {
+        console.error("Error updating profile meals:", err);
       }
+      
+      // For today, load completions; otherwise clear them
+      if (dateString === getTodayDateString()) {
+        try {
+          await loadMealCompletions(userId);
+        } catch (err) {
+          console.error("Error loading meal completions:", err);
+        }
+      }
+      
+      // Update meal times and calorie counts (with error handling)
+      try {
+        mealPlanStore.updateMealTimes();
+        mealPlanStore.updateCalorieCount();
+      } catch (err) {
+        console.error("Error updating meal times or calorie count:", err);
+      }
+      
+      // We'll skip event dispatch here to prevent loops since we're already
+      // using Zustand to notify other components of changes
+      console.log("Profile service: Updated profile meals via Zustand store for date:", dateString);
+      
+      return updatedProfileMeals;
     }
     
-    return null;
+    // If we don't have planner meals for this date, just update the store with empty meals
+    try {
+      mealPlanStore.setProfileMeals(updatedProfileMeals);
+    } catch (err) {
+      console.error("Error updating empty profile meals:", err);
+    }
+    
+    return updatedProfileMeals;
   } catch (error) {
     console.error('Error loading data for date:', error);
     return null;
@@ -430,10 +452,10 @@ export const fetchSavedMeals = async (mealType) => {
   if (!mealType) return [];
   
   const apiService = getApiService();
-  const profileStore = useProfileStore.getState();
+  const mealPlanStore = useMealPlanStore.getState();
   
   // Show loading state
-  profileStore.setIsLoadingSavedMeals(true);
+  mealPlanStore.setIsLoadingSavedMeals(true);
   
   try {
     console.log(`Fetching saved meals for ${mealType}...`);
@@ -447,10 +469,10 @@ export const fetchSavedMeals = async (mealType) => {
         if (timeDiff < 2 * 60 * 1000) {
           console.log(`Using cached saved meals (${timeDiff}ms old)`);
           // If we already have data in the store for this meal type
-          if (profileStore.savedMeals[mealType]?.length > 0) {
-            console.log(`Found ${profileStore.savedMeals[mealType].length} cached meals for ${mealType}`);
-            profileStore.setIsLoadingSavedMeals(false);
-            return profileStore.savedMeals[mealType];
+          if (mealPlanStore.savedMeals[mealType]?.length > 0) {
+            console.log(`Found ${mealPlanStore.savedMeals[mealType].length} cached meals for ${mealType}`);
+            mealPlanStore.setIsLoadingSavedMeals(false);
+            return mealPlanStore.savedMeals[mealType];
           }
         }
       }
@@ -533,11 +555,11 @@ export const fetchSavedMeals = async (mealType) => {
     console.log(`Received saved recipes data:`, data);
     
     // Start with existing saved meals
-    const categorizedMeals = { ...profileStore.savedMeals };
+    const savedMeals = { ...mealPlanStore.savedMeals };
     const addedMealNames = new Set();
     
     // Clear existing meals for this type
-    categorizedMeals[mealType] = [];
+    savedMeals[mealType] = [];
     
     // Process each plan
     for (const plan of data) {
@@ -559,73 +581,54 @@ export const fetchSavedMeals = async (mealType) => {
         // Only process recipes for the requested type
         if (category !== mealType) continue;
         
-        try {
-          // Create a controller with timeout for details fetch
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        // Format the meal data directly from the API response
+        const formattedMeal = {
+          id: recipe.recipe_id || recipe.id,
+          name: recipe.title,
+          title: recipe.title,
+          meal_type: recipe.meal_type,
+          nutrition: recipe.nutrition || {},  // Use nutrition directly from recipe
+          image: recipe.imageUrl || "",
+          imageUrl: recipe.imageUrl || ""
+        };
           
-          // Fetch details for this meal
-          console.log(`Fetching details for meal ${recipe.title} (${recipe.recipe_id})`);
-          const mealDetails = await apiService.makeRequest(`/mealplan/${recipe.recipe_id}`, {
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          
-          console.log(`Meal details for ${recipe.title}:`, mealDetails);
-          
-          // Format the meal data
-          const formattedMeal = {
-            id: recipe.recipe_id,
-            name: mealDetails.title || recipe.title,
-            calories: mealDetails.nutrition?.calories || 0,
-            protein: mealDetails.nutrition?.protein || 0,
-            carbs: mealDetails.nutrition?.carbs || 0,
-            fat: mealDetails.nutrition?.fat || 0,
-            image: mealDetails.imageUrl || recipe.imageUrl || "",
-            ingredients: mealDetails.ingredients || [],
-            instructions: mealDetails.instructions || ''
-          };
-          
-          // Ensure the category exists
-          if (!categorizedMeals[category]) {
-            categorizedMeals[category] = [];
-          }
-          
-          // Add to the appropriate category
-          categorizedMeals[category].push(formattedMeal);
-          addedMealNames.add(recipe.title);
-        } catch (detailError) {
-          console.error(`Error fetching details for meal ${recipe.title}:`, detailError);
+        // Ensure the category exists
+        if (!savedMeals[category]) {
+          savedMeals[category] = [];
         }
+        
+        // Add to the appropriate category
+        savedMeals[category].push(formattedMeal);
+        addedMealNames.add(recipe.title);
       }
     }
     
-    console.log(`Setting saved meals for ${mealType}:`, categorizedMeals[mealType]);
+    console.log(`Setting saved meals for ${mealType}:`, savedMeals[mealType]);
     
-    // Update the store
-    profileStore.setSavedMeals(categorizedMeals);
+    // Update the store - use the proper function from Zustand store
+    mealPlanStore.setSavedMeals(mealType, savedMeals[mealType]);
     
     // Store last update timestamp in localStorage for caching
     if (typeof window !== 'undefined') {
       localStorage.setItem('grovli_savedmeals_timestamp', Date.now().toString());
-      localStorage.setItem(`grovli_savedmeals_${mealType}_count`, (categorizedMeals[mealType]?.length || 0).toString());
+      localStorage.setItem(`grovli_savedmeals_${mealType}_count`, (savedMeals[mealType]?.length || 0).toString());
     }
     
-    return categorizedMeals[mealType];
+    return savedMeals[mealType];
   } catch (error) {
     console.error('Error fetching saved meals:', error);
     
     // Even on error, make sure we have an entry for this meal type in savedMeals
-    const fallbackMeals = { ...profileStore.savedMeals };
-    if (!fallbackMeals[mealType]) {
-      fallbackMeals[mealType] = [];
-    }
-    profileStore.setSavedMeals(fallbackMeals);
+    const currentSavedMeals = mealPlanStore.savedMeals;
+    const fallbackMeals = currentSavedMeals[mealType] || [];
     
-    return fallbackMeals[mealType] || [];
+    // Make sure we have this meal type in the store
+    mealPlanStore.setSavedMeals(mealType, fallbackMeals);
+    
+    return fallbackMeals;
   } finally {
     // Always clear loading state
-    profileStore.setIsLoadingSavedMeals(false);
+    mealPlanStore.setIsLoadingSavedMeals(false);
   }
 };
 
@@ -634,7 +637,7 @@ export const loadUserSettings = async (userId) => {
   if (!userId) return null;
   
   const apiService = getApiService();
-  const profileStore = useProfileStore.getState();
+  const mealPlanStore = useMealPlanStore.getState();
   
   try {
     console.log("Fetching user settings from server");
@@ -642,10 +645,10 @@ export const loadUserSettings = async (userId) => {
     
     console.log("Received server settings:", serverSettings);
     
-    // Update store
-    profileStore.setGlobalSettings(serverSettings);
-    profileStore.setCalorieData({
-      ...profileStore.calorieData,
+    // Update store using Zustand actions
+    mealPlanStore.setGlobalSettings(serverSettings);
+    mealPlanStore.setCalorieData({
+      ...mealPlanStore.calorieData,
       target: serverSettings.calories || 2000
     });
     

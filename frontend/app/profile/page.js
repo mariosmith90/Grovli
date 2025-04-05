@@ -98,6 +98,8 @@ export default function ProfilePage() {
     }
   }, [mealPlan]);
 
+  // We've removed the custom hydration code since it was causing issues with the profile page loading
+
   // Render sections based on loading state
   const renderContent = useCallback(() => {
     if (isAuthLoading) {
@@ -136,11 +138,18 @@ export default function ProfilePage() {
         {/* Next Meal Section */}
         <section className="mb-6 bg-white p-4">
           <h2 className="text-2xl font-semibold mb-3 flex items-center">
-            <MealTypeIcon type={nextMeal.type} />
-            {nextMeal.type.charAt(0).toUpperCase() + nextMeal.type.slice(1)}
+            <MealTypeIcon type={nextMeal?.type || 'breakfast'} />
+            {nextMeal?.type ? (nextMeal.type.charAt(0).toUpperCase() + nextMeal.type.slice(1)) : 'Next Meal'}
           </h2>
           <NextMealCard 
-            meal={nextMeal} 
+            meal={nextMeal || {
+              type: 'breakfast',
+              time: '8:00 AM',
+              name: '',
+              nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+              image: '',
+              imageUrl: ''
+            }} 
             onJustAte={handleJustAte} 
             handleCreateNewMeals={handleCreateNewMeals} 
           />

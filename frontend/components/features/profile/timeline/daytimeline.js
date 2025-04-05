@@ -33,9 +33,12 @@ function DayTimelineSlider({ currentDate, onDateChange, timelineRef }) {
   };
   
   const isSelected = (date) => {
-    return date.getDate() === currentDate.getDate() &&
-           date.getMonth() === currentDate.getMonth() &&
-           date.getFullYear() === currentDate.getFullYear();
+    // Ensure currentDate is a Date object
+    const selectedDate = currentDate instanceof Date ? currentDate : new Date(currentDate);
+    
+    return date.getDate() === selectedDate.getDate() &&
+           date.getMonth() === selectedDate.getMonth() &&
+           date.getFullYear() === selectedDate.getFullYear();
   };
   
   return (

@@ -52,7 +52,6 @@ export function BottomNavbar({ children }) {
   const setCurrentMealPlanId = mealStore?.setCurrentMealPlanId || (() => {});
   const setHasViewedGeneratedMeals = mealStore?.setHasViewedGeneratedMeals || (() => {});
   const resetMealGeneration = mealStore?.resetMealGeneration || (() => {});
-  const updateGlobalState = mealStore?.updateGlobalState || (() => {});
   const notifyMealPlanReady = mealStore?.notifyMealPlanReady || (() => {});
   const notifyMealPlanComplete = mealStore?.handleMealPlanNotification || (() => false);
   const markStoreHydrated = mealStore?.actions?.markHydrated || (() => {});
@@ -108,12 +107,11 @@ export function BottomNavbar({ children }) {
   // Import usePreload hook with all preload functions
   const { profileData, pantryData, mealsData, plannerData, initialize } = usePreload();
   
-  // Initialize browser cache and preload profile data on app startup
+  // Initialize and preload profile data on app startup
   useEffect(() => {
-    // First initialize the browser cache system
+    // SWR initializes its cache automatically - no need to call init()
     if (typeof window !== 'undefined') {
-      console.log("[Navbar] Initializing enhanced browser cache system");
-      apiResponseCache.init();
+      console.log("[Navbar] SWR cache is automatically initialized");
       
       // Clear any potential Redis prefetch flags from prior implementations
       localStorage.removeItem('prefetch_status');

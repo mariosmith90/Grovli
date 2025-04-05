@@ -1,51 +1,34 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { toast } from 'react-hot-toast'; // Make sure this is imported
+import React, { useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { useAuth } from '../../../lib/stores/authStore';
-import { Plus } from 'lucide-react'; // Import the Plus icon
+import { Plus } from 'lucide-react';
+import { useApiGet, useApiMutation } from '../../../lib/swr-client';
 
 const CulturalInfo = ({ selectedCuisine }) => {
   // Get user and auth helpers from context
-  const auth = useAuth(); // Always call hooks at the top level
+  const auth = useAuth();
   const user = auth?.user || null;
-  const getAuthHeaders = auth?.getAuthHeaders || (async () => ({}));
-  const [culturalInfo, setCulturalInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [addingIngredient, setAddingIngredient] = useState(null);
-
-  useEffect(() => {
-    const fetchCulturalInfo = async () => {
-      if (!selectedCuisine) {
-        setCulturalInfo(null);
-        return;
-      }
-      
-      setLoading(true);
-      setError('');
-      
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        console.log(`Fetching from: ${apiUrl}/cultural-info/${selectedCuisine.toLowerCase()}`);
-        
-        const response = await fetch(`${apiUrl}/cultural-info/${selectedCuisine.toLowerCase()}`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error ${response.status}`);
-        }
-        
-        const data = await response.json();
-        setCulturalInfo(data);
-      } catch (err) {
+  
+  // Use SWR to fetch cultural information
+  const { 
+    data: culturalInfo,
+    error,
+    isLoading: loading
+  } = useApiGet(
+    selectedCuisine ? `/cultural-info/${selectedCuisine.toLowerCase()}` : null,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000, // Cache for 1 minute
+      onError: (err) => {
         console.error('Error fetching cultural information:', err);
-        setError('Failed to load cultural information. Please try again later.');
-      } finally {
-        setLoading(false);
       }
-    };
-
-    fetchCulturalInfo();
-  }, [selectedCuisine]);
+    }
+  );
+  
+  // Get API mutation hook for adding to pantry
+  const apiMutation = useApiMutation();
 
   // Add ingredient to pantry function
   const handleAddToPantry = async (ingredient) => {
@@ -57,29 +40,18 @@ const CulturalInfo = ({ selectedCuisine }) => {
     setAddingIngredient(ingredient);
     
     try {
-      // Get auth headers from context
-      const headers = await getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-      
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/user-pantry/add-item`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          name: ingredient,
-          quantity: 1,
-          // Don't specify category here to trigger auto-categorization
-          // The backend will use auto_categorize_item() when category is null
-        }),
+      // Use SWR mutation hook to add item to pantry
+      await apiMutation.post('/api/user-pantry/add-item', {
+        name: ingredient,
+        quantity: 1,
+        // Don't specify category here to trigger auto-categorization
+        // The backend will use auto_categorize_item() when category is null
+      }, {
+        // Invalidate any pantry-related cache
+        invalidateUrls: ['/api/user-pantry/items']
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to add ingredient to pantry');
-      }
-      
       toast.success(`Added ${ingredient} to your pantry`);
-      
-      // Rest of the function remains the same...
     } catch (error) {
       console.error('Error adding ingredient to pantry:', error);
       toast.error('Failed to add ingredient to pantry');

@@ -52,15 +52,15 @@ function NextMealCard({ meal, onJustAte, handleCreateNewMeals }) {
           <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="text-center p-1.5 bg-blue-50 rounded-lg">
               <p className="text-xs text-gray-600">Calories</p>
-              <p className="font-bold text-sm">{meal.calories}</p>
+              <p className="font-bold text-sm">{meal.nutrition?.calories || 0}</p>
             </div>
             <div className="text-center p-1.5 bg-green-50 rounded-lg">
               <p className="text-xs text-gray-600">Protein</p>
-              <p className="font-bold text-sm">{meal.protein}g</p>
+              <p className="font-bold text-sm">{meal.nutrition?.protein || 0}g</p>
             </div>
             <div className="text-center p-1.5 bg-yellow-50 rounded-lg">
               <p className="text-xs text-gray-600">Carbs</p>
-              <p className="font-bold text-sm">{meal.carbs}g</p>
+              <p className="font-bold text-sm">{meal.nutrition?.carbs || 0}g</p>
             </div>
           </div>
 

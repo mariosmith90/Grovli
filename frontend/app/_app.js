@@ -2,10 +2,12 @@
 import '../styles/globals.css';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 import { UserProvider } from '@auth0/nextjs-auth0';
+import { SWRConfig } from 'swr';
 import Head from 'next/head';
 import { useEffect, useState, useRef } from 'react';
 import jwtDecode from 'jwt-decode';
-import BottomNavbar from '../components/ui/navbar'; 
+import BottomNavbar from '../components/ui/navbar';
+import { fetcher, swrLocalCache, SWRProvider } from '../lib/swr-client';
 
 // AutoLogoutOnExpiry Component
 function AutoLogoutOnExpiry() {
@@ -97,20 +99,50 @@ function MyApp({ Component, pageProps }) {
           <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         </Head>
         
-        <div className="min-h-screen">
-          {deferredPrompt && (
-            <button
-              onClick={handleInstallClick}
-              className="fixed bottom-24 right-4 bg-teal-500 text-white px-4 py-2 rounded-full shadow-md z-50"
-            >
-              Install App
-            </button>
-          )}
-          
-          <Component {...pageProps} />
-          {/* Optionally include a bottom navbar */}
-          <BottomNavbar />
-        </div>
+        <SWRConfig value={{
+          fetcher,
+          provider: () => new Map(), // Use a custom Map instance for the cache
+          revalidateOnFocus: false, // Disable auto revalidation on window focus
+          revalidateIfStale: true,  // Revalidate if data is stale
+          dedupingInterval: 5000,   // Dedupe requests within 5 seconds
+          errorRetryCount: 2,       // Only retry failed requests twice
+          shouldRetryOnError: (err) => !err.status || err.status >= 500,  // Only retry on server errors
+          onError: (error, key) => {
+            if (error.status !== 403 && error.status !== 404) {
+              console.error(`SWR Error for ${key}:`, error);
+            }
+          },
+          onLoadingSlow: (key) => {
+            console.warn(`SWR slow loading for ${key}`);
+          },
+          onSuccess: (data, key) => {
+            // Backup successful responses to localStorage via our custom cache
+            if (typeof window !== 'undefined' && key && data) {
+              if (key.startsWith('/api/user-profile/') || 
+                  key.startsWith('/api/user-plans') || 
+                  key.startsWith('/user-profile/meal-completion')) {
+                swrLocalCache.set(key, data);
+              }
+            }
+          }
+        }}>
+          {/* Our custom SWRProvider manages localStorage cache sync */}
+          <SWRProvider>
+            <div className="min-h-screen">
+              {deferredPrompt && (
+                <button
+                  onClick={handleInstallClick}
+                  className="fixed bottom-24 right-4 bg-teal-500 text-white px-4 py-2 rounded-full shadow-md z-50"
+                >
+                  Install App
+                </button>
+              )}
+              
+              <Component {...pageProps} />
+              <BottomNavbar />
+            </div>
+          </SWRProvider>
+        </SWRConfig>
       </Auth0Provider>
     </UserProvider>
   );

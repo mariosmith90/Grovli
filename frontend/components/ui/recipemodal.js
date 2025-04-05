@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useApiMutation } from "../../lib/swr-client";
 
 export function RecipeModal({ mealId, relatedRecipes, onClose }) {
   const router = useRouter();
   const [currentRecipeIndex, setCurrentRecipeIndex] = useState(-1);
   const scrollerRef = useRef(null);
   const [currentlySelectedId, setCurrentlySelectedId] = useState(mealId);
+  const apiMutation = useApiMutation();
 
   useEffect(() => {
     if (relatedRecipes && mealId) {
@@ -44,17 +46,14 @@ export function RecipeModal({ mealId, relatedRecipes, onClose }) {
       // Update URL without forcing a page reload
       window.history.pushState({}, '', `/recipes/${recipeId}`);
       
-      // Fetch the recipe data
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/mealplan/${recipeId}`);
+      // Fetch the recipe data using our SWR mutation hook
+      const recipeData = await apiMutation.trigger(`/mealplan/${recipeId}`, { method: 'GET' });
       
-      if (!response.ok) {
-        throw new Error(`Recipe not found: ${await response.text()}`);
+      if (!recipeData) {
+        throw new Error(`Recipe not found: ${recipeId}`);
       }
       
-      const recipeData = await response.json();
-      
       // Update parent component with new recipe data
-      // This requires adding this prop to the parent component
       if (window.updateRecipeData && typeof window.updateRecipeData === 'function') {
         window.updateRecipeData(recipeData);
       }

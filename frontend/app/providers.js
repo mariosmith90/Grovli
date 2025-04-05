@@ -3,17 +3,47 @@
 import { useEffect } from 'react';
 import { useUser } from '@auth0/nextjs-auth0';
 import { updateAuthStore } from '../lib/stores/authStore';
+import { SWRConfig } from 'swr';
+import { fetcher, swrLocalCache, SWRProvider } from '../lib/swr-client';
 
 /**
  * Providers component for our application
- * Uses Auth0's hooks directly with Zustand
+ * Includes Auth0 and SWR configuration
  */
 export function Providers({ children }) {
   return (
-    <>
-      <Auth0Sync />
-      {children}
-    </>
+    <SWRConfig value={{
+      fetcher,
+      provider: () => new Map(), // Use a custom Map instance for the cache
+      revalidateOnFocus: false, // Disable auto revalidation on window focus
+      revalidateIfStale: true,  // Revalidate if data is stale
+      dedupingInterval: 5000,   // Dedupe requests within 5 seconds
+      errorRetryCount: 2,       // Only retry failed requests twice
+      shouldRetryOnError: (err) => !err.status || err.status >= 500,  // Only retry on server errors
+      onError: (error, key) => {
+        if (error.status !== 403 && error.status !== 404) {
+          console.error(`SWR Error for ${key}:`, error);
+        }
+      },
+      onLoadingSlow: (key) => {
+        console.warn(`SWR slow loading for ${key}`);
+      },
+      onSuccess: (data, key) => {
+        // Backup successful responses to localStorage via our custom cache
+        if (typeof window !== 'undefined' && key && data) {
+          if (key.startsWith('/api/user-profile/') || 
+              key.startsWith('/api/user-plans') || 
+              key.startsWith('/user-profile/meal-completion')) {
+            swrLocalCache.set(key, data);
+          }
+        }
+      }
+    }}>
+      <SWRProvider>
+        <Auth0Sync />
+        {children}
+      </SWRProvider>
+    </SWRConfig>
   );
 }
 
@@ -44,21 +74,19 @@ function Auth0Sync() {
         
         // IMPORTANT: Immediately preload profile data to eliminate the 2-second wait
         // This ensures the profile page loads instantly when user navigates there
-        setTimeout(() => {
-          const { useAuthStore } = require('../lib/stores/authStore');
-          const store = useAuthStore.getState();
+        setTimeout(async () => {
+          try {
+            const { useProfilePreloader } = require('../lib/swr-client');
+            const preloader = useProfilePreloader();
+            
+            // Use our SWR preloader to prefetch all necessary data
+            const result = await preloader.preloadProfileData(user.sub);
+            console.log("Profile data preload result:", result);
+          } catch (err) {
+            console.warn('Prefetch of profile data failed silently', err);
+          }
           
-          // Directly fetch the user's meal plans which cause the wait
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-          fetch(`${apiUrl}/api/user-plans/user/${user.sub}`, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'user-id': user.sub,
-              'Purpose': 'prefetch'
-            }
-          }).catch(err => console.warn('Prefetch of user meal plans failed silently', err));
-          
-          console.log("Immediately preloading profile data after login to eliminate wait time");
+          console.log("Immediately preloaded profile data after login to eliminate wait time");
         }, 500); // Small delay to ensure auth is properly set up
       }
     }

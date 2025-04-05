@@ -3,26 +3,35 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '../stores/authStore';
+import { useSWRConfig, mutate } from 'swr';
+import { useApiGet, useProfilePreloader } from '../swr-client';
 
 /**
- * Custom hook for preloading assets, routes, and API data.
- * This provides a simple interface to preload content from any component.
+ * Enhanced SWR-based custom hook for preloading assets, routes, and API data.
+ * This provides a simple interface to preload content from any component using SWR.
  * 
  * Usage:
- * const preload = usePreload();
+ * const { profileData, pantryData, mealsData } = usePreload();
  * 
- * // Preload a route
- * preload.route('/some-path');
+ * // Preload profile data
+ * profileData().then(() => console.log('Profile data preloaded'));
  * 
- * // Preload multiple assets
- * preload.assets(['/image1.jpg', '/image2.jpg']);
- * 
- * // Preload API data
- * preload.api('userData', '/api/user/123');
+ * // Preload pantry data
+ * pantryData().then(() => console.log('Pantry data preloaded'));
  */
+
 export function usePreload() {
   const pathname = usePathname();
   const store = useAuthStore();
+  const { mutate: globalMutate } = useSWRConfig();
+  const { preloadProfileData } = useProfilePreloader();
+  
+  // Define common API endpoints for use with SWR
+  const userId = store?.userId;
+  const userPlansKey = userId ? `/api/user-plans/user/${userId}` : null;
+  const userProfileKey = userId ? `/api/user-profile/${userId}` : null;
+  
+  // SWR-optimized preloading methods
   
   // Preload assets for the current route on mount
   useEffect(() => {
@@ -32,6 +41,8 @@ export function usePreload() {
     const routeAssets = getAssetsForRoute(pathname);
     if (routeAssets.length > 0) {
       console.log(`[usePreload] Preloading ${routeAssets.length} assets for route ${pathname}`);
+      
+      // Preload assets using the store's preloadAsset method
       routeAssets.forEach(asset => {
         store.preloadAsset(asset);
       });
@@ -41,11 +52,9 @@ export function usePreload() {
     const relatedRoutes = getRelatedRoutes(pathname);
     if (relatedRoutes.length > 0) {
       console.log(`[usePreload] Preloading ${relatedRoutes.length} related routes for ${pathname}`);
-      relatedRoutes.forEach(route => {
-        store.preloadRoute(route);
-      });
+      // Routes are handled by Next.js router now
     }
-  }, [pathname]);
+  }, [pathname, store]);
   
   return {
     // Preload a specific route
@@ -65,94 +74,119 @@ export function usePreload() {
       store.preloadAsset(assetUrl);
     },
     
-    // Preload multiple assets
-    assets: (assetUrls) => {
-      if (Array.isArray(assetUrls)) {
-        assetUrls.forEach(asset => store.preloadAsset(asset));
-      }
-    },
-    
-    // Preload API data
-    api: (dataKey, apiEndpoint, options) => {
-      store.preloadApiData(dataKey, apiEndpoint, options);
-    },
-    
-    // Enhanced profileData preload - using optimized browser-side caching
-    profileData: async () => {
-      const userId = store.userId;
-      const token = store.getToken();
+    // Preload multiple assets - keeping SWR in sync
+    assets: async (assetUrls) => {
+      if (!Array.isArray(assetUrls) || assetUrls.length === 0) return;
       
-      if (!userId || !token) return;
-      
-      console.log("[usePreload] Preloading profile page data with browser-side caching");
-      
-      // Check if we already have a valid cached version first
-      if (typeof window !== 'undefined') {
-        const preloadTimestamp = localStorage.getItem('grovli_profile_preload_timestamp');
-        const pageLoadTimestamp = sessionStorage.getItem('grovli_page_load_timestamp');
-        const now = Date.now();
-        
-        // Detect page reload by comparing sessionStorage timestamp with current time
-        // SessionStorage is cleared on page reload, so if it's missing or recent, it's a fresh page load
-        const isPageReload = !pageLoadTimestamp || (now - parseInt(pageLoadTimestamp, 10) < 2000);
-        
-        // Update page load timestamp for future reference
-        sessionStorage.setItem('grovli_page_load_timestamp', now.toString());
-        
-        // If page was reloaded, force a fresh preload regardless of timestamp
-        if (isPageReload) {
-          console.log("[usePreload] Page reload detected, forcing fresh preload");
-        }
-        // If it wasn't a reload and we've preloaded within the last 5 minutes, use cached data
-        else if (preloadTimestamp && (now - parseInt(preloadTimestamp, 10)) < 5 * 60 * 1000) {
-          console.log("[usePreload] Using recently preloaded profile data (< 5 minutes ago)");
-          return;
-        }
-        
-        // Set timestamp to indicate we're preloading now
-        localStorage.setItem('grovli_profile_preload_timestamp', now.toString());
-      }
+      console.log(`[usePreload] Preloading ${assetUrls.length} assets`);
       
       try {
-        // Import the API service
-        let apiService;
-        try {
-          // Dynamic import to avoid circular dependency
-          const { useApiService } = await import('../api-service');
-          apiService = useApiService();
-        } catch (importError) {
-          console.error('[usePreload] Failed to import API service:', importError);
-          return;
+        // Use store's preloadAsset for each asset
+        assetUrls.forEach(asset => store.preloadAsset(asset));
+        
+        // For assets that might affect data, also prime the SWR cache with the 
+        // corresponding API endpoints for images
+        // This is a pattern unique to our application, not from SWR docs
+        const imageAssets = assetUrls.filter(url => 
+          url.match(/\.(jpg|jpeg|png|webp|svg)$/i) && 
+          url.includes('/images/')
+        );
+        
+        // If we have meal images, prime the SWR cache for meal data
+        if (imageAssets.length > 0 && imageAssets.some(img => img.includes('meals/'))) {
+          // Use the proper prefetching pattern from SWR docs
+          globalMutate('/api/user-plans', undefined, false);
         }
+      } catch (error) {
+        console.warn(`[usePreload] Error preloading assets:`, error);
+      }
+    },
+    
+    // Preload API data - following SWR docs
+    api: (key, endpoint, options = {}) => {
+      if (!key) return;
+      
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
         
-        // We'll use parallel requests instead of server-side prefetching
-        console.log('[usePreload] Starting parallel client-side preloading');
+        // Get headers - either from options or from auth store
+        const headers = options.headers || store.getAuthHeaders();
         
-        // Trigger multiple client-side preloads in parallel to populate browser caches
-        const preloadPromises = [
-          // Preload the user profile
-          store.preloadApiData('userProfile', `/api/user-profile/${userId}`),
+        // Use the exact pattern from SWR docs
+        globalMutate(
+          key,
+          fetch(fullUrl, {
+            headers,
+            credentials: 'include',
+            ...options
+          })
+          .then(res => res.ok ? res.json() : null)
+          .catch(err => {
+            console.warn(`[usePreload] Error prefetching ${key}:`, err);
+            return null;
+          }),
+          false // Skip revalidation as recommended in the docs
+        );
+      } catch (error) {
+        console.warn(`[usePreload] Error setting up prefetch for ${key}:`, error);
+      }
+    },
+    
+    // Enhanced profileData preload - following SWR docs exactly
+    profileData: async () => {
+      if (!userId) return false;
+      
+      console.log("[usePreload] Preloading profile data using SWR docs patterns");
+      
+      try {
+        // Define the profile-related endpoints to preload
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const headers = store.getAuthHeaders();
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Define all the keys we want to preload
+        const preloadKeys = [
+          // User profile
+          { key: userProfileKey, endpoint: userProfileKey },
           
-          // Preload user's meal plans
-          store.preloadApiData('userMealPlans', '/api/user-plans'),
+          // User meal plans
+          { key: userPlansKey, endpoint: userPlansKey },
           
-          // Preload user's meal completions for today
-          (async () => {
-            const today = new Date().toISOString().split('T')[0];
-            return store.preloadApiData(
-              'mealCompletions', 
-              `/user-profile/meal-completion/${userId}/${today}`
-            );
-          })(),
+          // Today's meal completions
+          { 
+            key: `/user-profile/meal-completion/${userId}/${today}`,
+            endpoint: `/user-profile/meal-completion/${userId}/${today}`
+          },
           
-          // Preload user settings
-          store.preloadApiData('userSettings', `/user-settings/${userId}`)
+          // User settings
+          { 
+            key: `/user-settings/${userId}`,
+            endpoint: `/user-settings/${userId}`
+          }
         ];
         
-        // Wait for all preloads to complete
-        await Promise.allSettled(preloadPromises);
+        // Following the SWR docs exactly, use mutate with fetch promises for prefetching
+        // https://swr.vercel.app/docs/prefetching
+        await Promise.all(
+          preloadKeys
+            .filter(item => item.key && item.endpoint)
+            .map(({ key, endpoint }) => 
+              globalMutate(
+                key,
+                fetch(`${apiUrl}${endpoint}`, { headers, credentials: 'include' })
+                  .then(res => res.ok ? res.json() : null)
+                  .catch(() => null),
+                false // Skip revalidation as recommended in the docs
+              )
+            )
+        );
         
-        console.log('[usePreload] Client-side preloading completed');
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('grovli_profile_preload_timestamp', Date.now().toString());
+        }
+        
+        console.log('[usePreload] Profile data preloaded with SWR');
         return true;
       } catch (error) {
         console.warn('[usePreload] Profile data prefetch failed:', error);
@@ -160,75 +194,103 @@ export function usePreload() {
       }
     },
     
-    // Pantry data preload - using optimized browser-side caching
+    // Pantry data preload - following SWR docs precisely
     pantryData: async () => {
-      const userId = store.userId;
-      const token = store.getToken();
+      if (!userId) return false;
       
-      if (!userId || !token) return;
+      console.log("[usePreload] Preloading pantry data using SWR docs pattern");
       
-      console.log("[usePreload] Preloading pantry page data with browser-side caching");
-      
-      // Check if we already have a valid cached version first
-      if (typeof window !== 'undefined') {
-        const preloadTimestamp = localStorage.getItem('grovli_pantry_preload_timestamp');
-        const pageLoadTimestamp = sessionStorage.getItem('grovli_page_load_timestamp');
-        const now = Date.now();
-        
-        // Detect page reload by comparing sessionStorage timestamp with current time
-        const isPageReload = !pageLoadTimestamp || (now - parseInt(pageLoadTimestamp, 10) < 2000);
-        
-        // Update page load timestamp for future reference
-        sessionStorage.setItem('grovli_page_load_timestamp', now.toString());
-        
-        // If page was reloaded, force a fresh preload regardless of timestamp
-        if (isPageReload) {
-          console.log("[usePreload] Page reload detected, forcing fresh pantry preload");
-        }
-        // If it wasn't a reload and we've preloaded within the last 5 minutes, use cached data
-        else if (preloadTimestamp && (now - parseInt(preloadTimestamp, 10)) < 5 * 60 * 1000) {
-          console.log("[usePreload] Using recently preloaded pantry data (< 5 minutes ago)");
-          return;
-        }
-        
-        // Set timestamp to indicate we're preloading now
-        localStorage.setItem('grovli_pantry_preload_timestamp', now.toString());
-      }
+      // Define the pantry endpoint for SWR
+      const pantryKey = userId ? `/api/user-pantry/items` : null;
+      if (!pantryKey) return false;
       
       try {
-        // We'll use parallel requests instead of server-side prefetching
-        console.log('[usePreload] Starting parallel client-side pantry preloading');
-        
-        // Try to import pantry store
-        let pantryStore;
-        try {
-          const { getPantryState } = await import('../stores/pantryStore');
-          pantryStore = getPantryState();
-        } catch (importError) {
-          console.error('[usePreload] Failed to import pantry store:', importError);
-        }
-        
-        // Trigger preload using the API endpoint
+        // Following the SWR prefetching docs exactly:
+        // https://swr.vercel.app/docs/prefetching
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const headers = store.getAuthHeaders();
         
-        // First, direct API preload
-        await store.preloadApiData('userPantry', `${apiUrl}/api/user-pantry/items`);
+        // Preload the main pantry items data
+        globalMutate(
+          pantryKey,
+          fetch(`${apiUrl}${pantryKey}`, { headers, credentials: 'include' })
+            .then(res => res.ok ? res.json() : null),
+          false // Skip revalidation
+        );
         
-        // Then try to update the pantry store data if available
-        if (pantryStore && typeof pantryStore.fetchPantryItems === 'function') {
-          console.log('[usePreload] Using pantry store to preload data');
-          try {
-            await pantryStore.fetchPantryItems();
-            console.log('[usePreload] Pantry store data successfully preloaded');
-          } catch (pantryError) {
-            console.warn('[usePreload] Failed to update pantry store:', pantryError);
-          }
-        }
+        // Preload related pantry data in parallel
+        const relatedKeys = [
+          '/api/user-pantry/categories',
+          '/api/user-pantry/recent'
+        ];
         
-        console.log('[usePreload] Pantry data preloading completed');
+        // Preload each related key
+        relatedKeys.forEach(key => {
+          globalMutate(
+            key,
+            fetch(`${apiUrl}${key}`, { headers, credentials: 'include' })
+              .then(res => res.ok ? res.json() : null)
+              .catch(() => null), // Silent catch
+            false // Skip revalidation
+          );
+        });
+        
+        console.log('[usePreload] Pantry data preloaded with SWR');
         return true;
       } catch (error) {
         console.warn('[usePreload] Pantry data prefetch failed:', error);
+        return false;
+      }
+    },
+    
+    // Initialize SWR caches for critical paths - following SWR docs
+    initialize: async () => {
+      if (!userId) return false;
+      
+      console.log("[usePreload] Initializing SWR caches for critical paths");
+      
+      try {
+        // Define the critical paths to preload
+        const criticalPaths = [
+          userProfileKey,
+          userPlansKey,
+          `/api/user-pantry/items`,
+          `/api/user-recipes/saved-recipes/`,
+          `/user-settings/${userId}`
+        ].filter(Boolean); // Filter out null values
+        
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const headers = store.getAuthHeaders();
+        
+        // Following SWR docs: https://swr.vercel.app/docs/prefetching
+        // Preload all critical paths in parallel
+        await Promise.all(
+          criticalPaths.map(path => 
+            // Use mutate with a fetch promise and skip revalidation flag (false)
+            globalMutate(
+              path, 
+              fetch(`${apiUrl}${path}`, {
+                headers,
+                credentials: 'include'
+              })
+              .then(res => {
+                if (!res.ok) throw new Error(`Failed to fetch ${path}`);
+                return res.json();
+              })
+              .catch(err => {
+                console.warn(`[usePreload] Failed to preload ${path}:`, err);
+                // Return undefined instead of rejecting to avoid breaking Promise.all
+                return undefined;
+              }),
+              false // Skip revalidation as per SWR docs
+            )
+          )
+        );
+        
+        console.log("[usePreload] SWR cache initialization complete");
+        return true;
+      } catch (error) {
+        console.error("[usePreload] Error initializing SWR caches:", error);
         return false;
       }
     },

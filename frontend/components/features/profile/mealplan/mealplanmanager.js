@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
-import { useApiService, apiResponseCache } from '../../../../lib/api-service';
 import { toast } from 'react-hot-toast';
+import { useApiGet, useApiMutation } from '../../../../lib/swr-client';
 
 export default function MealPlanManager({ 
   user, 
@@ -11,7 +11,7 @@ export default function MealPlanManager({
   onPlanLoaded,
   onMealCompletion
 }) {
-  const { makeAuthenticatedRequest } = useApiService();
+  // Component state
   const [activePlanId, setActivePlanId] = useState(null);
   const [userPlans, setUserPlans] = useState([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(true);
@@ -19,16 +19,91 @@ export default function MealPlanManager({
   const [savingMeals, setSavingMeals] = useState({});
   const autoSaveTimeoutRef = useRef(null);
 
-  const getTodayDateString = () => {
+  // Use SWR mutations (IMPORTANT: all hook calls at the component level)
+  const apiMutation = useApiMutation();
+
+  // Get user ID safely
+  const userId = user?.sub;
+  const today = getTodayDateString();
+
+  // Fetch user's meal plans with SWR
+  const { 
+    data: fetchedUserPlans,
+    error: userPlansError,
+    mutate: mutatePlans
+  } = useApiGet(
+    userId ? `/api/user-plans/user/${userId}` : null,
+    {
+      revalidateOnFocus: false,
+      revalidateOnMount: true,
+      onSuccess: (data) => {
+        if (data && Array.isArray(data)) {
+          setUserPlans(data);
+          setIsLoadingPlans(false);
+          
+          // If we have plans but no active plan, use the most recent one
+          if (data.length > 0 && !activePlanId) {
+            const sortedPlans = [...data].sort((a, b) => 
+              new Date(b.updated_at) - new Date(a.updated_at)
+            );
+            const newestPlan = sortedPlans[0];
+            setActivePlanId(newestPlan.id);
+            
+            // Load today's meals from this plan
+            loadPlanToCalendar(newestPlan);
+          }
+        }
+      },
+      onError: (error) => {
+        console.error("Error fetching user plans:", error);
+        setIsLoadingPlans(false);
+      }
+    }
+  );
+
+  // Fetch active plan details with SWR when we have an ID
+  const { 
+    data: activePlanData,
+    error: activePlanError,
+    mutate: mutateActivePlan
+  } = useApiGet(
+    activePlanId ? `/api/user-plans/${activePlanId}` : null,
+    {
+      revalidateOnFocus: false,
+      onSuccess: (planData) => {
+        if (planData && planData.meals) {
+          console.log("Active plan loaded:", planData.id);
+        }
+      }
+    }
+  );
+
+  // Fetch meal completions for today
+  const {
+    data: completionData,
+    error: completionError,
+    mutate: mutateCompletions
+  } = useApiGet(
+    userId && today ? `/user-profile/meal-completion/${userId}/${today}` : null,
+    {
+      revalidateOnFocus: false,
+      onSuccess: (data) => {
+        if (data) {
+          setCompletedMeals(data);
+        }
+      }
+    }
+  );
+
+  // Helper for date formatting
+  function getTodayDateString() {
     const today = new Date();
     return today.toISOString().split('T')[0];
-  };
+  }
 
-  // API Operations
+  // Update meal plan with debounced autosave
   const updateMealPlan = async (updatedMealPlan, changeType = 'update', affectedMeals = []) => {
-    // Get API service for special CORS-friendly update method
-    const { updateMealPlan: apiUpdateMealPlan } = useApiService();
-    
+    // Call onPlanUpdate callback if provided
     if (onPlanUpdate) {
       onPlanUpdate(updatedMealPlan);
     }
@@ -47,137 +122,93 @@ export default function MealPlanManager({
     
     // Set a short delay before auto-saving to avoid rapid successive saves
     autoSaveTimeoutRef.current = setTimeout(async () => {
-      if (!user) {
+      if (!userId) {
         toast.error("Please log in to save your meal plan");
         return;
       }
       
       try {
-        // Format meals for API
+        // Format meals for API consistently
         const formattedMeals = [];
-        const today = getTodayDateString();
         
-        // Only include today's meals for the profile page
-        updatedMealPlan.forEach(meal => {
-          if (meal.name) {
-            // Ensure meal has valid id
-            if (!meal.id) {
-              console.warn(`Missing meal ID for ${meal.type}`);
-              return; // Skip this meal
+        // For array-based plan (profile page)
+        if (Array.isArray(updatedMealPlan)) {
+          updatedMealPlan.forEach(meal => {
+            if (meal.id) {
+              formattedMeals.push({
+                date: getTodayDateString(),
+                mealType: meal.type,
+                mealId: meal.id
+              });
             }
-            
-            formattedMeals.push({
-              date: today,
-              mealType: meal.type,
-              mealId: meal.id,
-              current_day: true
-              // Only include required fields
+          });
+        } 
+        // For object-based plan (planner page)
+        else if (typeof updatedMealPlan === 'object') {
+          Object.entries(updatedMealPlan).forEach(([date, meals]) => {
+            Object.entries(meals).forEach(([mealType, meal]) => {
+              if (meal && meal.id) {
+                formattedMeals.push({
+                  date,
+                  mealType,
+                  mealId: meal.id
+                });
+              }
             });
-          }
-        });
+          });
+        }
         
         if (formattedMeals.length === 0) {
           // Don't bother saving an empty plan
           return;
         }
-        
-        // If we don't have an active plan yet and we're adding the first meal,
-        // create a new plan, otherwise update the existing one
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-          
-        // Log the formatted meals for debugging
-        console.log("Formatted meals:", JSON.stringify(formattedMeals, null, 2));
-        
-        // Clean meals for API - include only required fields
-        const cleanMeals = formattedMeals.map(meal => {
-          // Only include the required fields
-          const cleanMeal = {
-            date: meal.date,
-            mealType: meal.mealType,
-            // Remove meal_type field as it's not in the backend schema
-            mealId: meal.mealId
-          };
-          
-          // Only add current_day if it exists
-          if (meal.current_day) cleanMeal.current_day = meal.current_day;
-          
-          return cleanMeal;
-        });
-        
-        // Prepare request data based on whether we're creating or updating
-        let requestData;
+
+        // Prepare request data
         let result;
         
         if (activePlanId) {
-          // For update endpoint, only send planId and meals
-          requestData = {
+          // For existing plans, use updateMealPlan
+          const updateData = {
             planId: activePlanId,
-            meals: cleanMeals
+            meals: formattedMeals
           };
           
-          // Log the request data for debugging
-          console.log('Using special updateMealPlan function to bypass CORS issues');
-          console.log('Request Data:', JSON.stringify(requestData, null, 2));
-          
-          // Use our special updateMealPlan function to handle the update endpoint
-          result = await apiUpdateMealPlan(requestData);
-        } else {
-          // For save endpoint, send userId, planName, and meals
-          requestData = {
-            userId: user.sub,
-            planName: `Daily Plan - ${new Date().toLocaleDateString()}`,
-            meals: cleanMeals
-          };
-          
-          // Log the request data for debugging
-          console.log(`Using standard save endpoint: ${apiUrl}/api/user-plans/save`);
-          console.log('Request Data:', JSON.stringify(requestData, null, 2));
-          
-          // API request
-          const response = await fetch(`${apiUrl}/api/user-plans/save`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${accessToken}`,
-              'Origin': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-            },
-            body: JSON.stringify(requestData),
-            credentials: 'include',
-            mode: 'cors'
+          // Use SWR mutation hook to send the update
+          result = await apiMutation.updateMealPlan(updateData, { 
+            userId
           });
+        } else {
+          // For new plans, create a new one
+          const newPlanData = {
+            userId,
+            planName: `Daily Plan - ${new Date().toLocaleDateString()}`,
+            meals: formattedMeals
+          };
           
-          if (!response.ok) {
-            // Try to get more detailed error information
-            let errorDetail = '';
-            try {
-              const errorResponse = await response.json();
-              errorDetail = errorResponse.detail || '';
-              console.error('API Error Response:', errorResponse);
-            } catch (parseError) {
-              console.error('Could not parse error response:', parseError);
-            }
-            
-            throw new Error(`Failed to save: ${response.status}${errorDetail ? ' - ' + errorDetail : ''}`);
-          }
-          
-          result = await response.json();
+          // Use SWR mutation to create the plan
+          result = await apiMutation.post('/api/user-plans/save', newPlanData, {
+            invalidateUrls: [
+              '/api/user-plans',
+              `/api/user-plans/user/${userId}`
+            ]
+          });
         }
         
         // If it was a new plan, update the activePlanId
-        if (!activePlanId && result.id) {
+        if (!activePlanId && result && result.id) {
           setActivePlanId(result.id);
         }
         
-        // Update localStorage to trigger refresh in other components
-        localStorage.setItem('mealPlanLastUpdated', new Date().toISOString());
+        // Invalidate cached data to refresh views
+        if (userId) {
+          mutatePlans();
+          
+          if (activePlanId) {
+            mutateActivePlan();
+          }
+        }
         
-        // Clear API cache for user plans and meal data to ensure fresh data on next load
-        console.log("[MealPlanManager] Clearing specific API caches after meal plan update");
-        // Only clear related endpoint caches rather than entire cache
-        apiResponseCache.clear('/api/user-plans');
-        apiResponseCache.clear('/user-profile/meal-completion');
-        
-        // Show success message for adding/removing meals
+        // Show success message for specific actions
         if (changeType === 'add') {
           toast.success("Meal added to plan");
         } else if (changeType === 'remove') {
@@ -200,28 +231,30 @@ export default function MealPlanManager({
     }, 500); // 500ms delay before auto-saving
   };
 
+  // Save meal completion status
   const saveMealCompletion = async (mealType, completed) => {
     try {
-      await makeAuthenticatedRequest('/user-profile/meal-completion', {
-        method: 'POST',
-        body: JSON.stringify({
-          user_id: user.sub,
-          date: getTodayDateString(),
-          meal_type: mealType,
-          completed: completed
-        }),
+      await apiMutation.post('/user-profile/meal-completion', {
+        user_id: userId,
+        date: getTodayDateString(),
+        meal_type: mealType,
+        completed
+      }, {
+        invalidateUrls: [
+          `/user-profile/meal-completion/${userId}/${getTodayDateString()}`
+        ]
       });
       
-      // Update local state
+      // Update local state immediately for UI feedback
       setCompletedMeals(prev => ({
         ...prev,
         [mealType]: completed
       }));
       
-      // Clear cache for meal completions
-      console.log("[MealPlanManager] Clearing API cache after meal completion update");
-      apiResponseCache.clear(`/user-profile/meal-completion/${user.sub}/${getTodayDateString()}`);
+      // Trigger SWR revalidation
+      mutateCompletions();
       
+      // Call the callback
       if (onMealCompletion) {
         onMealCompletion(mealType, completed);
       }
@@ -231,49 +264,18 @@ export default function MealPlanManager({
     }
   };
 
-  const loadMealCompletions = async () => {
+  // Fetch meal details for a recipe ID
+  const fetchMealDetails = async (recipeId) => {
     try {
-      const today = getTodayDateString();
-      const completions = await makeAuthenticatedRequest(`/user-profile/meal-completion/${user.sub}/${today}`);
-      
-      // Update state
-      setCompletedMeals(completions);
-      
-      return completions;
+      const { data } = await apiMutation.post(`/mealplan/${recipeId}`);
+      return data;
     } catch (error) {
-      console.error('Error loading meal completions:', error);
-      return {};
+      console.error(`Error fetching meal details for ${recipeId}:`, error);
+      return null;
     }
   };
 
-  const fetchUserMealPlans = async () => {
-    if (!user || !accessToken) return;
-
-    try {
-      setIsLoadingPlans(true);
-      
-      // Load completions FIRST
-      const completions = await loadMealCompletions();
-      
-      // Then load plans
-      const userId = user.sub;
-      const plans = await makeAuthenticatedRequest(`/api/user-plans/user/${userId}`);
-      setUserPlans(plans);
-      
-      if (plans.length > 0) {
-        const sortedPlans = [...plans].sort((a, b) => 
-          new Date(b.updated_at) - new Date(a.updated_at)
-        );
-        await loadPlanToCalendar(sortedPlans[0], completions);
-      }
-      
-    } catch (error) {
-      console.error('Error fetching user meal plans:', error);
-    } finally {
-      setIsLoadingPlans(false);
-    }
-  };
-
+  // Load plan data into the calendar
   const loadPlanToCalendar = async (plan, initialCompletions = {}) => {
     if (!plan || !plan.meals || !Array.isArray(plan.meals)) {
       return;
@@ -281,7 +283,7 @@ export default function MealPlanManager({
   
     setActivePlanId(plan.id);
   
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
     const todaysMeals = plan.meals.filter(mealItem => mealItem.date === today || mealItem.current_day === true);
   
     if (todaysMeals.length === 0) {
@@ -297,38 +299,102 @@ export default function MealPlanManager({
       dinner: '7:00 PM'
     };
   
+    // For each meal in today's plan, fetch details and update the meal plan
     for (const mealItem of todaysMeals) {
       const { mealType, meal, mealId } = mealItem;
       const recipeId = mealId || (meal && (meal.recipe_id || meal.id));
-  
+      
       if (!recipeId) {
         console.error("Invalid meal data for mealType:", mealType);
         continue;
       }
-  
-      const mealDetails = await makeAuthenticatedRequest(`/mealplan/${recipeId}`);
-      const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
-  
-      if (mealIndex !== -1) {
-        updatedMealPlan[mealIndex] = {
-          ...updatedMealPlan[mealIndex],
-          name: mealDetails.title || (meal && meal.title) || "",
-          calories: mealDetails.nutrition?.calories || (meal && meal.nutrition?.calories) || 0,
-          protein: mealDetails.nutrition?.protein || (meal && meal.nutrition?.protein) || 0,
-          carbs: mealDetails.nutrition?.carbs || (meal && meal.nutrition?.carbs) || 0,
-          fat: mealDetails.nutrition?.fat || (meal && meal.nutrition?.fat) || 0,
-          image: mealDetails.imageUrl || (meal && meal.imageUrl) || "",
-          id: recipeId,
-          completed: initialCompletions[mealType] || false,
-          time: mealItem.time || mealTypeToTime[mealType]
-        };
+      
+      try {
+        // Check if we already have the meal details in the meal object
+        if (meal && meal.title) {
+          const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+          
+          if (mealIndex !== -1) {
+            // Use the saved meal data directly
+            updatedMealPlan[mealIndex] = {
+              ...updatedMealPlan[mealIndex],
+              name: meal.title || meal.name || "",
+              title: meal.title || meal.name || "",
+              type: mealType,
+              meal_type: mealType,
+              nutrition: meal.nutrition || {
+                calories: 0,
+                protein: 0,
+                carbs: 0,
+                fat: 0
+              },
+              image: meal.imageUrl || meal.image || "",
+              imageUrl: meal.imageUrl || meal.image || "",
+              recipe_id: meal.recipe_id || recipeId,
+              id: recipeId,
+              completed: completionData?.[mealType] || initialCompletions[mealType] || false,
+              time: mealItem.time || mealTypeToTime[mealType]
+            };
+          }
+        } else {
+          // Fetch from SWR as we don't have the data
+          const { data: mealDetails } = await apiMutation.trigger(`/mealplan/${recipeId}`, { 
+            method: 'GET',
+            // Add to SWR cache for future requests
+            cacheKey: `/mealplan/${recipeId}`
+          });
+          
+          if (mealDetails) {
+            const mealIndex = updatedMealPlan.findIndex(m => m.type === mealType);
+            
+            if (mealIndex !== -1) {
+              updatedMealPlan[mealIndex] = {
+                ...updatedMealPlan[mealIndex],
+                name: mealDetails.title || mealDetails.name || "",
+                title: mealDetails.title || mealDetails.name || "",
+                type: mealType,
+                meal_type: mealType,
+                nutrition: mealDetails.nutrition || {
+                  calories: 0,
+                  protein: 0,
+                  carbs: 0,
+                  fat: 0
+                },
+                image: mealDetails.imageUrl || mealDetails.image || "",
+                imageUrl: mealDetails.imageUrl || mealDetails.image || "",
+                recipe_id: mealDetails.recipe_id || recipeId,
+                id: recipeId,
+                completed: completionData?.[mealType] || initialCompletions[mealType] || false,
+                time: mealItem.time || mealTypeToTime[mealType]
+              };
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing meal ${recipeId} for ${mealType}:`, error);
       }
     }
-  
+    
+    // Call the callback with the updated plan
     if (onPlanLoaded) {
       onPlanLoaded(updatedMealPlan, completedMeals);
     }
   };
+
+  // Initialize meal plan on component mount
+  useEffect(() => {
+    if (userId && fetchedUserPlans && fetchedUserPlans.length > 0 && completionData) {
+      // When both data sources are available, initialize
+      if (!activePlanId) {
+        const sortedPlans = [...fetchedUserPlans].sort((a, b) => 
+          new Date(b.updated_at) - new Date(a.updated_at)
+        );
+        
+        // Load the most recent plan
+        loadPlanToCalendar(sortedPlans[0], completionData);
+      }
+    }
+  }, [userId, fetchedUserPlans, completionData]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -339,16 +405,17 @@ export default function MealPlanManager({
     };
   }, []);
 
+  // Return functions and state for use in parent component
   return {
     activePlanId,
-    userPlans,
+    userPlans: userPlans || fetchedUserPlans || [],
     isLoadingPlans,
-    completedMeals,
+    completedMeals: completedMeals || completionData || {},
     savingMeals,
     updateMealPlan,
     saveMealCompletion,
-    loadMealCompletions,
-    fetchUserMealPlans,
+    // Use SWR's mutate function directly instead of fetchUserMealPlans
+    refreshUserMealPlans: () => mutatePlans(),
     loadPlanToCalendar
   };
 }
