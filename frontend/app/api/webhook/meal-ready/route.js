@@ -44,7 +44,7 @@ export async function POST(request) {
       meal_plan_id,
       session_id,
       timestamp
-    }), { ex: 3600 }); // Expire after 1 hour
+    }), 'EX', 3600 ); // Expire after 1 hour
     
     // 2. Also store in a separate key for tracking all ready meal plans
     const readyPlansKey = `ready_meal_plans:${user_id}`;
@@ -133,7 +133,7 @@ export async function GET(request) {
     
     // Update the last check time
     global.lastMealReadyCheck[user_id] = now;
-    await redis.set(`last_check:${user_id}`, now, { ex: 3600 });
+    await redis.set(`last_check:${user_id}`, now, 'EX', 3600 );
     
     // First check the Redis ready plans hash - this is the most reliable source
     // This contains all unacknowledged ready meal plans
@@ -291,7 +291,7 @@ export async function GET(request) {
       
       // Mark as notified in Redis (expires after 2 minutes)
       try {
-        await redis.set(notifKey, 'true', { ex: 120 });
+        await redis.set(notifKey, 'true', 'EX',  120 );
       } catch (redisError) {
         console.error('Error setting notification status in Redis:', redisError);
         // Fall back to memory tracking
