@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApiService } from '../../lib/api-service';
 // Use our new Zustand store instead of the context
 import { useMealStore } from '../../lib/stores/mealStore';
 import { MealPlanDisplay } from '../../components/ui/mealcard';
@@ -35,6 +36,8 @@ export default function Home() {
   const authIsPro = auth?.isPro === true;
   const userId = auth?.userId || null;
   const getAuthHeaders = auth?.getAuthHeaders || (async () => ({}));
+  // API service with token refresh support
+  const { makeAuthenticatedRequest } = useApiService();
   
   // Set the isPro state from the auth context
   useEffect(() => {
@@ -1165,37 +1168,20 @@ export default function Home() {
     }
 
     try {
-      // Use auth context to get headers
-      const headers = await getAuthHeaders();
-      headers["Content-Type"] = "application/json";
-      
-      // No need to check for token separately - our auth context handles that
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user-recipes/saved-recipes/`, {
-        method: "POST",
-        headers,
+      // Send save request via API service (handles token refresh on 401)
+      await makeAuthenticatedRequest('/api/user-recipes/saved-recipes/', {
+        method: 'POST',
         body: JSON.stringify({
           recipes: selectedMeals,
-          plan_name: `Meal Plan - ${preferences || "Custom"}`,
+          plan_name: `Meal Plan - ${preferences || 'Custom'}`,
         }),
       });
-
-      if (response.status === 401) {
-        alert("Session expired. Please log in again.");
-        router.push("/auth/login?returnTo=/dashboard");
-        return;
-      }
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.detail || "API request failed");
-      }
-
-      alert("Your recipes have been saved successfully!");
+      // Notify success
+      alert('Your recipes have been saved successfully!');
       setSelectedRecipes([]);
     } catch (error) {
-      console.error("❌ Error saving recipes:", error);
-      setError("Failed to save recipes. Please try again later.");
+      console.error('❌ Error saving recipes:', error);
+      setError(error.message || 'Failed to save recipes. Please try again later.');
     }
   };
 
